@@ -4,8 +4,6 @@
 
 import logging
 import sys
-import socket
-import os
 import threading
 import time
 import atexit
@@ -151,7 +149,7 @@ def _log_unhandled_exception(exc, val, tb):
     exc_str += [" < exception caught here >\n"]
     exc_str += traceback.format_exception(exc, val, tb)[1:]
     exc_str = ''.join(['    ' + line for line in exc_str])
-    logging.getLogger().warn("Unhandled exception:\n%s", exc_str)
+    logging.getLogger().warning("Unhandled exception:\n%s", exc_str)
     #_sys_excepthook(exc, val, tb)
 
 

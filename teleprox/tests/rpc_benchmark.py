@@ -3,7 +3,7 @@
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
 import time, threading
-from pyacq.core import rpc
+import teleprox
 
 def test_poingrate(cli, dur=2.0):
     start = time.time()
@@ -33,11 +33,11 @@ def test_async_poingrate(cli, dur=2.0, buffer=500):
 
 # thread, inproc
 print("=========== inproc to thread ============")
-server = rpc.RPCServer('inproc://testserver')
+server = teleprox.RPCServer('inproc://testserver')
 thread = threading.Thread(target=server.run_forever, daemon=True)
 thread.start()
 
-cli = rpc.RPCClient(server.address)
+cli = teleprox.RPCClient(server.address)
 test_poingrate(cli)
 test_async_poingrate(cli)
 
@@ -46,11 +46,11 @@ cli.close_server()
 
 # thread, tcp
 print("=========== tcp to thread ============")
-server = rpc.RPCServer('tcp://127.0.0.1:*')
+server = teleprox.RPCServer('tcp://127.0.0.1:*')
 thread = threading.Thread(target=server.run_forever, daemon=True)
 thread.start()
 
-cli = rpc.RPCClient(server.address)
+cli = teleprox.RPCClient(server.address)
 test_poingrate(cli)
 test_async_poingrate(cli)
 
@@ -59,14 +59,14 @@ cli.close_server()
 
 # process
 print("=========== TCP to spawned process ============")
-proc = rpc.ProcessSpawner()
+proc = teleprox.ProcessSpawner()
 test_poingrate(proc.client)
 test_async_poingrate(proc.client)
 
 
 # process
 print("=========== TCP to spawned Qt process ============")
-proc = rpc.ProcessSpawner(qt=True)
+proc = teleprox.ProcessSpawner(qt=True)
 test_poingrate(proc.client)
 test_async_poingrate(proc.client)
 

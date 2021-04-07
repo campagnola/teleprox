@@ -1,9 +1,11 @@
 import time
 import threading
-
-from .proxy import ObjectProxy
 import logging
+from .proxy import ObjectProxy
+
+
 logger = logging.getLogger()
+
 
 class Timer(object):
     """Timer for making scheduled callbacks in a new thread.

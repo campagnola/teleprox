@@ -17,13 +17,13 @@ if len(sys.argv) > 1:
 else:
     conf['procname'] = None
 
-# Set up some basic debugging support before importing pyacq
+# Set up some basic debugging support before importing teleprox
 faulthandler.enable()
 logger = logging.getLogger()
 logger.level = conf['loglevel']
 
-import pyacq
-from pyacq.core.rpc import log
+from teleprox import log
+import teleprox
 
 # Start QApplication if requested
 if conf['qt']:
@@ -50,7 +50,7 @@ bootstrap_sock.linger = 1000
 # Create RPC server
 try:
     # Create server
-    server_class = getattr(pyacq, conf['class_name'])
+    server_class = getattr(teleprox, conf['class_name'])
     server = server_class(**conf['args'])
     status = {'address': server.address.decode()}
 except:

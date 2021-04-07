@@ -3,17 +3,13 @@
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
 import sys
-import time
-import os
 import traceback
-import socket
 import threading
 import builtins
 import zmq
 import logging
 import numpy as np
 import atexit
-from pyqtgraph.Qt import QtCore, QtGui
 
 from .serializer import all_serializers
 from .proxy import ObjectProxy
@@ -307,11 +303,11 @@ class RPCServer(object):
                 try:
                     self._send_result(caller, req_id, rval=result)
                 except:
-                    logger.warn("    => Failed to send result for %d", req_id) 
+                    logger.warning("    => Failed to send result for %d", req_id) 
                     exc = sys.exc_info()
                     self._send_error(caller, req_id, exc)
             else:
-                logger.warn("    => returning exception for %d: %s", req_id, exc) 
+                logger.warning("    => returning exception for %d: %s", req_id, exc) 
                 self._send_error(caller, req_id, exc)
                     
         elif exc is not None:
@@ -354,7 +350,7 @@ class RPCServer(object):
                 try:
                     result = obj(*fnargs)
                 except:
-                    logger.warn("Failed to call object %s: %d, %s", obj, len(fnargs), fnargs[1:])
+                    logger.warning("Failed to call object %s: %d, %s", obj, len(fnargs), fnargs[1:])
                     raise
             else:
                 result = obj(*fnargs, **fnkwds)
@@ -417,7 +413,7 @@ class RPCServer(object):
     def _atexit(self):
         # Process is exiting; do any last-minute cleanup if necessary.
         if self._closed is not True:
-            logger.warn("RPCServer exiting without close()!")
+            logger.warning("RPCServer exiting without close()!")
             self.close()
 
     def close(self):
@@ -490,144 +486,3 @@ class RPCServer(object):
         if not isinstance(callback, ObjectProxy):
             callback = self.get_proxy(callback)
         return Timer(callback, interval, **kwds)
-
-
-class QtRPCServer(RPCServer):
-    """RPCServer that lives in a Qt GUI thread.
-
-    This server may be used to create and manage QObjects, QWidgets, etc. It
-    uses a separate thread to poll for RPC requests, which are then sent to the
-    Qt event loop using by signal. This allows the RPC actions to be executed
-    in a Qt GUI thread without using a timer to poll the RPC socket. Responses
-    are sent back to the poller thread by a secondary socket.
-    
-    QtRPCServer may be started in newly spawned processes using
-    :class:`ProcessSpawner`.
-    
-    Parameters
-    ----------
-    address : str
-        ZMQ address to listen on. Default is ``'tcp://127.0.0.1:*'``.
-        
-        **Note:** binding RPCServer to a public IP address is a potential
-        security hazard. See :class:`RPCServer`.
-    quit_on_close : bool
-        If True, then call `QApplication.quit()` when the server is closed. 
-        
-    Examples
-    --------
-    
-    Spawning in a new process::
-        
-        # Create new process.
-        proc = ProcessSpawner(qt=True)
-        
-        # Display a widget from the new process.
-        qtgui = proc._import('PyQt4.QtGui')
-        w = qtgui.QWidget()
-        w.show()
-        
-    Starting in an existing Qt application::
-    
-        # Create server.
-        server = QtRPCServer()
-        
-        # Start listening for requests in a background thread (this call
-        # returns immediately).
-        server.run_forever()
-    """
-    def __init__(self, address="tcp://127.0.0.1:*", quit_on_close=True):
-        RPCServer.__init__(self, address)
-        self.quit_on_close = quit_on_close
-        self.poll_thread = QtPollThread(self)
-        
-    def run_forever(self):
-        name = ('%s.%s.%s' % (log.get_host_name(), log.get_process_name(), 
-                              log.get_thread_name()))
-        logging.info("RPC start server: %s@%s", name, self.address.decode())
-        RPCServer.register_server(self)
-        self.poll_thread.start()
-
-    def process_action(self, action, opts, return_type, caller):
-        # this method is called from the Qt main thread.
-        if action == 'close':
-            if self.quit_on_close:
-                QtGui.QApplication.instance().quit()
-            # can't stop poller thread here--that would prevent the return 
-            # message being sent. In general it should be safe to leave this thread
-            # running anyway.
-            #self.poll_thread.stop()
-        return RPCServer.process_action(self, action, opts, return_type, caller)
-
-    def _final_close(self):
-        # Block for a moment to allow the poller thread to flush any pending
-        # messages. Ideally, we could let the poller thread keep the process
-        # alive until it is done, but then we can end up with zombie processes..
-        time.sleep(0.1)
-
-
-class QtPollThread(QtCore.QThread):
-    """Thread that polls an RPCServer socket and sends incoming messages to the
-    server by Qt signal.
-    
-    This allows the RPC actions to be executed in a Qt GUI thread without using
-    a timer to poll the RPC socket. Responses are sent back to the poller
-    thread by a secondary socket.
-    """
-    new_request = QtCore.Signal(object, object)  # client, msg
-    
-    def __init__(self, server):
-        # Note: QThread behaves like threading.Thread(daemon=True); a running
-        # QThread will not prevent the process from exiting.
-        QtCore.QThread.__init__(self)
-        self.server = server
-        
-        # Steal RPC socket from the server; it should not be touched outside the
-        # polling thread.
-        self.rpc_socket = server._socket
-        
-        # Create a socket for the Qt thread to send results back to the poller
-        # thread
-        return_addr = 'inproc://%x' % id(self)
-        context = zmq.Context.instance()
-        self.return_socket = context.socket(zmq.PAIR)
-        self.return_socket.linger = 1000  # don't let socket deadlock when exiting
-        self.return_socket.bind(return_addr)
-        
-        server._socket = context.socket(zmq.PAIR)
-        server._socket.linger = 1000  # don't let socket deadlock when exiting
-        server._socket.connect(return_addr)
-
-        self.new_request.connect(server._process_one)
-        
-    def run(self):
-        poller = zmq.Poller()
-        poller.register(self.rpc_socket, zmq.POLLIN)
-        poller.register(self.return_socket, zmq.POLLIN)
-        
-        while True:
-            # Note: poller needs to continue running until server has sent 
-            # its final response (which can be after the server claims to be
-            # no longer running).
-            socks = dict(poller.poll(timeout=100))
-            
-            if self.return_socket in socks:
-                name, data = self.return_socket.recv_multipart()
-                #logger.debug("poller return %s %s", name, data)
-                if name == 'STOP':
-                    break
-                self.rpc_socket.send_multipart([name, data])
-                
-            if self.rpc_socket in socks:
-                name, msg = RPCServer._read_one(self.rpc_socket)
-                #logger.debug("poller recv %s %s", name, msg)
-                self.new_request.emit(name, msg)
-
-        #logger.error("poller exit.")
-        
-    def stop(self):
-        """Ask the poller thread to stop.
-        
-        This method may only be called from the Qt main thread.
-        """
-        self.server._socket.send_multipart([b'STOP', b''])

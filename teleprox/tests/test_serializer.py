@@ -6,8 +6,8 @@ import numpy as np
 import datetime
 import pytest
 
-from pyacq.core.rpc.serializer import JsonSerializer, MsgpackSerializer, HAVE_MSGPACK
-from pyacq.core.rpc import ObjectProxy, ProcessSpawner
+from teleprox.serializer import JsonSerializer, MsgpackSerializer, HAVE_MSGPACK
+from teleprox import ProcessSpawner
 
 proc = ProcessSpawner()
 

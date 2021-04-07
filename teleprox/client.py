@@ -3,10 +3,8 @@
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
 import sys
-import os
 import time
 import weakref
-import socket
 import concurrent.futures
 import threading
 import zmq
@@ -15,8 +13,8 @@ import numpy as np
 from pyqtgraph.Qt import QtGui
 
 from .serializer import all_serializers
-from .proxy import ObjectProxy
-from .server import RPCServer, QtRPCServer
+from .server import RPCServer
+from .qt_server import QtRPCServer
 from . import log
 
 
@@ -76,7 +74,7 @@ class RPCClient(object):
                                       log.get_thread_name(), address.decode())).encode()
 
         if sys.platform == 'win32' and '0.0.0.0' in str(address):
-            logger.warn("RPC server address is likely to cause trouble on windows: %r" % address)
+            logger.warning("RPC server address is likely to cause trouble on windows: %r" % address)
         self.address = address
         
         key = (threading.current_thread().ident, address)

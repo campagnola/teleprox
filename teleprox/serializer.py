@@ -115,7 +115,7 @@ class Serializer:
                     d = {}
                     exec('dtype='+dt, None, d)
                     dt = d['dtype']
-                return np.fromstring(dct['data'], dtype=dt).reshape(dct['shape'])
+                return np.frombuffer(dct['data'], dtype=dt).reshape(dct['shape'])
             elif type_name == 'datetime':
                 return datetime.datetime.strptime(dct['data'], '%Y-%m-%dT%H:%M:%S.%f')
             elif type_name == 'date':
@@ -170,7 +170,7 @@ class MsgpackSerializer(Serializer):
         #return msgpack.loads(msg, encoding='utf8', use_list=False, object_hook=self.decode)
 
         #Return lists/tuples as lists because json can't be configured otherwise
-        return msgpack.loads(msg, encoding='utf8', object_hook=self.decode)
+        return msgpack.loads(msg, object_hook=self.decode)
 
 
 class JsonSerializer(Serializer):

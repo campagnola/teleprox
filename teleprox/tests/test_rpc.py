@@ -2,13 +2,11 @@
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
-import threading, atexit, time, logging
-from pyacq.core.rpc import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, ProcessSpawner
-from pyacq.core.rpc.log import RPCLogHandler, set_process_name, set_thread_name, start_log_server
-import zmq.utils.monitor
+import threading, time, logging
+from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, ProcessSpawner
+from teleprox.log import RPCLogHandler, set_process_name, set_thread_name, start_log_server
 import numpy as np
 import pyqtgraph as pg
-from pyqtgraph.Qt import QtCore, QtGui
 
 
 # Set up nice logging for tests:
@@ -238,14 +236,14 @@ def test_rpc():
     logger.info("-- Test publishing objects --")
     arr = np.arange(5, 10)
     client['arr'] = arr  # publish to server1
-    s2rpc = client2._import('pyacq.core.rpc')
+    s2rpc = client2._import('teleprox')
     s2cli = s2rpc.RPCClient.get_client(client.address)  # server2's client for server1
     assert np.all(s2cli['arr'] == arr)  # retrieve via server2
 
     logger.info("-- Test JSON client --")
     # Start a JSON client in a remote process
     cli_proc = ProcessSpawner()
-    cli = cli_proc.client._import('pyacq.core.rpc').RPCClient(server2.address, serializer='json')
+    cli = cli_proc.client._import('teleprox').RPCClient(server2.address, serializer='json')
     # Check everything is ok..
     assert cli.serializer.type._get_value() == 'json'
     assert cli['test_class']('json-tester').add(3, 4) == 7
@@ -336,7 +334,7 @@ def test_disconnect():
     server_proc = ProcessSpawner()
     
     client_proc = ProcessSpawner()
-    cli = client_proc.client._import('pyacq.core.rpc').RPCClient(server_proc.client.address)
+    cli = client_proc.client._import('teleprox').RPCClient(server_proc.client.address)
     cli.close_server()
     
     assert cli.disconnected() is True
@@ -378,7 +376,7 @@ def test_disconnect():
     for i in range(4):
         # create a bunch of dead clients
         cp = ProcessSpawner()
-        cli = cp.client._import('pyacq.core.rpc').RPCClient(server_proc.client.address)
+        cli = cp.client._import('teleprox').RPCClient(server_proc.client.address)
         cp.kill()
     
     start = time.time()

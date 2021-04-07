@@ -3,12 +3,10 @@
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
 import socket
-import sys
 import threading
 import os
 import zmq
 import logging
-import time
 import atexit
 logger = logging.getLogger(__name__)
 logger.propagate = False

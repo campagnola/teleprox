@@ -3,7 +3,6 @@
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
 import sys
-import os
 import json
 import subprocess
 import atexit
@@ -11,7 +10,6 @@ import zmq
 import logging
 import threading
 import time
-from pyqtgraph.Qt import QtCore
 
 from .client import RPCClient
 from .log import get_logger_address, LogSender
@@ -67,7 +65,7 @@ class ProcessSpawner(object):
     """
     def __init__(self, name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
                  log_level=None, executable=None):
-        #logger.warn("Spawning process: %s %s %s", name, log_addr, log_level)
+        #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
         assert qt in (True, False)
         assert isinstance(address, (str, bytes))
         assert name is None or isinstance(name, str)
@@ -104,7 +102,7 @@ class ProcessSpawner(object):
         if executable is None:
             executable = sys.executable
 
-        cmd = (executable, '-m', 'pyacq.core.rpc.bootstrap')
+        cmd = (executable, '-m', 'teleprox.bootstrap')
         if name is not None:
             cmd = cmd + (name,)
 
@@ -125,7 +123,7 @@ class ProcessSpawner(object):
             
             # create threads to poll stdout/stderr and generate / send log records
             self.stdout_poller = PipePoller(self.proc.stdout, self.logger.info, '[%s.stdout] '%name)
-            self.stderr_poller = PipePoller(self.proc.stderr, self.logger.warn, '[%s.stderr] '%name)
+            self.stderr_poller = PipePoller(self.proc.stderr, self.logger.warning, '[%s.stderr] '%name)
             
         else:
             # don't intercept stdout/stderr
