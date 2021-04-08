@@ -4,7 +4,7 @@ Teleprox: simple python object proxies over TCP
 No declarations required; just access remote objects as if they are local.
 
 Requires
-========
+--------
 
 - python 3
 - pyzmq
@@ -13,7 +13,7 @@ Requires
 
 
 Examples
-========
+--------
 
 ```python
 from teleprox import ProcessSpawner
