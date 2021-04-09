@@ -4,6 +4,7 @@
 
 from teleprox import ProcessSpawner
 import os
+from check_qt import requires_qt
 
 
 def test_spawner():
@@ -16,8 +17,10 @@ def test_spawner():
     
     # test closing nicely
     proc.stop()
-    
-    
+
+
+@requires_qt
+def test_qt_spawner():
     # start process with QtRPCServer
     proc = ProcessSpawner(qt=True)
     cli = proc.client

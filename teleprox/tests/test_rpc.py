@@ -6,7 +6,7 @@ import threading, time, logging
 from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, ProcessSpawner
 from teleprox.log import RPCLogHandler, set_process_name, set_thread_name, start_log_server
 import numpy as np
-import pyqtgraph as pg
+from check_qt import requires_qt, qt_available
 
 
 # Set up nice logging for tests:
@@ -22,7 +22,8 @@ set_process_name('main_process')
 set_thread_name('main_thread')
 
 
-qapp = pg.mkQApp()
+if qt_available:
+    qapp = pg.mkQApp()
 
 
 def test_rpc():
@@ -282,6 +283,7 @@ def test_rpc():
     logger.level = previous_level
 
 
+@requires_qt
 def test_qt_rpc():
     previous_level = logger.level
     #logger.level = logging.DEBUG
