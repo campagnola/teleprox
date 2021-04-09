@@ -64,7 +64,7 @@ class ProcessSpawner(object):
         proc.wait()
     """
     def __init__(self, name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
-                 log_level=None, executable=None):
+                 log_level=None, executable=None, shell=False):
         #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
         assert qt in (True, False)
         assert isinstance(address, (str, bytes))
@@ -103,13 +103,17 @@ class ProcessSpawner(object):
             executable = sys.executable
 
         cmd = (executable, '-m', 'teleprox.bootstrap')
+        
         if name is not None:
             cmd = cmd + (name,)
+
+        if shell is True:
+            cmd = ' '.join(cmd)
 
         if log_addr is not None:
             # start process with stdout/stderr piped
             self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
-                                         stdout=subprocess.PIPE)
+                                         stdout=subprocess.PIPE, shell=shell)
             
             self.proc.stdin.write(json.dumps(bootstrap_conf).encode())
             self.proc.stdin.close()
@@ -127,7 +131,7 @@ class ProcessSpawner(object):
             
         else:
             # don't intercept stdout/stderr
-            self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+            self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, shell=shell)
             self.proc.stdin.write(json.dumps(bootstrap_conf).encode())
             self.proc.stdin.close()
             
