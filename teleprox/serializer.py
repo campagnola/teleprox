@@ -74,7 +74,7 @@ class Serializer:
                 obj = np.ascontiguousarray(obj)
             assert(obj.flags['C_CONTIGUOUS'])
             return {encode_key: 'ndarray',
-                    'data': obj.tostring(),
+                    'data': obj.tobytes(),
                     'dtype': str(obj.dtype),
                     'shape': obj.shape}
         elif isinstance(obj, datetime.datetime):
