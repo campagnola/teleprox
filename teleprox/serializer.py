@@ -6,6 +6,7 @@ import numpy as np
 import datetime
 import base64
 import json
+import pickle
 try:
     import msgpack
     HAVE_MSGPACK = True
@@ -98,7 +99,7 @@ class Serializer:
                     raise TypeError("Cannot make proxy to %r without proxy server." % obj)
                 obj = self.server.get_proxy(obj)
             ser = {encode_key: 'proxy'}
-            ser.update(obj._save())
+            ser.update(obj.__getstate__())
             return ser
 
     def decode(self, dct):
@@ -133,6 +134,21 @@ class Serializer:
                 else:
                     return proxy
         return dct
+
+
+class PickleSerializer(Serializer):
+    
+    # used to tell server how to unserialize messages
+    type = 'pickle'
+    
+    def __init__(self, server=None, client=None):
+        Serializer.__init__(self, server, client)
+
+    def dumps(self, obj):
+        return pickle.dumps(obj)
+
+    def loads(self, msg):
+        return pickle.loads(msg)
 
 
 class MsgpackSerializer(Serializer):
@@ -229,6 +245,7 @@ class JsonSerializer(Serializer):
 
 
 #: dict containing {name : SerializerSubclass} for all supported serializers
+all_serializers[PickleSerializer.type] = PickleSerializer
 all_serializers[JsonSerializer.type] = JsonSerializer
 if HAVE_MSGPACK:
     all_serializers[MsgpackSerializer.type] = MsgpackSerializer

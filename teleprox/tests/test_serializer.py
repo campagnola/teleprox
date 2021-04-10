@@ -6,10 +6,19 @@ import numpy as np
 import datetime
 import pytest
 
-from teleprox.serializer import JsonSerializer, MsgpackSerializer, HAVE_MSGPACK
+from teleprox.serializer import PickleSerializer, JsonSerializer, MsgpackSerializer, HAVE_MSGPACK
 from teleprox import ProcessSpawner
 
 proc = ProcessSpawner()
+
+
+class CustomType:
+    def __init__(self):
+        self.x = 1
+        self.y = 'a'
+    def __eq__(self, a):
+        return type(a) == type(self) and a.x == self.x and a.y == self.y
+
 
 
 test_data = {
@@ -24,7 +33,12 @@ test_data = {
                       # see: https://github.com/msgpack/msgpack-python/issues/98
     'list': [1,2],
     'proxy': proc.client['self'],
+    # 'custom': CustomType(),
 }
+
+
+def test_pickle():
+    check_serializer(PickleSerializer())
 
 @pytest.mark.skipif(not HAVE_MSGPACK, reason='msgpack not available')
 def test_msgpack():
@@ -32,6 +46,7 @@ def test_msgpack():
 
 def test_json():
     check_serializer(JsonSerializer())
+
 
 def check_serializer(serializer):
     s = serializer.dumps(test_data)

@@ -82,9 +82,15 @@ class ObjectProxy(object):
     
     def __init__(self, rpc_addr, obj_id, ref_id, type_str='', attributes=(), **kwds):
         object.__init__(self)
+
         ## can't set attributes directly because setattr is overridden.
         if isinstance(rpc_addr, str):
             rpc_addr = rpc_addr.encode()
+
+        self._init_state(rpc_addr, obj_id, ref_id, type_str, attributes)
+        self._set_proxy_options(**kwds)
+
+    def _init_state(self, rpc_addr, obj_id, ref_id, type_str, attributes):
         self.__dict__.update(dict(
             _rpc_addr=rpc_addr,
             _obj_id=obj_id,
@@ -92,25 +98,43 @@ class ObjectProxy(object):
             _type_str=type_str,
             _attributes=attributes,
             _parent_proxy=None,
-            _hash=hash((rpc_addr, obj_id, attributes)),
-            # identify local client/server instances this proxy belongs to
+            _hash=None,
             _client_=None,
             _server_=None,
+            _proxy_options={
+                'sync': 'sync',      ## 'sync', 'async', 'off'
+                'timeout': 10,            ## float
+                'return_type': 'auto',    ## 'proxy', 'value', 'auto'
+                #'auto_proxy_args': False, ## bool
+                'defer_getattr': True,   ## True, False
+                'no_proxy_types': [type(None), str, int, float, tuple, list, dict, ObjectProxy],
+                'auto_delete': False,
+            }
         ))
-        
-        ## attributes that affect the behavior of the proxy. 
-        self.__dict__['_proxy_options'] = {
-            'sync': 'sync',      ## 'sync', 'async', 'off'
-            'timeout': 10,            ## float
-            'return_type': 'auto',    ## 'proxy', 'value', 'auto'
-            #'auto_proxy_args': False, ## bool
-            'defer_getattr': True,   ## True, False
-            'no_proxy_types': [type(None), str, int, float, tuple, list, dict, ObjectProxy],
-            'auto_delete': False,
+
+    def __setstate__(self, state):
+        """Restore proxy from serialized state.
+        """
+        self._init_state(**state)
+
+    def __getstate__(self):
+        """Convert this proxy to a serializable structure.
+        """
+        addr = self._rpc_addr
+        if isinstance(addr, bytes):
+            addr = addr.decode()
+        state = {
+            'rpc_addr': addr, 
+            'obj_id': self._obj_id,
+            'ref_id': self._ref_id,
+            'type_str': self._type_str,
+            'attributes': self._attributes,
         }
-        
-        self._set_proxy_options(**kwds)
-    
+        # TODO: opts DO need to be sent in some cases, like when sending
+        # callbacks.
+        #state.update(self._proxy_options)
+        return state
+
     def _copy(self):
         # Return a copy of this proxy. 
         # This is used for transferring proxies across threads (because an
@@ -196,24 +220,6 @@ class ObjectProxy(object):
                 raise KeyError("Unrecognized proxy option '%s'" % k)
         self._proxy_options.update(kwds)
 
-    def _save(self):
-        """Convert this proxy to a serializable structure.
-        """
-        addr = self._rpc_addr
-        if isinstance(addr, bytes):
-            addr = addr.decode()
-        state = {
-            'rpc_addr': addr, 
-            'obj_id': self._obj_id,
-            'ref_id': self._ref_id,
-            'type_str': self._type_str,
-            'attributes': self._attributes,
-        }
-        # TODO: opts DO need to be sent in some cases, like when sending
-        # callbacks.
-        #state.update(self._proxy_options)
-        return state
-        
     def _get_value(self):
         """
         Return the value of the proxied object.
@@ -334,7 +340,8 @@ class ObjectProxy(object):
         """Override __hash__ because we need to avoid comparing remote and local
         hashes.
         """
-        #return id(self)
+        if self._hash is None:
+            self.__dict__['_hash'] = hash((self._rpc_addr, self._obj_id, self._attributes))
         return self._hash
     
     # Explicitly proxy special methods. Is there a better way to do this??
