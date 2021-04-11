@@ -3,7 +3,7 @@ import teleprox
 
 
 qt_available = True
-qt_reason = None
+qt_reason = ""
 
 try:
     import pyqtgraph

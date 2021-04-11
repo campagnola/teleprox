@@ -23,6 +23,7 @@ set_thread_name('main_thread')
 
 
 if qt_available:
+    import pyqtgraph as pg
     qapp = pg.mkQApp()
 
 
