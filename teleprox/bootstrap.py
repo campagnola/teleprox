@@ -30,8 +30,8 @@ if __name__ == '__main__':
 
     # Start QApplication if requested
     if conf['qt']:
-        import pyqtgraph as pg
-        app = pg.mkQApp()
+        from teleprox import qt
+        app = qt.QApplication([])
         app.setQuitOnLastWindowClosed(False)
 
     # Set up log record forwarding

@@ -34,8 +34,8 @@ class QtRPCServer(RPCServer):
         proc = ProcessSpawner(qt=True)
         
         # Display a widget from the new process.
-        qtgui = proc._import('PyQt4.QtGui')
-        w = qtgui.QWidget()
+        qtwidgets = proc._import('PyQt5.QtWidgets')
+        w = qtwidgets.QWidget()
         w.show()
         
     Starting in an existing Qt application::
@@ -67,8 +67,8 @@ class QtRPCServer(RPCServer):
         if action == 'close':
             if self.quit_on_close:
                 # Qt import deferred
-                from pyqtgraph.Qt import QtGui
-                QtGui.QApplication.instance().quit()
+                from teleprox import qt
+                qt.QApplication.instance().quit()
             # can't stop poller thread here--that would prevent the return 
             # message being sent. In general it should be safe to leave this thread
             # running anyway.

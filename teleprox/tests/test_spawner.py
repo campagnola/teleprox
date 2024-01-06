@@ -25,8 +25,8 @@ def test_qt_spawner():
     proc = ProcessSpawner(qt=True)
     cli = proc.client
 
-    rqt = cli._import('pyqtgraph.Qt')
-    assert rqt.QtGui.QApplication.instance() is not None
+    rqt = cli._import('teleprox.qt')
+    assert rqt.QApplication.instance() is not None
 
     # test closing Qt process
     proc.stop()

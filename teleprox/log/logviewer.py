@@ -3,7 +3,7 @@
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
 import logging
-from pyqtgraph.Qt import QtCore, QtGui
+from teleprox import qt
 
 
 Stylesheet = """
@@ -19,11 +19,11 @@ Stylesheet = """
 """
 
 
-class LogViewer(QtGui.QWidget):
+class LogViewer(qt.QWidget):
     """QWidget for displaying and filtering log messages.
     """
     def __init__(self, logger='', parent=None):
-        QtGui.QWidget.__init__(self, parent=parent)
+        qt.QWidget.__init__(self, parent=parent)
         
         # Set up handler to send log records to this widget by signal
         self.handler = QtLogHandler()
@@ -33,10 +33,10 @@ class LogViewer(QtGui.QWidget):
         logger.addHandler(self.handler)
         
         # Set up GUI
-        self.layout = QtGui.QGridLayout()
+        self.layout = qt.QGridLayout()
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.layout)
-        self.text = QtGui.QTextBrowser()
+        self.text = qt.QTextBrowser()
         self.text.document().setDefaultStyleSheet(Stylesheet)
         
     def new_record(self, rec):
@@ -44,14 +44,14 @@ class LogViewer(QtGui.QWidget):
         
         
 
-class QtLogHandler(logging.Handler, QtCore.QObject):
+class QtLogHandler(logging.Handler, qt.QObject):
     """Log handler that emits a Qt signal for each record.
     """
-    new_record = QtCore.Signal(object)
+    new_record = qt.Signal(object)
     
     def __init__(self):
         logging.Handler.__init__(self)
-        QtCore.QObject.__init__(self)
+        qt.QObject.__init__(self)
         
     def handle(self, record):
-        new_record.emit(record)
+        self.new_record.emit(record)

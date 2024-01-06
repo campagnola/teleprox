@@ -10,7 +10,6 @@ import threading
 import zmq
 import logging
 import numpy as np
-from pyqtgraph.Qt import QtGui
 
 from .serializer import all_serializers
 from .server import RPCServer
@@ -410,7 +409,8 @@ class RPCClient(object):
             elif poller == 'qt':
                 # Server runs in Qt thread; we need to time-share with Qt event
                 # loop.
-                QtGui.QApplication.processEvents()
+                from .qt import QApplication
+                QApplication.processEvents()
                 try:
                     self._read_and_process_one(timeout=0.05)
                 except TimeoutError:

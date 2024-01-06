@@ -1,9 +1,9 @@
 import zmq
-from pyqtgraph.Qt import QtCore
+from teleprox import qt
 from .server import RPCServer
 
 
-class QtPollThread(QtCore.QThread):
+class QtPollThread(qt.QThread):
     """Thread that polls an RPCServer socket and sends incoming messages to the
     server by Qt signal.
     
@@ -11,12 +11,12 @@ class QtPollThread(QtCore.QThread):
     a timer to poll the RPC socket. Responses are sent back to the poller
     thread by a secondary socket.
     """
-    new_request = QtCore.Signal(object, object)  # client, msg
+    new_request = qt.Signal(object, object)  # client, msg
     
     def __init__(self, server):
         # Note: QThread behaves like threading.Thread(daemon=True); a running
         # QThread will not prevent the process from exiting.
-        QtCore.QThread.__init__(self)
+        qt.QThread.__init__(self)
         self.server = server
         
         # Steal RPC socket from the server; it should not be touched outside the

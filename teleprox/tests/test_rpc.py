@@ -23,8 +23,8 @@ set_thread_name('main_thread')
 
 
 if qt_available:
-    import pyqtgraph as pg
-    qapp = pg.mkQApp()
+    from teleprox import qt
+    qapp = qt.make_qapp()
 
 
 def test_rpc():
@@ -303,10 +303,10 @@ def test_qt_rpc():
         
         def run(self):
             client = RPCClient(self.addr)
-            qt = client._import('pyqtgraph.Qt')
+            qt = client._import('teleprox.qt')
             # widget creation happens in main GUI thread; we are working with
             # proxies from here.
-            self.l = qt.QtGui.QLabel('remote-controlled label')
+            self.l = qt.QLabel('remote-controlled label')
             self.l.show()
             time.sleep(0.3)
             self.l.hide()

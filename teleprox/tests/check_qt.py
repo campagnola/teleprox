@@ -5,23 +5,20 @@ import teleprox
 qt_available = True
 qt_reason = ""
 
-try:
-    import pyqtgraph
-    
+try:    
     p = teleprox.ProcessSpawner()
-    qt = p.client._import('pyqtgraph.Qt')
+    qt = p.client._import('teleprox.qt')
     try:
-        app = qt.QtGui.QApplication([], _timeout=1)
+        app = qt.QApplication([], _timeout=1)
     except TimeoutError:
         if p.poll() is not None:
             # subprocess exited; probably means we can't use Qt from this environment
             qt_available = False
             qt_reason = "Qt cannot be used from this environment"
 
-except ImportError:
+except ImportError as exc:
     qt_available = False
-    qt_reason = "Could not import pyqtgraph"
-
+    qt_reason = str(exc)
 
 
 requires_qt = pytest.mark.skipif(not qt_available, reason=qt_reason)
