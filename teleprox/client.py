@@ -509,7 +509,7 @@ class RPCClient(object):
         #   received a preemptive disconnect message from the server.
         self._disconnected = True
         logger.debug("Received server disconnect from %s", self.address)
-        exc = RuntimeError("Cannot send request; server has already disconnected.")
+        exc = RuntimeError("Cannot receive result; server has already disconnected.")
         for fut in self.futures.values():
             fut.set_exception(exc)
         self.futures.clear()
