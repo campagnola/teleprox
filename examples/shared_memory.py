@@ -1,27 +1,6 @@
-import logging
 import numpy as np
 from teleprox import ProcessSpawner
-from teleprox.log import set_process_name, set_thread_name, start_log_server
-from teleprox.log.logviewer import LogViewer
-from teleprox.log.handler import RPCLogHandler
 from teleprox.shmem import SharedNDArray
-
-# logger = logging.getLogger()
-# logger.level = logging.DEBUG
-
-# handler = RPCLogHandler()
-# logger.addHandler(handler)
-# # logging.basicConfig()
-
-# # Start a server that will receive log messages from other processes
-# start_log_server(logger)
-# set_process_name('main_process')
-# set_thread_name('main_thread')
-
-# import pyqtgraph as pg
-# pg.mkQApp()
-# lv = LogViewer()
-# lv.show()
 
 
 # proc = ProcessSpawner(serializer='msgpack')
