@@ -38,6 +38,7 @@ class LogViewer(qt.QWidget):
         self.setLayout(self.layout)
         self.text = qt.QTextBrowser()
         self.text.document().setDefaultStyleSheet(Stylesheet)
+        self.layout.addWidget(self.text, 0, 0)
         
     def new_record(self, rec):
         print("NEW LOG RECORD:", rec)

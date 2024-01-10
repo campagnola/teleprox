@@ -10,8 +10,9 @@ import zmq
 import logging
 import numpy as np
 import atexit
+import multiprocessing.shared_memory
 
-from .serializer import all_serializers
+from . import serializer
 from .proxy import ObjectProxy
 from .timer import Timer
 from . import log
@@ -40,11 +41,9 @@ class RPCServer(object):
       processed there. The server is registered as running in the Qt thread.
 
     
-      
+    
     Parameters
     ----------
-    name : str
-        Name used to identify this server.
     address : URL
         Address for RPC server to bind to. Default is ``'tcp://127.0.0.1:*'``.
         
@@ -138,9 +137,11 @@ class RPCServer(object):
         srv = RPCServer.get_server()
         return RPCClient.get_client(srv.address)
 
-    def __init__(self, address="tcp://127.0.0.1:*"):
+    def __init__(self, address="tcp://127.0.0.1:*", serialize_types=None):
         self._socket = zmq.Context.instance().socket(zmq.ROUTER)
-        
+
+        self._serialize_types = serialize_types
+
         # socket will continue attempting to deliver messages up to 5 sec after
         # it has closed. (default is -1, which can cause processes to hang
         # on exit)
@@ -154,8 +155,8 @@ class RPCServer(object):
         # Clients may make requests using any supported serializer, so we should
         # have one of each ready.
         self._serializers = {}
-        for ser in all_serializers.values():
-            self._serializers[ser.type] = ser(server=self)
+        for ser in serializer.all_serializers.values():
+            self._serializers[ser.type] = ser()
         
         # keep track of all clients we have seen so that we can inform them 
         # when the server exits.
@@ -163,9 +164,6 @@ class RPCServer(object):
         
         # Id of thread that this server is registered to
         self._thread = None
-        
-        # types that are sent by value when return_type='auto'
-        self.no_proxy_types = [type(None), str, int, float, tuple, list, dict, ObjectProxy, np.ndarray]
         
         # Objects that may be retrieved by name using client['obj_name']
         self._namespace = {'self': self}
@@ -187,6 +185,13 @@ class RPCServer(object):
         
         # Make sure we inform clients of closure
         atexit.register(self._atexit)
+
+    def __repr__(self):
+        return "<RPCServer %s>" % self.address.decode()
+
+    @property
+    def serialize_types(self):
+        return self._serialize_types or serializer.default_serialize_types
 
     def get_proxy(self, obj, **kwds):
         """Return an ObjectProxy referring to a local object.
@@ -235,7 +240,9 @@ class RPCServer(object):
         
     @staticmethod
     def _read_one(socket):
-        name, req_id, action, return_type, ser_type, opts = socket.recv_multipart()
+        parts = socket.recv_multipart()
+        name, req_id, action, return_type, ser_type, opts = parts
+
         msg = {
             'req_id': int(req_id), 
             'action': action.decode(), 
@@ -283,7 +290,7 @@ class RPCServer(object):
             if opts == b'':
                 opts = None
             else:
-                opts = serializer.loads(opts)
+                opts = serializer.loads(opts, server=self, proxy_opts={})
             logging.debug("    => opts: %s", opts)
             
             result = self.process_action(action, opts, return_type, caller)
@@ -296,7 +303,7 @@ class RPCServer(object):
             if exc is None:
                 #print "returnValue:", returnValue, result
                 if return_type == 'auto':
-                    result = self.auto_proxy(result, self.no_proxy_types)
+                    result = self.auto_proxy(result, self.serialize_types)
                 elif return_type == 'proxy':
                     result = self.get_proxy(result)
                 
@@ -335,7 +342,7 @@ class RPCServer(object):
         serializer = self._serializers[self._clients[caller]]
         
         # Serialize and return the result
-        data = serializer.dumps(result)
+        data = serializer.dumps(result, server=self, serialize_types=self.serialize_types)
         self._socket.send_multipart([caller, data])
 
     def process_action(self, action, opts, return_type, caller):
@@ -397,7 +404,7 @@ class RPCServer(object):
                 # correctly for this client.
                 if ser_type not in data:
                     ser = self._serializers[ser_type]
-                    data[ser_type] = ser.dumps({'action': 'disconnect'})
+                    data[ser_type] = ser.dumps({'action': 'disconnect'}, server=None, serialize_types=None)
                 data_str = data[ser_type]
                 
                 # Send disconnect message.

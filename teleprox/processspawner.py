@@ -64,7 +64,7 @@ class ProcessSpawner(object):
         proc.wait()
     """
     def __init__(self, name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
-                 log_level=None, executable=None, shell=False):
+                 log_level=None, executable=None, shell=False, serializer='msgpack'):
         #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
         assert qt in (True, False)
         assert isinstance(address, (str, bytes))
@@ -149,7 +149,7 @@ class ProcessSpawner(object):
         if 'address' in status:
             self.address = status['address']
             #: An RPCClient instance that is connected to the RPCServer in the remote process
-            self.client = RPCClient(self.address.encode())
+            self.client = RPCClient(self.address.encode(), serializer=serializer)
         else:
             err = ''.join(status['error'])
             self.kill()

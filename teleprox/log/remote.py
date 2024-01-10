@@ -8,10 +8,10 @@ import os
 import zmq
 import logging
 import atexit
+import json
 logger = logging.getLogger(__name__)
 logger.propagate = False
 
-from ..serializer import JsonSerializer
 
 # Provide access to process and thread names for logging purposes.
 # Python already has a notion of process and thread names, but these are
@@ -139,7 +139,6 @@ class LogSender(logging.Handler):
     """
     def __init__(self, address=None, logger=None):
         self.socket = None
-        self.serializer = JsonSerializer()
         logging.Handler.__init__(self)
         
         if address is not None:
@@ -165,7 +164,7 @@ class LogSender(logging.Handler):
             rec['process_name'] = process_name
         rec['thread_name'] = thread_names.get(rec['thread'], rec['threadName'])
         rec['host_name'] = host_name
-        self.socket.send(self.serializer.dumps(rec))
+        self.socket.send(json.dumps(rec).encode('utf-8'))
         
     def connect(self, addr):
         """Set the address of the LogServer to which log messages should be
@@ -199,11 +198,10 @@ class LogServer(threading.Thread):
         self.socket.linger = 1000  # don't let socket deadlock when exiting
         self.socket.bind(address)
         self.address = self.socket.last_endpoint
-        self.serializer = JsonSerializer()
         
     def run(self):
         while True:
             msg = self.socket.recv()
-            kwds = self.serializer.loads(msg)
+            kwds = json.loads(msg)
             rec = logging.makeLogRecord(kwds)
             self.logger.handle(rec)

@@ -84,13 +84,13 @@ class ObjectProxy(object):
         object.__init__(self)
 
         ## can't set attributes directly because setattr is overridden.
-        if isinstance(rpc_addr, str):
-            rpc_addr = rpc_addr.encode()
 
         self._init_state(rpc_addr, obj_id, ref_id, type_str, attributes)
         self._set_proxy_options(**kwds)
 
     def _init_state(self, rpc_addr, obj_id, ref_id, type_str, attributes):
+        if isinstance(rpc_addr, str):
+            rpc_addr = rpc_addr.encode()
         self.__dict__.update(dict(
             _rpc_addr=rpc_addr,
             _obj_id=obj_id,
