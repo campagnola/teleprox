@@ -16,6 +16,7 @@ except ImportError:
     HAVE_MSGPACK = False
 
 from .proxy import ObjectProxy
+from .shmem import SharedNDArray
 
 
 #: dict containing {name : SerializerSubclass} for all supported serializers
@@ -32,8 +33,9 @@ encode_key = '___type_name___'
 # types will be sent by proxy if a server is available; otherwise an 
 # exceotion will be raised.
 default_serialize_types = (
-    type(None), str, int, float, tuple, list, dict, ObjectProxy, 
-    np.ndarray, np.dtype, multiprocessing.shared_memory.SharedMemory,
+    type(None), str, bytes, int, float, tuple, list, dict, ObjectProxy, bool,
+    np.ndarray, np.number, np.bool_, np.dtype, multiprocessing.shared_memory.SharedMemory,
+    SharedNDArray, datetime.datetime, datetime.date
 )
 
 
