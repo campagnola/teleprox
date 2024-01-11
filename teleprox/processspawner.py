@@ -46,6 +46,9 @@ class ProcessSpawner(object):
         process.
     executable : str | None
         Optional python executable to invoke. The default value is `sys.executable`.
+    start_server : bool
+        If True (default), then start an RPCServer in the local process. This
+        allows ProxyObjects to be created with the remote process.
         
     Examples
     --------
@@ -64,7 +67,8 @@ class ProcessSpawner(object):
         proc.wait()
     """
     def __init__(self, name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
-                 log_level=None, executable=None, shell=False, serializer='msgpack'):
+                 log_level=None, executable=None, shell=False, serializer='msgpack',
+                 start_server=True):
         #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
         assert qt in (True, False)
         assert isinstance(address, (str, bytes))
@@ -149,7 +153,7 @@ class ProcessSpawner(object):
         if 'address' in status:
             self.address = status['address']
             #: An RPCClient instance that is connected to the RPCServer in the remote process
-            self.client = RPCClient(self.address.encode(), serializer=serializer)
+            self.client = RPCClient(self.address.encode(), serializer=serializer, start_server=start_server)
         else:
             err = ''.join(status['error'])
             self.kill()

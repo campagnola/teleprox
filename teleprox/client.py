@@ -582,7 +582,6 @@ class RPCClient(object):
     def __del__(self):
         if hasattr(self, 'socket'):
             self.close()
-        
 
 
 class RemoteCallException(Exception):
