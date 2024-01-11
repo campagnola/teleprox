@@ -42,16 +42,16 @@ class RPCClient(object):
     start_server : bool
         If True, start an RPCServer in this thread (or reuse an existing server) and 
         call run_lazy() so that it can receive requests whenever this client is waiting
-        on a result. Default is True. Set to False if you want to create your own server
-        in this thread or you know that a server will not be needed.
+        on a result. Default is False.
     serializer : str
         Type of serializer to use when communicating with the remote server. 
         Default is 'msgpack'.
     serialize_types : tuple | None
-        A typle of types that should be serialized (versus proxied). If None, then 
-        ``serializer.default_serialize_types`` is used instead. This is used when 
-        sending request arguments to the remote server, and also used in the construction
-        of the local RPCServer if start_server is True.
+        A typle of types that may be serialized when sending request arguments to the remote server. 
+        If a local server is running, then types not in this list will be sent by proxy. 
+        Otherwise, a TypeError is raised.
+        If None, then ``serializer.default_serialize_types`` is used instead. 
+        This is also used in the construction of the local RPCServer if start_server is True.
 
     """
     
@@ -81,7 +81,7 @@ class RPCClient(object):
         
         return RPCClient(address)
     
-    def __init__(self, address, reentrant=True, start_server=True, serializer='msgpack', serialize_types=None):
+    def __init__(self, address, reentrant=True, start_server=False, serializer='msgpack', serialize_types=None):
         # pick a unique name: host.pid.tid:rpc_addr
         self.name = ("%s.%s.%s:%s" % (log.get_host_name(), log.get_process_name(),
                                       log.get_thread_name(), address.decode())).encode()
