@@ -559,6 +559,8 @@ class RPCClient(object):
         If the server has already disconnected from this client, then the
         method returns True without error.
         """
+        if self._server is None:
+            return True
         if self.disconnected():
             return True
         return self.send('close', sync=sync, timeout=timeout, **kwds)
