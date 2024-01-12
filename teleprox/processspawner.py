@@ -216,7 +216,7 @@ class ProcessSpawner(object):
             return
         logger.info("Close process: %d", self.proc.pid)
         closed = self.client.close_server()
-        assert closed is True, "Server refused to close. (reply: %s)" % closed
+        assert closed is True, f"Server refused to close. (reply: {closed})"
 
         self.wait()
 
