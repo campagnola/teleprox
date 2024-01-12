@@ -19,6 +19,28 @@ def test_spawner():
     proc.stop()
 
 
+def test_serverless_client():
+    proc = ProcessSpawner(start_server=False)
+    cli = proc.client
+
+    # check spawned RPC server has a different PID
+    ros = cli._import('os')
+    assert os.getpid() != ros.getpid()
+
+    class CustomType:
+        def __init__(self):
+            self.x = 1
+            self.y = 'a'
+
+        def __eq__(self, a):
+            return type(a) == type(self) and a.x == self.x and a.y == self.y
+
+    proxy = cli.transfer(CustomType())
+    assert proxy == CustomType()
+    # test closing nicely
+    proc.stop()
+
+
 @requires_qt
 def test_qt_spawner():
     # start process with QtRPCServer
