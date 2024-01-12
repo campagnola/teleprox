@@ -9,6 +9,10 @@ import json
 import pickle
 import numpy as np
 import multiprocessing.shared_memory
+
+from . import qt
+from .shmem import SharedNDArray
+
 try:
     import msgpack
     HAVE_MSGPACK = True
@@ -34,6 +38,10 @@ encode_key = '___type_name___'
 default_serialize_types = (
     type(None), str, int, float, tuple, list, dict, ObjectProxy, 
     np.ndarray, np.dtype, multiprocessing.shared_memory.SharedMemory,
+    SharedNDArray, qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2,
+    qt.QTransform, qt.QVector3D, qt.QVector4D, qt.QQuaternion,
+    qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
+    qt.QPointF, qt.QSizeF, qt.QRectF
 )
 
 
