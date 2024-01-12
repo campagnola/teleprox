@@ -203,7 +203,7 @@ def test_rpc():
     arr_prox = client.transfer(arr)
     assert arr_prox.dtype.name == 'float32'
     print(arr_prox, arr_prox.shape)
-    assert arr_prox.shape._get_value() == [10]
+    assert arr_prox.shape._get_value() == (10,)
 
 
     logger.info("-- Test import --")
