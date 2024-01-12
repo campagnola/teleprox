@@ -165,7 +165,7 @@ class ProcessSpawner(object):
         if 'address' in status:
             self.address = status['address']
             #: An RPCClient instance that is connected to the RPCServer in the remote process
-            self.client = RPCClient(self.address.encode(), serializer=serializer, start_server=start_local_server)
+            self.client = RPCClient(self.address.encode(), serializer=serializer, start_local_server=start_local_server)
         else:
             err = ''.join(status['error'])
             self.kill()

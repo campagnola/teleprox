@@ -81,7 +81,7 @@ class RPCClient(object):
         
         return RPCClient(address)
     
-    def __init__(self, address, reentrant=True, start_server=False, serializer='msgpack', serialize_types=None):
+    def __init__(self, address, reentrant=True, start_local_server=False, serializer='msgpack', serialize_types=None):
         # pick a unique name: host.pid.tid:rpc_addr
         self.name = ("%s.%s.%s:%s" % (log.get_host_name(), log.get_process_name(),
                                       log.get_thread_name(), address.decode())).encode()
@@ -92,10 +92,11 @@ class RPCClient(object):
             logger.warning("RPC server address is likely to cause trouble on windows: %r" % address)
         self.address = address
 
-        if start_server:
-            if RPCServer.get_server() is None:
-                self._server = RPCServer(serialize_types=serialize_types)
-                self._server.run_lazy()
+        if start_local_server and RPCServer.get_server() is None:
+            self._local_server = RPCServer(serialize_types=serialize_types)
+            self._local_server.run_lazy()
+        else:
+            self._local_server = None
 
         key = (threading.current_thread().ident, address)
         with RPCClient.clients_by_thread_lock:
@@ -559,8 +560,6 @@ class RPCClient(object):
         If the server has already disconnected from this client, then the
         method returns True without error.
         """
-        if self._server is None:
-            return True
         if self.disconnected():
             return True
         return self.send('close', sync=sync, timeout=timeout, **kwds)
