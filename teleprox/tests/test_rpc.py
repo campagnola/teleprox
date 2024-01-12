@@ -203,7 +203,7 @@ def test_rpc():
     arr_prox = client.transfer(arr)
     assert arr_prox.dtype.name == 'float32'
     print(arr_prox, arr_prox.shape)
-    assert arr_prox.shape._get_value() == [10]
+    assert arr_prox.shape[0] == 10
 
 
     logger.info("-- Test import --")
@@ -288,7 +288,8 @@ def test_rpc():
 def test_qt_rpc():
     previous_level = logger.level
     #logger.level = logging.DEBUG
-    
+    if QtRPCServer.get_server() is not None:
+        QtRPCServer.get_server().close()
     server = QtRPCServer(quit_on_close=False)
     server.run_forever()
     

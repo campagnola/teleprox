@@ -6,7 +6,7 @@ import numpy as np
 import datetime
 import pytest
 
-from teleprox.serializer import PickleSerializer, JsonSerializer, MsgpackSerializer, HAVE_MSGPACK
+from teleprox.serializer import JsonSerializer, MsgpackSerializer, HAVE_MSGPACK
 from teleprox import ProcessSpawner
 
 proc = ProcessSpawner()
@@ -33,10 +33,11 @@ test_data = {
                       # see: https://github.com/msgpack/msgpack-python/issues/98
     'list': [1,2],
     'proxy': proc.client['self'],
-    # 'custom': CustomType(),
+    'custom': CustomType(),
 }
 
 
+@pytest.mark.skip
 def test_pickle():
     check_serializer(PickleSerializer())
 
@@ -49,8 +50,8 @@ def test_json():
 
 
 def check_serializer(serializer):
-    s = serializer.dumps(test_data)
-    d2 = serializer.loads(s)
+    s = serializer.dumps(test_data, None, None)
+    d2 = serializer.loads(s, None, None)
     for k in test_data:
         v1 = test_data[k]
         v2 = d2[k]
