@@ -46,10 +46,19 @@ class ProcessSpawner(object):
         process.
     executable : str | None
         Optional python executable to invoke. The default value is `sys.executable`.
-    start_server : bool
-        If True (default), then start an RPCServer in the local process. This
-        allows ProxyObjects to be created with the remote process.
-        
+    shell : bool
+        If True, then the executable will be invoked via the shell.
+    conda_env : str | None
+        Optional name of a conda environment to activate before invoking the
+        executable.
+    serializer : str
+        Serialization format to use for RPC communication. Default is 'msgpack'.
+    start_local_server : bool
+        If True, then start a local RPCServer in the current process. (See RPCClient)
+        This allows sending objects by proxy to the child process (for example, callback
+        functions). Default is False.
+
+                
     Examples
     --------
     
@@ -67,8 +76,8 @@ class ProcessSpawner(object):
         proc.wait()
     """
     def __init__(self, name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
-                 log_level=None, executable=None, shell=False, serializer='msgpack',
-                 start_server=True):
+                 log_level=None, executable=None, shell=False, conda_env=None, 
+                 serializer='msgpack', start_local_server=False):
         #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
         assert qt in (True, False)
         assert isinstance(address, (str, bytes))
@@ -107,6 +116,9 @@ class ProcessSpawner(object):
             executable = sys.executable
 
         cmd = (executable, '-m', 'teleprox.bootstrap')
+
+        if conda_env is not None:
+            cmd = ('conda', 'run', '--no-capture-output', '-n', conda_env) + cmd
         
         if name is not None:
             cmd = cmd + (name,)
@@ -153,7 +165,7 @@ class ProcessSpawner(object):
         if 'address' in status:
             self.address = status['address']
             #: An RPCClient instance that is connected to the RPCServer in the remote process
-            self.client = RPCClient(self.address.encode(), serializer=serializer, start_server=start_server)
+            self.client = RPCClient(self.address.encode(), serializer=serializer, start_server=start_local_server)
         else:
             err = ''.join(status['error'])
             self.kill()

@@ -20,6 +20,7 @@ except ImportError:
     HAVE_MSGPACK = False
 
 from .proxy import ObjectProxy
+from .shmem import SharedNDArray
 
 
 #: dict containing {name : SerializerSubclass} for all supported serializers
@@ -36,12 +37,15 @@ encode_key = '___type_name___'
 # types will be sent by proxy if a server is available; otherwise an 
 # exceotion will be raised.
 default_serialize_types = (
-    type(None), str, int, float, tuple, list, dict, ObjectProxy, 
-    np.ndarray, np.dtype, multiprocessing.shared_memory.SharedMemory,
-    SharedNDArray, qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2,
-    qt.QTransform, qt.QVector3D, qt.QVector4D, qt.QQuaternion,
+    ObjectProxy, type(None), str, bytes, int, float, tuple, list, dict, bool,
+    datetime.datetime, datetime.date,
+    np.ndarray, np.number, np.bool_, np.dtype, 
+    multiprocessing.shared_memory.SharedMemory, SharedNDArray, 
+
+    qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform, 
+    qt.QVector3D, qt.QVector4D, qt.QQuaternion,
     qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
-    qt.QPointF, qt.QSizeF, qt.QRectF
+    qt.QPointF, qt.QSizeF, qt.QRectF,
 )
 
 
