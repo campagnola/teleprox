@@ -94,22 +94,22 @@ class RPCLogHandler(logging.StreamHandler):
 
     def format(self, record):
         header = self.get_thread_header(record)
-        
+
         message = logging.StreamHandler.format(self, record)
         if HAVE_COLORAMA:
             ind = record.levelno // 10 * 10  # decrease to multiple of 10
             message = _level_color_map[ind] + message + colorama.Style.RESET_ALL
-            
-        return header + ' ' + message
+
+        return f'{header} {message}'
 
     def get_thread_header(self, record):
         hid = getattr(record, 'hostname', get_host_name())
         pid = getattr(record, 'process_name', get_process_name())
         tid = getattr(record, 'thread_name', get_thread_name(record.thread))
         key = (hid, pid, tid)
-        header = self.thread_headers.get(key, None)
+        header = self.thread_headers.get(key)
         if header is None:
-            header = '[%s:%s:%s]' % (hid, pid, tid)
+            header = f'[{hid}:{pid}:{tid}]'
             if HAVE_COLORAMA:
                 color = _thread_color_list[len(self.thread_headers) % len(_thread_color_list)]
                 header = color + header + colorama.Style.RESET_ALL
@@ -124,9 +124,9 @@ class RPCLogHandler(logging.StreamHandler):
             tid = threading.current_thread().ident
             color = RPCLogHandler.thread_colors.get(tid, None)
             if color is None:
-                ind = len(RPCLogHandler.thread_colors) % len(_color_list)
+                ind = len(RPCLogHandler.thread_colors) % len(_thread_color_list)
                 ind = ind//10*10  # decrease to multiple of 10
-                color = _color_list[ind]
+                color = _thread_color_list[ind]
                 RPCLogHandler.thread_colors[tid] = color
             return (color + message + colorama.Style.RESET_ALL)
         except KeyError:
@@ -148,9 +148,8 @@ def _log_unhandled_exception(exc, val, tb):
     exc_str = traceback.format_stack()
     exc_str += [" < exception caught here >\n"]
     exc_str += traceback.format_exception(exc, val, tb)[1:]
-    exc_str = ''.join(['    ' + line for line in exc_str])
-    logging.getLogger().warning("Unhandled exception:\n%s", exc_str)
-    #_sys_excepthook(exc, val, tb)
+    exc_str = ''.join([f'    {line}' for line in exc_str])
+    logging.getLogger().warning(f"Unhandled exception:\n{exc_str}")
 
 
 def log_exceptions():

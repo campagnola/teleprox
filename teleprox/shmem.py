@@ -8,7 +8,7 @@ class SharedNDArray:
         self.data = data
 
     @classmethod
-    def copy(cls, arr):
+    def copy(cls, arr: np.ndarray):
         """Create a SharedNDArray containing a copy of the given array."""
         shmem = mp_shm.SharedMemory(create=True, size=arr.nbytes)
         data = np.ndarray(arr.shape, dtype=arr.dtype, buffer=shmem.buf)
@@ -19,8 +19,6 @@ class SharedNDArray:
         return SharedNDArray.__reload__, (self.shmem, self.data.shape, self.data.dtype, self.data.strides)
     
     @classmethod
-    def __reload__(self, shmem, shape, dtype, strides):
+    def __reload__(cls, shmem, shape, dtype, strides):
         arr = np.ndarray(shape, dtype=dtype, buffer=shmem.buf, strides=strides)
         return SharedNDArray(shmem, arr)
-
-

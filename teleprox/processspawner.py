@@ -78,7 +78,7 @@ class ProcessSpawner(object):
     def __init__(self, name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
                  log_level=None, executable=None, shell=False, conda_env=None, 
                  serializer='msgpack', start_local_server=False):
-        #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
+        # logger.warning(f"Spawning process: {name} {log_addr} {log_level}")
         assert qt in (True, False)
         assert isinstance(address, (str, bytes))
         assert name is None or isinstance(name, str)
@@ -88,10 +88,10 @@ class ProcessSpawner(object):
         assert log_level is None or isinstance(log_level, int)
         if log_level is None:
             log_level = logger.getEffectiveLevel()
-        
+
         self.qt = qt
         self.name = name
-        
+
         # temporary socket to allow the remote process to report its status.
         bootstrap_addr = 'tcp://127.0.0.1:*'
         bootstrap_sock = zmq.Context.instance().socket(zmq.PAIR)
@@ -99,7 +99,7 @@ class ProcessSpawner(object):
         bootstrap_sock.bind(bootstrap_addr)
         bootstrap_sock.linger = 1000 # don't let socket deadlock when exiting
         bootstrap_addr = bootstrap_sock.last_endpoint
-        
+
         # Spawn new process
         class_name = 'QtRPCServer' if qt else 'RPCServer'
         args = {'address': address}
@@ -111,7 +111,7 @@ class ProcessSpawner(object):
             logaddr=log_addr.decode() if log_addr is not None else None,
             qt=qt,
         )
-        
+
         if executable is None:
             executable = sys.executable
 
@@ -119,7 +119,7 @@ class ProcessSpawner(object):
 
         if conda_env is not None:
             cmd = ('conda', 'run', '--no-capture-output', '-n', conda_env) + cmd
-        
+
         if name is not None:
             cmd = cmd + (name,)
 
@@ -130,38 +130,42 @@ class ProcessSpawner(object):
             # start process with stdout/stderr piped
             self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
                                          stdout=subprocess.PIPE, shell=shell)
-            
+
             self.proc.stdin.write(json.dumps(bootstrap_conf).encode())
             self.proc.stdin.close()
-            
+
             # create a logger for handling stdout/stderr and forwarding to log server
-            self.logger = logging.getLogger(__name__ + '.' + str(id(self)))
+            self.logger = logging.getLogger(f'{__name__}.{id(self)}')
             self.logger.propagate = False
             self.log_handler = LogSender(log_addr, self.logger)
             if log_level is not None:
                 self.logger.level = log_level
-            
+
             # create threads to poll stdout/stderr and generate / send log records
-            self.stdout_poller = PipePoller(self.proc.stdout, self.logger.info, '[%s.stdout] '%name)
-            self.stderr_poller = PipePoller(self.proc.stderr, self.logger.warning, '[%s.stderr] '%name)
-            
+            self.stdout_poller = PipePoller(
+                self.proc.stdout, self.logger.info, f'[{name}.stdout] '
+            )
+            self.stderr_poller = PipePoller(
+                self.proc.stderr, self.logger.warning, f'[{name}.stderr] '
+            )
+
         else:
             # don't intercept stdout/stderr
             self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, shell=shell)
             self.proc.stdin.write(json.dumps(bootstrap_conf).encode())
             self.proc.stdin.close()
-            
+
         logger.info("Spawned process: %d", self.proc.pid)
-        
+
         # Receive status information (especially the final RPC address)
         try:
             status = bootstrap_sock.recv_json()
-        except zmq.error.Again:
-            raise TimeoutError("Timed out waiting for response from spawned process.")
+        except zmq.error.Again as e:
+            raise TimeoutError("Timed out waiting for response from spawned process.") from e
         logger.debug("recv status %s", status)
         bootstrap_sock.send(b'OK')
         bootstrap_sock.close()
-        
+
         if 'address' in status:
             self.address = status['address']
             #: An RPCClient instance that is connected to the RPCServer in the remote process
@@ -170,7 +174,7 @@ class ProcessSpawner(object):
             err = ''.join(status['error'])
             self.kill()
             raise RuntimeError("Error while spawning process:\n%s" % err)
-        
+
         # Automatically shut down process when we exit. 
         atexit.register(self.stop)
         
