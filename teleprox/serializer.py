@@ -41,12 +41,15 @@ default_serialize_types = (
     datetime.datetime, datetime.date,
     np.ndarray, np.number, np.bool_, np.dtype, 
     multiprocessing.shared_memory.SharedMemory, SharedNDArray, 
-
-    qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform, 
-    qt.QVector3D, qt.QVector4D, qt.QQuaternion,
-    qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
-    qt.QPointF, qt.QSizeF, qt.QRectF,
 )
+
+if qt.HAVE_QT:
+    default_serialize_types += (
+        qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform, 
+        qt.QVector3D, qt.QVector4D, qt.QQuaternion,
+        qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
+        qt.QPointF, qt.QSizeF, qt.QRectF,
+    )
 
 
 class Serializer:
