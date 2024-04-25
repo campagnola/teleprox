@@ -113,7 +113,10 @@ class ProcessSpawner(object):
         )
         
         if executable is None:
-            executable = sys.executable
+            if conda_env is None:
+                executable = sys.executable
+            else:
+                executable = 'python'  # let env decide which python to use
 
         cmd = (executable, '-m', 'teleprox.bootstrap')
 
