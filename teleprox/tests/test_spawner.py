@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
+import pytest
 
 from teleprox import ProcessSpawner
 import os
@@ -35,8 +36,9 @@ def test_serverless_client():
         def __eq__(self, a):
             return type(a) == type(self) and a.x == self.x and a.y == self.y
 
-    proxy = cli.transfer(CustomType())
-    assert proxy == CustomType()
+    with pytest.raises(TypeError):
+        cli.transfer(CustomType())
+
     # test closing nicely
     proc.stop()
 

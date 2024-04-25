@@ -33,7 +33,7 @@ test_data = {
                       # see: https://github.com/msgpack/msgpack-python/issues/98
     'list': [1,2],
     'proxy': proc.client['self'],
-    'custom': CustomType(),
+    # 'custom': CustomType(),  # TODO needs server
 }
 
 
