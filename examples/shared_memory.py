@@ -1,5 +1,5 @@
 import numpy as np
-from teleprox import ProcessSpawner
+from teleprox import start_process
 from teleprox.shmem import SharedNDArray
 
 
@@ -16,8 +16,8 @@ The practical effects are:
   to be unlinked, preventing other processes from accessing it.
 """
 
-# proc = ProcessSpawner(serializer='msgpack')
-proc = ProcessSpawner(name='child_process')
+# proc = start_process(serializer='msgpack')
+proc = start_process(name='child_process')
 
 # create a local array
 arr = np.arange(100).reshape(10, 10)

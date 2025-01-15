@@ -3,7 +3,7 @@
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
 import threading, time, logging
-from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, ProcessSpawner
+from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, start_process
 from teleprox.log import RPCLogHandler, set_process_name, set_thread_name, start_log_server
 import numpy as np
 from check_qt import requires_qt, qt_available
@@ -244,7 +244,7 @@ def test_rpc():
 
     logger.info("-- Test JSON client --")
     # Start a JSON client in a remote process
-    cli_proc = ProcessSpawner()
+    cli_proc = start_process()
     cli = cli_proc.client._import('teleprox').RPCClient(server2.address, serializer='json')
     # Check everything is ok..
     assert cli.serializer.type._get_value() == 'json'
@@ -335,9 +335,9 @@ def test_disconnect():
     #~ logger.level = logging.DEBUG
     
     # Clients receive notification when server disconnects gracefully
-    server_proc = ProcessSpawner()
+    server_proc = start_process()
     
-    client_proc = ProcessSpawner()
+    client_proc = start_process()
     cli = client_proc.client._import('teleprox').RPCClient(server_proc.client.address)
     cli.close_server()
     
@@ -355,7 +355,7 @@ def test_disconnect():
     
     
     # Clients receive closure messages even if the server exits without closing
-    server_proc = ProcessSpawner()
+    server_proc = start_process()
     server_proc.client['self']._closed = 'sabotage!'
     time.sleep(0.1)
     assert server_proc.client.disconnected() is True
@@ -364,7 +364,7 @@ def test_disconnect():
     server_proc.kill()
     
     # Clients gracefully handle sudden death of server (with timeout)
-    server_proc = ProcessSpawner()
+    server_proc = start_process()
     server_proc.kill()
     
     try:
@@ -376,10 +376,10 @@ def test_disconnect():
 
     # server doesn't hang up if clients are not available to receive disconnect
     # message
-    server_proc = ProcessSpawner()
+    server_proc = start_process()
     for i in range(4):
         # create a bunch of dead clients
-        cp = ProcessSpawner()
+        cp = start_process()
         cli = cp.client._import('teleprox').RPCClient(server_proc.client.address)
         cp.kill()
     

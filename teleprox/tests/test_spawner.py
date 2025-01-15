@@ -3,13 +3,13 @@
 # Distributed under the (new) BSD License. See LICENSE for more info.
 import pytest
 
-from teleprox import ProcessSpawner
+from teleprox import start_process
 import os
 from check_qt import requires_qt
 
 
 def test_spawner():
-    proc = ProcessSpawner()
+    proc = start_process()
     cli = proc.client
     
     # check spawned RPC server has a different PID
@@ -21,7 +21,7 @@ def test_spawner():
 
 
 def test_serverless_client():
-    proc = ProcessSpawner(start_local_server=False)
+    proc = start_process(start_local_server=False)
     cli = proc.client
 
     # check spawned RPC server has a different PID
@@ -46,7 +46,7 @@ def test_serverless_client():
 @requires_qt
 def test_qt_spawner():
     # start process with QtRPCServer
-    proc = ProcessSpawner(qt=True)
+    proc = start_process(qt=True)
     cli = proc.client
 
     rqt = cli._import('teleprox.qt')

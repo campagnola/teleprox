@@ -6,4 +6,4 @@ from .client import RPCClient, RemoteCallException, Future
 from .server import RPCServer
 from .qt_server import QtRPCServer
 from .proxy import ObjectProxy
-from .processspawner import ProcessSpawner
+from .process import start_process, DaemonProcess, ChildProcess

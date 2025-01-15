@@ -13,7 +13,7 @@ class QtRPCServer(RPCServer):
     are sent back to the poller thread by a secondary socket.
     
     QtRPCServer may be started in newly spawned processes using
-    :class:`ProcessSpawner`.
+    :class:`start_process`.
     
     Parameters
     ----------
@@ -31,7 +31,7 @@ class QtRPCServer(RPCServer):
     Spawning in a new process::
         
         # Create new process.
-        proc = ProcessSpawner(qt=True)
+        proc = start_process(qt=True)
         
         # Display a widget from the new process.
         qtwidgets = proc._import('PyQt5.QtWidgets')

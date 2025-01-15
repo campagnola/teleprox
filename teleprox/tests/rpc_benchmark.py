@@ -59,14 +59,14 @@ cli.close_server()
 
 # process
 print("=========== TCP to spawned process ============")
-proc = teleprox.ProcessSpawner()
+proc = teleprox.start_process()
 test_poingrate(proc.client)
 test_async_poingrate(proc.client)
 
 
 # process
 print("=========== TCP to spawned Qt process ============")
-proc = teleprox.ProcessSpawner(qt=True)
+proc = teleprox.start_process(qt=True)
 test_poingrate(proc.client)
 test_async_poingrate(proc.client)
 

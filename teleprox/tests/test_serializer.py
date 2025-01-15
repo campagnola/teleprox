@@ -7,9 +7,9 @@ import datetime
 import pytest
 
 from teleprox.serializer import JsonSerializer, MsgpackSerializer, HAVE_MSGPACK
-from teleprox import ProcessSpawner
+from teleprox import start_process
 
-proc = ProcessSpawner()
+proc = start_process()
 
 
 class CustomType:

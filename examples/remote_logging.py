@@ -1,5 +1,5 @@
 import logging
-from teleprox import ProcessSpawner
+from teleprox import start_process
 from teleprox.log import set_process_name, set_thread_name, start_log_server
 from teleprox.log.logviewer import LogViewer
 from teleprox.log.handler import RPCLogHandler
@@ -27,7 +27,7 @@ set_thread_name('main_thread')
 # lv.show()
 
 
-proc = ProcessSpawner(name='child_process')
+proc = start_process(name='child_process')
 
 r_os = proc.client._import('os')
 print("Child process PID is:", r_os.getpid())

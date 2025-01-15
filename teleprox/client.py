@@ -25,7 +25,7 @@ class RPCClient(object):
     
     Each RPCClient connects to only one server, and may be used from only one
     thread. RPCClient instances are created automatically either through
-    :class:`ProcessSpawner` or by requesting attributes from an :class:`ObjectProxy`.
+    :class:`start_process` or by requesting attributes from an :class:`ObjectProxy`.
     In general, it is not necessary for the user to interact directly with
     RPCClient.
     

@@ -6,7 +6,7 @@ qt_available = True
 qt_reason = ""
 
 try:    
-    p = teleprox.ProcessSpawner()
+    p = teleprox.start_process()
     qt = p.client._import('teleprox.qt')
     try:
         app = qt.QApplication([], _timeout=1)

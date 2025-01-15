@@ -16,10 +16,10 @@ Examples
 --------
 
 ```python
-from teleprox import ProcessSpawner
+from teleprox import start_process
 
 # start a new process
-proc = ProcessSpawner()
+proc = start_process()
 
 # import os in the remote process
 remote_os = proc.client._import('os')

@@ -1,4 +1,4 @@
-"""Script for bootstrapping new processes created with ProcessSpawner.
+"""Script for bootstrapping new processes created with start_process.
 """
 import zmq
 import time
@@ -12,7 +12,7 @@ import logging
 if __name__ == '__main__':
     # Load configuration options for this process from stdin
     stdin = sys.stdin.read()
-    assert len(stdin) > 0, "This script should be invoked from teleprox.ProcessSpawner"
+    assert len(stdin) > 0, "This script should be invoked from teleprox.start_process"
     conf = json.loads(stdin)
     # process name is passed in argv to make it easier to identify processes
     # from the outside.

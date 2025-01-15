@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class RPCServer(object):
     """Remote procedure call server for invoking requests on proxied objects.
     
-    RPCServer instances are automatically created when using :class:`ProcessSpawner`.
+    RPCServer instances are automatically created when using :class:`start_process`.
     It is rarely necessary for the user to interact directly with RPCServer.
     
     There may be at most one RPCServer per thread. RPCServers can be run in a
