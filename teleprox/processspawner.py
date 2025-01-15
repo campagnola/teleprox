@@ -57,6 +57,10 @@ class ProcessSpawner(object):
         If True, then start a local RPCServer in the current process. (See RPCClient)
         This allows sending objects by proxy to the child process (for example, callback
         functions). Default is False.
+    daemon : bool
+        If True, then the new process will be detached from the parent process, allowing
+        it to run indefinitely in the background, even after the parent closes. 
+        Default is False.
 
                 
     Examples
@@ -77,7 +81,7 @@ class ProcessSpawner(object):
     """
     def __init__(self, name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
                  log_level=None, executable=None, shell=False, conda_env=None, 
-                 serializer='msgpack', start_local_server=False):
+                 serializer='msgpack', start_local_server=False, daemon=False):
         #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
         assert qt in (True, False)
         assert isinstance(address, (str, bytes))
@@ -110,6 +114,7 @@ class ProcessSpawner(object):
             loglevel=log_level,
             logaddr=log_addr.decode() if log_addr is not None else None,
             qt=qt,
+            daemon=daemon,
         )
         
         if executable is None:
@@ -129,10 +134,14 @@ class ProcessSpawner(object):
         if shell is True:
             cmd = ' '.join(cmd)
 
+        popen_kwargs = {}
+        if daemon is True and sys.platform == 'win32':
+            popen_kwargs['creationflags'] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+
         if log_addr is not None:
             # start process with stdout/stderr piped
             self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
-                                         stdout=subprocess.PIPE, shell=shell)
+                                         stdout=subprocess.PIPE, shell=shell, **popen_kwargs)
             
             self.proc.stdin.write(json.dumps(bootstrap_conf).encode())
             self.proc.stdin.close()
@@ -150,12 +159,15 @@ class ProcessSpawner(object):
             
         else:
             # don't intercept stdout/stderr
-            self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, shell=shell)
+            self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, shell=shell, **popen_kwargs)
             self.proc.stdin.write(json.dumps(bootstrap_conf).encode())
             self.proc.stdin.close()
             
         logger.info("Spawned process: %d", self.proc.pid)
-        
+        if daemon is True:
+            self.proc.wait()  # prevent zombie
+            self.proc = None  # prevent trying wait/kill/poll  (but maybe we can still do this on windows?)
+
         # Receive status information (especially the final RPC address)
         try:
             status = bootstrap_sock.recv_json()
@@ -180,10 +192,11 @@ class ProcessSpawner(object):
     def wait(self, timeout=10):
         """Wait for the process to exit and return its return code.
         """
+        if self.proc is None:
+            raise Exception("Cannot wait on a daemon process.")
         # Using proc.wait() can deadlock; use communicate() instead.
         # see: https://docs.python.org/2/library/subprocess.html#subprocess.Popen.wait
-        try:
-            
+        try:            
             self.proc.communicate()
         except (AttributeError, ValueError):
             # Python bug: http://bugs.python.org/issue30203
@@ -205,28 +218,36 @@ class ProcessSpawner(object):
     def kill(self):
         """Kill the spawned process immediately.
         """
-        if self.proc.poll() is not None:
-            return
-        logger.info("Kill process: %d", self.proc.pid)
-        self.proc.kill()
+        if self.proc is None:
+            # Todo: we could probably implement this
+            raise Exception("Cannot kill a daemon process.")
+        else:
+            if self.proc.poll() is not None:
+                return
+            logger.info("Kill process: %d", self.proc.pid)
+            self.proc.kill()
 
-        self.wait()
+            self.wait()
 
     def stop(self):
         """Stop the spawned process by asking its RPC server to close.
         """
-        if self.proc.poll() is not None:
+        if self.proc is not None and self.proc.poll() is not None:
+            # process has already exited
             return
-        logger.info("Close process: %d", self.proc.pid)
+        logger.info(f"Close process: {self.client.address}")
         closed = self.client.close_server()
         assert closed is True, f"Server refused to close. (reply: {closed})"
 
-        self.wait()
+        if self.proc is not None:
+            self.wait()
 
     def poll(self):
         """Return the spawned process's return code, or None if it has not
         exited yet.
         """
+        if self.proc is None:
+            raise Exception("Cannot poll a daemon process.")
         return self.proc.poll()
 
 
