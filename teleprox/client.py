@@ -2,6 +2,8 @@
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
+import re
+import socket
 import sys
 import time
 import weakref
@@ -42,7 +44,9 @@ class RPCClient(object):
     start_server : bool
         If True, start an RPCServer in this thread (or reuse an existing server) and 
         call run_lazy() so that it can receive requests whenever this client is waiting
-        on a result. Default is False.
+        on a result. This would be needed, for example, if you send a callback function
+        to the remote server--in order to invoke your callback, there must also be a local
+        server to carry out that callback. Default is False.
     serializer : str
         Type of serializer to use when communicating with the remote server. 
         Default is 'msgpack'.
@@ -52,6 +56,9 @@ class RPCClient(object):
         Otherwise, a TypeError is raised.
         If None, then ``serializer.default_serialize_types`` is used instead. 
         This is also used in the construction of the local RPCServer if start_server is True.
+
+    
+    Raises ConnectionRefusedError if no server is running at the given address.
 
     """
     
@@ -82,6 +89,9 @@ class RPCClient(object):
         return RPCClient(address)
     
     def __init__(self, address, reentrant=True, start_local_server=False, serializer='msgpack', serialize_types=None):
+        if isinstance(address, str):
+            address = address.encode()
+
         # pick a unique name: host.pid.tid:rpc_addr
         self.name = ("%s.%s.%s:%s" % (log.get_host_name(), log.get_process_name(),
                                       log.get_thread_name(), address.decode())).encode()
@@ -89,7 +99,7 @@ class RPCClient(object):
         self.serialize_types = serialize_types
 
         if sys.platform == 'win32' and '0.0.0.0' in str(address):
-            logger.warning("RPC server address is likely to cause trouble on windows: %r" % address)
+            logger.warning(f"RPC server address {address} is likely to cause trouble on windows")
         self.address = address
 
         if start_local_server and RPCServer.get_server() is None:
@@ -106,6 +116,11 @@ class RPCClient(object):
             RPCClient.clients_by_thread[key] = self
 
         try:
+            # Make sure we can reach this address and there is an open socket
+            port_status = self.check_address(address)
+            if port_status == "closed":
+                raise ConnectionRefusedError(f"Connection refused to {address.decode()}")
+
             # DEALER is fully asynchronous--we can send or receive at any time, and
             # unlike ROUTER, it only connects to a single endpoint.
             self._socket = zmq.Context.instance().socket(zmq.DEALER)
@@ -146,6 +161,35 @@ class RPCClient(object):
         except:
             RPCClient.clients_by_thread[key] = None
             raise
+
+    @staticmethod
+    def check_address(address, timeout=1.0):
+        """
+        Test if a socket can connect to the given host and port.
+        Only TCP addresses are supported.
+
+        Returns:
+            "open" - if the socket connects successfully
+            "closed" - if the connection is refused
+            "timeout" - if the connection times out
+            None - non-tcp ports or invalid addresses
+        """
+        parts = re.match(r'^tcp://(.+):(\d+)$', address.decode())
+        if parts is None:
+            return None
+        
+        host, port = parts.groups()
+        port = int(port)
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            try:
+                s.connect((host, port))
+                return "open"
+            except socket.timeout:
+                return "timeout"
+            except (ConnectionRefusedError, OSError):
+                return "closed"
 
     def _get_poller(self):
         # Return the poller that should be used to listen for incoming messages
