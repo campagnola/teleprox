@@ -193,15 +193,25 @@ class LogServer(threading.Thread):
     """
     def __init__(self, logger, address='tcp://127.0.0.1:*', sort=True):
         threading.Thread.__init__(self, daemon=True)
+        self.running = True
         self.logger = logger
         self.socket = zmq.Context.instance().socket(zmq.PULL)
         self.socket.linger = 1000  # don't let socket deadlock when exiting
         self.socket.bind(address)
         self.address = self.socket.last_endpoint
+
+    def stop(self):
+        self.running = False
         
     def run(self):
-        while True:
+        poller = zmq.Poller()
+        poller.register(self.socket, zmq.POLLIN)
+        while self.running:
+            events = dict(poller.poll(1000))
+            if self.socket not in events:
+                continue
             msg = self.socket.recv()
             kwds = json.loads(msg)
             rec = logging.makeLogRecord(kwds)
             self.logger.handle(rec)
+        self.socket.close()
