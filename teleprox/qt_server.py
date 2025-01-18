@@ -4,16 +4,16 @@ from . import log
 
 
 class QtRPCServer(RPCServer):
-    """RPCServer that lives in a Qt GUI thread.
+    """RPCServer that executes actions in the main Qt GUI thread.
 
     This server may be used to create and manage QObjects, QWidgets, etc. It
     uses a separate thread to poll for RPC requests, which are then sent to the
-    Qt event loop using by signal. This allows the RPC actions to be executed
+    Qt event loop by signal. This allows the RPC actions to be executed
     in a Qt GUI thread without using a timer to poll the RPC socket. Responses
     are sent back to the poller thread by a secondary socket.
     
     QtRPCServer may be started in newly spawned processes using
-    :class:`start_process`.
+    ``start_process(qt=True)``.
     
     Parameters
     ----------
@@ -33,7 +33,7 @@ class QtRPCServer(RPCServer):
         # Create new process.
         proc = start_process(qt=True)
         
-        # Display a widget from the new process.
+        # Display a widget in the new process.
         qtwidgets = proc._import('PyQt5.QtWidgets')
         w = qtwidgets.QWidget()
         w.show()

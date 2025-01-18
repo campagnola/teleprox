@@ -2,6 +2,7 @@
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
+import queue
 import socket
 import threading
 import os
@@ -149,10 +150,27 @@ class LogSender(logging.Handler):
             logger = logging.getLogger(logger)
         if logger is not None:
             logger.addHandler(self)
-            
+
+        # make thread-safe: handle() may be called from any thread
+        # and log records are passed to the server in a background thread.
+        self.record_queue = queue.Queue()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+        self.thread.start()
+
         atexit.register(self.close)
 
     def handle(self, record):
+        self.record_queue.put(record)
+        return True
+
+    def run(self):
+        while True:
+            record = self.record_queue.get()
+            if record is None:
+                break
+            self._handle(record)
+
+    def _handle(self, record):
         global host_name, process_name, thread_names
         if self.socket is None:
             return
@@ -178,6 +196,7 @@ class LogSender(logging.Handler):
     def close(self):
         # if this socket is left open when the process exits, it can lead to
         # deadlock.
+        self.record_queue.put(None)
         self.socket.close()
 
 

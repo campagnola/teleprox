@@ -18,6 +18,7 @@ from .log import get_logger_address, LogSender
 
 logger = logging.getLogger(__name__)
 
+
 def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
                  log_level=None, executable=None, shell=False, conda_env=None, 
                  serializer='msgpack', start_local_server=False, daemon=False):
@@ -94,9 +95,9 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     - In some cases signals meant for the parent process (such as when you ctrl-c in a terminal) are also sent to children.
       Using a daemon ensures signals are not propagated to the child. (maybe only true on linux?)
     - Children can sometimes share open file handles with their parent (especially stdin/out/err). Starting as a daemon
-      ensures that the child process file handles are totally independent of the parent.
+      ensures that the child process file handles are totally independent of the parent (linux and windows).
     - Normal child processes must be wait()ed on after they die to collect their return code, otherwise they remain as a zombie process.
-      Daemon processes do not have to be wait()ed on.
+      Daemon processes do not have to be wait()ed on (linux only).
       
     """
     #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
@@ -164,17 +165,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         proc.stdin.write(json.dumps(bootstrap_conf).encode())
         proc.stdin.close()
         
-        # create a logger for handling stdout/stderr and forwarding to log server
-        # TODO id(proc) is not id(self), so this behavior is changed from before. is that okay?
-        child_logger = logging.getLogger(__name__ + '.' + str(id(proc)))
-        child_logger.propagate = False
-        log_handler = LogSender(log_addr, child_logger)
-        if log_level is not None:
-            logger.level = log_level
-        
-        # create threads to poll stdout/stderr and generate / send log records
-        stdout_poller = PipePoller(proc.stdout, logger.info, '[%s.stdout] '%name)
-        stderr_poller = PipePoller(proc.stderr, logger.warning, '[%s.stderr] '%name)
+        stdio_logger = StdioLogSender(proc, name, log_addr, log_level)
         
     else:
         # don't intercept stdout/stderr
@@ -212,7 +203,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         if log_addr is None:
             return ChildProcess(proc, client, name, qt)
         else:
-            return ChildProcess(proc, client, name, qt, child_logger, log_handler, stdout_poller, stderr_poller)
+            return ChildProcess(proc, client, name, qt, stdio_logger)
 
 
 class DaemonProcess:
@@ -232,23 +223,21 @@ class DaemonProcess:
     def kill(self):
         """Kill the spawned process immediately."""
         try:
-            logger.info("Kill daemon process: %d", self.proc.pid)
+            logger.info("Kill daemon process: %d", self.pid)
             kill_pid(self.pid)
         except (OSError, ProcessLookupError):
             pass
 
 
 class ChildProcess:
-    def __init__(self, proc, client, name, qt, logger=None, log_handler=None, stdout_poller=None, stderr_poller=None):
+    def __init__(self, proc, client, name, qt, stdio_logger=None):
         self.proc = proc
         self.pid = proc.pid
         self.client = client
         self.name = name
         self.qt = qt
         self.logger = logger
-        self.log_handler = log_handler
-        self.stdout_poller = stdout_poller
-        self.stderr_poller = stderr_poller
+        self.stdio_logger = stdio_logger
 
         # Automatically shut down process when we exit. 
         atexit.register(self.stop)
@@ -256,20 +245,19 @@ class ChildProcess:
     def wait(self, timeout=10):
         """Wait for the process to exit and return its return code.
         """
+        start = time.time()
+
         # Using proc.wait() can deadlock; use communicate() instead.
         # see: https://docs.python.org/2/library/subprocess.html#subprocess.Popen.wait
-        for raise_exc in (False, False, True): # try 3 times, then raise
-            try:
-                # Turns out communicate() can deadlock too
-                self.proc.communicate(timeout=1)
-            except (AttributeError, ValueError):
-                # Python bug: http://bugs.python.org/issue30203
-                # Calling communicate on process with closed i/o can generate
-                # exceptions.
-                if raise_exc:
-                    raise
+        try:
+            # Turns out communicate() can deadlock too
+            self.proc.communicate(timeout=timeout)
+        except (AttributeError, ValueError):
+            # Python bug: http://bugs.python.org/issue30203
+            # Calling communicate on process with closed i/o can generate
+            # exceptions.
+            pass
         
-        start = time.time()
         sleep = 1e-3
         while True:
             rcode = self.proc.poll()
@@ -309,8 +297,7 @@ class ChildProcess:
         return self.proc.poll()
 
 
-class PipePoller(threading.Thread):
-    
+class PipePoller(threading.Thread):    
     def __init__(self, pipe, callback, prefix):
         threading.Thread.__init__(self, daemon=True)
         self.pipe = pipe
@@ -327,3 +314,23 @@ class PipePoller(threading.Thread):
             if line == '':
                 break
             callback(prefix + line[:-1])
+
+
+class StdioLogSender:
+    """Capture stdout/stderr from a process and forward to a log server.
+    """
+    def __init__(self, proc, name, log_addr, log_level=None):
+        self.proc = proc
+        self.log_addr = log_addr
+
+        # create a logger for handling stdout/stderr and forwarding to log server
+        # TODO id(proc) is not id(self), so this behavior is changed from before. is that okay?
+        self.child_logger = logging.getLogger(__name__ + '.' + str(id(proc)))
+        self.child_logger.propagate = False
+        self.log_handler = LogSender(log_addr, self.child_logger)
+        if log_level is not None:
+            self.child_logger.level = log_level
+        
+        # create threads to poll stdout/stderr and generate / send log records
+        self.stdout_poller = PipePoller(proc.stdout, self.child_logger.info, '[%s.stdout] '%name)
+        self.stderr_poller = PipePoller(proc.stderr, self.child_logger.warning, '[%s.stderr] '%name)
