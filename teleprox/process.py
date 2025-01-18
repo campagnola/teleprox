@@ -6,6 +6,7 @@ import sys
 import json
 import subprocess
 import atexit
+from teleprox.util import kill_pid
 import zmq
 import logging
 import threading
@@ -81,6 +82,22 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         # close the child process
         proc.close()
         proc.wait()
+
+
+    Notes
+    -----
+
+    Daemon processes are used when you expect the child process to continue running past the lifetime of the parent.
+    There are multiple, OS-dependent practical effects of starting a daemon process:
+    - Closing the terminal that started a parent process will usually cause child processes to be killed as well, unless they are
+      started as a daemon (true on both linux and windows)
+    - In some cases signals meant for the parent process (such as when you ctrl-c in a terminal) are also sent to children.
+      Using a daemon ensures signals are not propagated to the child. (maybe only true on linux?)
+    - Children can sometimes share open file handles with their parent (especially stdin/out/err). Starting as a daemon
+      ensures that the child process file handles are totally independent of the parent.
+    - Normal child processes must be wait()ed on after they die to collect their return code, otherwise they remain as a zombie process.
+      Daemon processes do not have to be wait()ed on.
+      
     """
     #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
     assert daemon in (True, False)
@@ -190,7 +207,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         raise RuntimeError(f"Error while spawning process:\n{err}")
 
     if daemon is True:
-        return DaemonProcess(client, name, qt)
+        return DaemonProcess(client, name, qt, status['pid'])
     else:
         if log_addr is None:
             return ChildProcess(proc, client, name, qt)
@@ -199,22 +216,32 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
 
 
 class DaemonProcess:
-    def __init__(self, client, name, qt):
+    def __init__(self, client, name, qt, pid):
         self.client = client
         self.name = name
         self.qt = qt
+        self.pid = pid
 
     def stop(self):
         """Stop the spawned process by asking its RPC server to close.
         """
-        logger.info(f"Close process: {self.client.address}")
+        logger.info(f"Close daemon process: {self.client.address}")
         closed = self.client.close_server()
         assert closed is True, f"Server refused to close. (reply: {closed})"
+
+    def kill(self):
+        """Kill the spawned process immediately."""
+        try:
+            logger.info("Kill daemon process: %d", self.proc.pid)
+            kill_pid(self.pid)
+        except (OSError, ProcessLookupError):
+            pass
 
 
 class ChildProcess:
     def __init__(self, proc, client, name, qt, logger=None, log_handler=None, stdout_poller=None, stderr_poller=None):
         self.proc = proc
+        self.pid = proc.pid
         self.client = client
         self.name = name
         self.qt = qt
@@ -231,13 +258,16 @@ class ChildProcess:
         """
         # Using proc.wait() can deadlock; use communicate() instead.
         # see: https://docs.python.org/2/library/subprocess.html#subprocess.Popen.wait
-        try:            
-            self.proc.communicate()
-        except (AttributeError, ValueError):
-            # Python bug: http://bugs.python.org/issue30203
-            # Calling communicate on process with closed i/o can generate
-            # exceptions.
-            pass
+        for raise_exc in (False, False, True): # try 3 times, then raise
+            try:
+                # Turns out communicate() can deadlock too
+                self.proc.communicate(timeout=1)
+            except (AttributeError, ValueError):
+                # Python bug: http://bugs.python.org/issue30203
+                # Calling communicate on process with closed i/o can generate
+                # exceptions.
+                if raise_exc:
+                    raise
         
         start = time.time()
         sleep = 1e-3
@@ -255,10 +285,10 @@ class ChildProcess:
         """
         if self.proc.poll() is not None:
             return
-        logger.info("Kill process: %d", self.proc.pid)
+        logger.info("Kill child process: %d", self.proc.pid)
         self.proc.kill()
 
-        self.wait()
+        return self.wait()
 
     def stop(self):
         """Stop the spawned process by asking its RPC server to close.
@@ -270,7 +300,7 @@ class ChildProcess:
         closed = self.client.close_server()
         assert closed is True, f"Server refused to close. (reply: {closed})"
 
-        self.wait()
+        return self.wait()
 
     def poll(self):
         """Return the spawned process's return code, or None if it has not
