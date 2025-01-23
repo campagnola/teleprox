@@ -1,7 +1,3 @@
-# -*- coding: utf-8 -*-
-# Copyright (c) 2016, French National Center for Scientific Research (CNRS)
-# Distributed under the (new) BSD License. See LICENSE for more info.
-
 import threading, time, logging
 from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, start_process
 from teleprox.log import RPCLogHandler, set_process_name, set_thread_name, start_log_server
