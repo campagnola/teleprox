@@ -2,21 +2,10 @@ import threading, time, logging
 from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, start_process
 from teleprox.log import RPCLogHandler, set_process_name, set_thread_name, start_log_server
 import numpy as np
-from check_qt import requires_qt, qt_available
+from teleprox.tests.check_qt import requires_qt, qt_available
 
 
-# Set up nice logging for tests:
-# remote processes forward logs to this process
-logger = logging.getLogger()
-#logger.level = logging.DEBUG
-start_log_server(logger)
-# local log messages are time-sorted and colored
-handler = RPCLogHandler()
-logger.addHandler(handler)
-# messages originating locally can be easily identified
-set_process_name('main_process')
-set_thread_name('main_thread')
-
+logger = logging.getLogger(__name__)
 
 if qt_available:
     from teleprox import qt

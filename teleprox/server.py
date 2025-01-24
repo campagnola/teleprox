@@ -8,9 +8,7 @@ import threading
 import builtins
 import zmq
 import logging
-import numpy as np
 import atexit
-import multiprocessing.shared_memory
 
 from . import serializer
 from .proxy import ObjectProxy
@@ -39,8 +37,6 @@ class RPCServer(object):
     * **Qt event loop**: use :class:`QtRPCServer`. In this mode, messages are polled in 
       a separate thread, but then sent to the Qt event loop by signal and
       processed there. The server is registered as running in the Qt thread.
-
-    
     
     Parameters
     ----------
@@ -205,7 +201,7 @@ class RPCServer(object):
         proxy = ObjectProxy(self.address, oid, rid, type_str, attributes=(), **kwds)
         proxy_ref = self._proxy_refs.setdefault(oid, [obj, set()])
         proxy_ref[1].add(rid)
-        #logging.debug("server %s add proxy %d: %s", self.address, oid, obj)
+        #logger.debug("server %s add proxy %d: %s", self.address, oid, obj)
         return proxy
 
     def _get_object_id(self, obj):
@@ -227,7 +223,7 @@ class RPCServer(object):
                            "been released already." % proxy.obj_id)
         for attr in proxy._attributes:
             obj = getattr(obj, attr)
-        #logging.debug("server %s unwrap proxy %d: %s", self.address, oid, obj)
+        #logger.debug("server %s unwrap proxy %d: %s", self.address, oid, obj)
         return obj
 
     def __getitem__(self, key):
@@ -285,13 +281,13 @@ class RPCServer(object):
                 raise ValueError("Unsupported serializer '%s'" % ser_type)
             opts = msg.pop('opts', None)
             
-            logging.debug("RPC recv '%s' from %s [req_id=%s]", action, caller.decode(), req_id)
-            logging.debug("    => %s", msg)
+            logger.debug("RPC recv '%s' from %s [req_id=%s]", action, caller.decode(), req_id)
+            logger.debug("    => %s", msg)
             if opts == b'':
                 opts = None
             else:
                 opts = serializer.loads(opts, server=self, proxy_opts={})
-            logging.debug("    => opts: %s", opts)
+            logger.debug("    => opts: %s", opts)
             
             result = self.process_action(action, opts, return_type, caller)
             exc = None
@@ -335,8 +331,8 @@ class RPCServer(object):
     def _send_result(self, caller, req_id, rval=None, error=None):
         result = {'action': 'return', 'req_id': req_id,
                   'rval': rval, 'error': error}
-        logging.debug("RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id'])
-        logging.debug("    => %s", result)
+        logger.debug("RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id'])
+        logger.debug("    => %s", result)
         
         # Select the correct serializer for this client
         serializer = self._serializers[self._clients[caller]]
@@ -361,7 +357,7 @@ class RPCServer(object):
                     raise
             else:
                 result = obj(*fnargs, **fnkwds)
-            #logging.debug("    => call_obj result: %r", result)
+            #logger.debug("    => call_obj result: %r", result)
         elif action == 'get_obj':
             result = opts['obj']
         elif action == 'delete':
@@ -450,7 +446,7 @@ class RPCServer(object):
         name = ('%s.%s.%s' % (log.get_host_name(), log.get_process_name(), 
                               log.get_thread_name()))
 
-        logging.info("RPC start server: %s@%s", name, self.address.decode())
+        logger.info("RPC start server loop: %s@%s", name, self.address.decode())
         RPCServer.register_server(self)
         while self.running():
             name, msg = self._read_one(self._socket)
@@ -468,7 +464,7 @@ class RPCServer(object):
         """
         name = ('%s.%s.%s' % (log.get_host_name(), log.get_process_name(), 
                               log.get_thread_name()))
-        logging.info("RPC lazy-start server: %s@%s", name, self.address.decode())
+        logger.info("RPC lazy-start server: %s@%s", name, self.address.decode())
         RPCServer.register_server(self)
 
     def auto_proxy(self, obj, no_proxy_types):

@@ -20,5 +20,4 @@ except ImportError as exc:
     qt_available = False
     qt_reason = str(exc)
 
-
 requires_qt = pytest.mark.skipif(not qt_available, reason=qt_reason)

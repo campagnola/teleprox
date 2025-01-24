@@ -3,6 +3,9 @@ from .server import RPCServer
 from . import log
 
 
+logger = logging.getLogger(__name__)
+
+
 class QtRPCServer(RPCServer):
     """RPCServer that executes actions in the main Qt GUI thread.
 
@@ -58,7 +61,7 @@ class QtRPCServer(RPCServer):
     def run_forever(self):
         name = ('%s.%s.%s' % (log.get_host_name(), log.get_process_name(), 
                               log.get_thread_name()))
-        logging.info("RPC start server: %s@%s", name, self.address.decode())
+        logger.info("RPC start server: %s@%s", name, self.address.decode())
         RPCServer.register_server(self)
         self.poll_thread.start()
 

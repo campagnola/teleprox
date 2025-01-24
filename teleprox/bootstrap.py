@@ -68,6 +68,7 @@ if conf['qt']:
     app.setQuitOnLastWindowClosed(False)
 
 # Set up log record forwarding
+log.set_thread_name('main_thread')
 if conf['procname'] is not None:
     log.set_process_name(conf['procname'])
 if conf['logaddr'] is not None:
@@ -76,7 +77,7 @@ if conf['logaddr'] is not None:
 # Also send unhandled exceptions to log server
 log.log_exceptions()
 
-logger.info("New process {procname} {class_name}({listen_addr}) log_addr:{logaddr} log_level:{loglevel}".format(**conf))
+logger.info("Bootstrapping new process {procname} {class_name}({listen_addr}) log_addr:{logaddr} log_level:{loglevel}".format(**conf))
 
 # Create RPC server
 try:
