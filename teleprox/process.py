@@ -121,17 +121,22 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     bootstrap_addr = bootstrap_sock.last_endpoint
     
     # Spawn new process
-    class_name = 'QtRPCServer' if qt else 'RPCServer'
-    args = {'address': address}
-    bootstrap_conf = dict(
-        class_name=class_name, 
-        args=args,
-        bootstrap_addr=bootstrap_addr.decode(),
-        loglevel=log_level,
-        logaddr=log_addr.decode() if log_addr is not None else None,
-        qt=qt,
-        daemon=daemon,
-    )
+    bootstrap_args = []
+    if name is not None:
+        bootstrap_args = [name] + bootstrap_args
+    if qt is True:
+        bootstrap_args.append('--qt')
+    if daemon is True:
+        bootstrap_args.append('--daemon')
+    if log_addr is not None:
+        bootstrap_args.extend([
+            f'--logaddr={log_addr.decode()}',
+            f'--loglevel={log_level}',
+        ])
+    bootstrap_args.extend([
+        f'--listen_addr={address}',
+        f'--bootstrap_addr={bootstrap_addr.decode()}',
+    ])
     
     if executable is None:
         if conda_env is None:
@@ -139,14 +144,11 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         else:
             executable = 'python'  # let env decide which python to use
 
-    cmd = (executable, '-m', 'teleprox.bootstrap')
+    cmd = (executable, '-m', 'teleprox.bootstrap') + tuple(bootstrap_args)
 
     if conda_env is not None:
         cmd = ('conda', 'run', '--no-capture-output', '-n', conda_env) + cmd
     
-    if name is not None:
-        cmd = cmd + (name,)
-
     if shell is True:
         cmd = ' '.join(cmd)
 
@@ -159,19 +161,14 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
             raise ValueError("Cannot use daemon=True with log_addr (you must manually set up logging for daemon processes).")
 
         # start process with stdout/stderr piped
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                         stdout=subprocess.PIPE, shell=shell, **popen_kwargs)
-        
-        proc.stdin.write(json.dumps(bootstrap_conf).encode())
-        proc.stdin.close()
         
         stdio_logger = StdioLogSender(proc, name, log_addr, log_level)
         
     else:
         # don't intercept stdout/stderr
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, shell=shell, **popen_kwargs)
-        proc.stdin.write(json.dumps(bootstrap_conf).encode())
-        proc.stdin.close()
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, shell=shell, **popen_kwargs)
         
     logger.info("Spawned process: %d", proc.pid)
     if daemon is True and sys.platform != 'win32':

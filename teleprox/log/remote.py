@@ -91,9 +91,9 @@ def start_log_server(logger):
 
 
 def get_logger_address():
-    """ Return the address of the LogServer used by this process.
+    """ Return the address of the global LogServer used by this process.
     
-    If a LogServer has been created in this process, then its address is
+    If a global LogServer has been created in this process, then its address is
     returned. Otherwise, the last address set with `set_logger_address()`
     is used.
     """
