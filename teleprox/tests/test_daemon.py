@@ -1,6 +1,5 @@
 import logging
 import os
-import pty
 import signal
 import time
 
@@ -89,11 +88,12 @@ def test_daemon_stdio():
                 log_server.stop()
 
 
-@pytest.skip("This test is not working yet")
+@pytest.mark.skip("This test is not working yet")
 def test_close_terminal():
     """When a terminal closes, it usually takes all child processes with it.
     Check that this is not true for a daemon process.
     """
+    import pty
     with ProcessCleaner() as cleaner:
         lead_fd, follow_fd = pty.openpty()
         proc = teleprox.start_process('test_close_terminal_proc', stdin=follow_fd, stdout=follow_fd, stderr=follow_fd, daemon=True)

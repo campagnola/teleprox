@@ -7,6 +7,7 @@ import json
 import subprocess
 import atexit
 from teleprox.log.remote import get_process_name, set_thread_name
+from teleprox.log.stdio import StdioLogSender
 from teleprox.util import kill_pid
 import zmq
 import logging
@@ -26,7 +27,7 @@ PROCESS_NAME_PREFIX = ''
 
 
 def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
-                 log_level=None, executable=None, shell=False, conda_env=None, 
+                 log_level=None, log_stdio=None, executable=None, shell=False, conda_env=None, 
                  serializer='msgpack', start_local_server=False, daemon=False,
                  stdin=None, stdout=None, stderr=None):
     """Utility for spawning and bootstrapping a new process with an :class:`RPCServer`.
@@ -56,6 +57,9 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     log_level : int
         Optional initial log level to assign to the root logger in the new
         process.
+    log_stdio : bool | None
+        If True, then the new process's stdout and stderr will be captured and
+        forwarded as log records. By default, this is True if log_addr is set.
     executable : str | None
         Optional python executable to invoke. The default value is `sys.executable`.
     shell : bool
@@ -119,6 +123,13 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     assert log_level is None or isinstance(log_level, int)
     if log_level is None:
         log_level = logger.getEffectiveLevel()
+    assert log_stdio in (True, False, None), f'log_stdio must be True, False, or None; got {log_stdio}'
+    if log_stdio is True:
+        assert stdout is None and stderr is None, "Cannot use log_stdio with stdout/stderr."
+    # If we have a log server and stdio/stderr have not been explicitly set, then
+    # turn on stdio logging by default.
+    if log_stdio is None and stdout is None and stderr is None and daemon is False:
+        log_stdio = log_addr is not None
     if name is None:
         name = get_process_name() + '_child'
     name = PROCESS_NAME_PREFIX + name
@@ -166,26 +177,34 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     if shell is True:
         cmd = ' '.join(cmd)
 
-    popen_kwargs = {}
-    if daemon is True and sys.platform == 'win32':
-        popen_kwargs['creationflags'] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-
-    if log_addr is not None:
-        assert stdin is None and stdout is None and stderr is None, "Cannot use stdin/stdout/stderr with log_addr."
-        if daemon is True:
-            raise ValueError("Cannot use daemon=True with log_addr (you must manually set up logging for daemon processes).")
-
-        # start process with stdout/stderr piped
-        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, shell=shell, **popen_kwargs)
-        
-        stdio_logger = StdioLogSender(proc, name, log_addr, log_level)
-        
+    popen_kwargs = {
+        'stdin': stdin or subprocess.DEVNULL,
+        'stdout': stdout,
+        'stderr': stderr,
+        'shell': shell,
+    }
+    if daemon is True:
+        # daemom processes have no stdio
+        assert log_stdio is not True, "Cannot use log_stdio with daemon." 
+        assert stdin is None and stdout is None and stderr is None, "Cannot use stdin/stdout/stderr with daemon."
+        popen_kwargs['stdin'] = subprocess.DEVNULL
+        popen_kwargs['stdout'] = subprocess.DEVNULL
+        popen_kwargs['stderr'] = subprocess.DEVNULL
+        # use DETACH_PROCESS to prevent the child from being killed when the parent is killed
+        # use CREATE_NEW_PROCESS_GROUP to prevent the child from receiving signals from the parent
+        if sys.platform == 'win32':
+            popen_kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP #subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
-        # don't intercept stdout/stderr
-        if stdin is None:
-            stdin = subprocess.DEVNULL
-        proc = subprocess.Popen(cmd, stdin=stdin, stdout=stdout, stderr=stderr, shell=shell, **popen_kwargs)
+        if log_stdio is True:
+            popen_kwargs['stdout'] = subprocess.PIPE
+            popen_kwargs['stderr'] = subprocess.PIPE
+
+    # Start the new process
+    proc = subprocess.Popen(cmd, **popen_kwargs)
+
+    # set up stdout/stderr logging if requested
+    if log_stdio is True:
+        stdio_logger = StdioLogSender(proc, name, log_addr, log_level)
         
     logger.info(f'Spawned process "{name}" with pid {proc.pid}')
     if daemon is True and sys.platform != 'win32':
@@ -311,44 +330,3 @@ class ChildProcess:
         exited yet.
         """
         return self.proc.poll()
-
-
-class PipePoller(threading.Thread):    
-    def __init__(self, pipe, callback, prefix, name):
-        threading.Thread.__init__(self, daemon=True)
-        self.pipe = pipe
-        self.callback = callback
-        self.prefix = prefix
-        self.name = name
-        self.start()
-        
-    def run(self):
-        set_thread_name(f'{self.name}_poller')
-        callback = self.callback
-        prefix = self.prefix
-        pipe = self.pipe
-        while True:
-            line = pipe.readline().decode()
-            if line == '':
-                break
-            callback(prefix + line[:-1])
-
-
-class StdioLogSender:
-    """Capture stdout/stderr from a process and forward to a log server.
-    """
-    def __init__(self, proc, name, log_addr, log_level=None):
-        self.proc = proc
-        self.log_addr = log_addr
-
-        # create a logger for handling stdout/stderr and forwarding to log server
-        # TODO id(proc) is not id(self), so this behavior is changed from before. is that okay?
-        self.child_logger = logging.getLogger(__name__ + '.' + str(id(proc)))
-        self.child_logger.propagate = False
-        self.log_handler = LogSender(log_addr, self.child_logger)
-        if log_level is not None:
-            self.child_logger.level = log_level
-        
-        # create threads to poll stdout/stderr and generate / send log records
-        self.stdout_poller = PipePoller(proc.stdout, self.child_logger.info, f'[{name}.stdout] ', name='stdout')
-        self.stderr_poller = PipePoller(proc.stderr, self.child_logger.warning, f'[{name}.stderr] ', name='stderr')

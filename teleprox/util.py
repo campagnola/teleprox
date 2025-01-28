@@ -52,7 +52,7 @@ def find_procs(search):
     elif sys.platform == 'win32':
         import wmi
         c = wmi.WMI()
-        procs = c.Win32_Process(name=search)
+        procs = c.query(f'select ProcessId,CommandLine from Win32_Process where CommandLine like "%{search}%"')
         return [(proc.ProcessId, proc.CommandLine) for proc in procs]
     else:
         raise NotImplementedError(f"find_procs not implemented for platform {sys.platform}")
