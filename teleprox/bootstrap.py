@@ -13,6 +13,7 @@ parser.add_argument('--verbose', nargs='?', default=False, const=True, help='Pri
 parser.add_argument('--logaddr', nargs='?', default=None, help='Optional address to send log records to')
 parser.add_argument('--loglevel', nargs='?', default='INFO', help='Log level for this process. (default is INFO)')
 parser.add_argument('--bootstrap_addr', nargs='?', default=None, help='Address to send bootstrap messages to')
+parser.add_argument('--child_name_prefix', nargs='?', default='', help='Prefix for child process names')
 
 args = parser.parse_args()
 conf = vars(args)
@@ -26,14 +27,11 @@ except ValueError:
 
 # Fork and detach if requested (only for posix systems; in windows, detachment happens in the parent)
 if conf['daemon'] is True and sys.platform != 'win32':
-    print("starting pid: ", os.getpid())
     if os.fork() != 0:
         sys.exit(0)
-    print("forked pid 1: ", os.getpid())
     os.setsid()
     if os.fork() != 0:
         sys.exit(0)
-    print("forked pid 2: ", os.getpid())
 
     # flush and redirect stdio
     sys.stdout.flush()
@@ -60,6 +58,9 @@ logger.setLevel(conf['loglevel'])
 
 from teleprox import log
 import teleprox
+
+# Set up process name prefix if requested
+teleprox.process.PROCESS_NAME_PREFIX = conf['child_name_prefix']
 
 # Start QApplication if requested
 if conf['qt']:

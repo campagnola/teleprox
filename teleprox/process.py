@@ -6,6 +6,7 @@ import sys
 import json
 import subprocess
 import atexit
+from teleprox.log.remote import get_process_name
 from teleprox.util import kill_pid
 import zmq
 import logging
@@ -17,6 +18,11 @@ from .log import get_logger_address, LogSender
 
 
 logger = logging.getLogger(__name__)
+
+
+# used to make all (grand)children of this process easier to identify
+# (e.g. so we know if anything is left alive after running tests)
+PROCESS_NAME_PREFIX = ''
 
 
 def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
@@ -111,6 +117,9 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     assert log_level is None or isinstance(log_level, int)
     if log_level is None:
         log_level = logger.getEffectiveLevel()
+    if name is None:
+        name = get_process_name() + '_child'
+    name = PROCESS_NAME_PREFIX + name
     
     # temporary socket to allow the remote process to report its status.
     bootstrap_addr = 'tcp://127.0.0.1:*'
@@ -136,6 +145,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     bootstrap_args.extend([
         f'--listen_addr={address}',
         f'--bootstrap_addr={bootstrap_addr.decode()}',
+        f'--child_name_prefix={PROCESS_NAME_PREFIX}',
     ])
     
     if executable is None:
@@ -170,7 +180,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         # don't intercept stdout/stderr
         proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, shell=shell, **popen_kwargs)
         
-    logger.info("Spawned process: %d", proc.pid)
+    logger.info(f'Spawned process "{name}" with pid {proc.pid}')
     if daemon is True and sys.platform != 'win32':
         proc.wait()  # prevent zombie
         proc = None  # prevent trying wait/kill/poll  (but maybe we can still do this on windows?)
@@ -254,6 +264,8 @@ class ChildProcess:
             # Calling communicate on process with closed i/o can generate
             # exceptions.
             pass
+        except subprocess.TimeoutExpired as exc:
+            raise TimeoutError(f'Timed out waiting for process "{self.name}" to exit') from exc
         
         sleep = 1e-3
         while True:
@@ -275,17 +287,17 @@ class ChildProcess:
 
         return self.wait()
 
-    def stop(self):
+    def stop(self, timeout=10):
         """Stop the spawned process by asking its RPC server to close.
         """
         if self.proc.poll() is not None:
             # process has already exited
             return
         logger.info(f"Close process: {self.client.address}")
-        closed = self.client.close_server()
+        closed = self.client.close_server(timeout=timeout)
         assert closed is True, f"Server refused to close. (reply: {closed})"
 
-        return self.wait()
+        return self.wait(timeout)
 
     def poll(self):
         """Return the spawned process's return code, or None if it has not
