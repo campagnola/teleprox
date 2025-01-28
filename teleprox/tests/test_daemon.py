@@ -1,10 +1,12 @@
 import logging
-import signal
-import sys
 import os
+import pty
+import signal
 import time
+
 import pytest
 from teleprox import start_process
+import teleprox
 from teleprox.log.remote import LogServer, start_log_server
 from teleprox.tests import test_logging
 from teleprox.util import ProcessCleaner, assert_pid_dead
@@ -85,3 +87,40 @@ def test_daemon_stdio():
         finally:
             if log_server is not None:
                 log_server.stop()
+
+
+@pytest.skip("This test is not working yet")
+def test_close_terminal():
+    """When a terminal closes, it usually takes all child processes with it.
+    Check that this is not true for a daemon process.
+    """
+    with ProcessCleaner() as cleaner:
+        lead_fd, follow_fd = pty.openpty()
+        proc = teleprox.start_process('test_close_terminal_proc', stdin=follow_fd, stdout=follow_fd, stderr=follow_fd, daemon=True)
+        cleaner.add('proc', proc.pid)
+        child1 = proc.client._import('teleprox').start_process('test_close_terminal_child1')
+        cpid1 = child1.pid._get_value()
+        cleaner.add('child1', cpid1)
+        child2 = proc.client._import('teleprox').start_process('test_close_terminal_child2', daemon=True)
+        cpid2 = child2.pid._get_value()
+        cleaner.add('child2', cpid2)
+
+        # close the terminal
+        os.close(follow_fd)
+        os.close(lead_fd)
+
+        pgid = os.getpgid(proc.pid)
+        assert pgid != os.getpgid(os.getpid()), "Process group should have changed"
+
+        # HUP entire process group
+        os.killpg(pgid, signal.SIGHUP)
+
+        # check proc and child1 are dead
+        assert_pid_dead(proc.pid)
+        assert_pid_dead(cpid1)
+
+        # check child2 is still alive
+        with pytest.raises(AssertionError):
+            assert_pid_dead(cpid2)
+
+

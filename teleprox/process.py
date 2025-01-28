@@ -27,7 +27,8 @@ PROCESS_NAME_PREFIX = ''
 
 def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
                  log_level=None, executable=None, shell=False, conda_env=None, 
-                 serializer='msgpack', start_local_server=False, daemon=False):
+                 serializer='msgpack', start_local_server=False, daemon=False,
+                 stdin=None, stdout=None, stderr=None):
     """Utility for spawning and bootstrapping a new process with an :class:`RPCServer`.
     
     Automatically creates an :class:`RPCClient` that is connected to the remote 
@@ -72,7 +73,8 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         If True, then the new process will be detached from the parent process, allowing
         it to run indefinitely in the background, even after the parent closes. 
         Default is False.
-
+    stdin, stdout, stderr : 
+        See Popen documentation for details. Not compatible with log_addr.
                 
     Examples
     --------
@@ -169,6 +171,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         popen_kwargs['creationflags'] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
 
     if log_addr is not None:
+        assert stdin is None and stdout is None and stderr is None, "Cannot use stdin/stdout/stderr with log_addr."
         if daemon is True:
             raise ValueError("Cannot use daemon=True with log_addr (you must manually set up logging for daemon processes).")
 
@@ -180,7 +183,9 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         
     else:
         # don't intercept stdout/stderr
-        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, shell=shell, **popen_kwargs)
+        if stdin is None:
+            stdin = subprocess.DEVNULL
+        proc = subprocess.Popen(cmd, stdin=stdin, stdout=stdout, stderr=stderr, shell=shell, **popen_kwargs)
         
     logger.info(f'Spawned process "{name}" with pid {proc.pid}')
     if daemon is True and sys.platform != 'win32':

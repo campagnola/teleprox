@@ -64,9 +64,6 @@ class Serializer:
     to an object proxy that can be used to access methods / attributes of the object
     remotely (this requires that the object be known to an RPC server).
     
-    TODO: check this!
-    Note that tuples are converted to lists in transit. See:
-    https://github.com/msgpack/msgpack-python/issues/98
     """
     def __init__(self):
         self._server = None
@@ -320,5 +317,3 @@ class JsonSerializer(Serializer):
         return dct
 
 all_serializers[JsonSerializer.type] = JsonSerializer
-
-
