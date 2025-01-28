@@ -149,7 +149,7 @@ def test_rpc():
     assert obj2.add(3, 4) == 7
     
     obj2._delete()
-    handler.flush_records()  # log records might have refs to the object
+    # handler.flush_records()  # log records might have refs to the object
     assert class_proxy.count._get_value() == 1
     try:
         obj2.array()
@@ -163,7 +163,7 @@ def test_rpc():
     assert class_proxy.count == 2
     
     del obj2
-    handler.flush_records()  # log records might have refs to the object
+    # handler.flush_records()  # log records might have refs to the object
     assert class_proxy.count._get_value() == 1
 
 
@@ -229,7 +229,7 @@ def test_rpc():
 
     logger.info("-- Test JSON client --")
     # Start a JSON client in a remote process
-    cli_proc = start_process()
+    cli_proc = start_process(name='test_rpc_cli_proc')
     cli = cli_proc.client._import('teleprox').RPCClient(server2.address, serializer='json')
     # Check everything is ok..
     assert cli.serializer.type._get_value() == 'json'
@@ -320,9 +320,9 @@ def test_disconnect():
     #~ logger.level = logging.DEBUG
     
     # Clients receive notification when server disconnects gracefully
-    server_proc = start_process()
+    server_proc = start_process('test_disconnect_server_proc')
     
-    client_proc = start_process()
+    client_proc = start_process('test_disconnect_client_proc')
     cli = client_proc.client._import('teleprox').RPCClient(server_proc.client.address)
     cli.close_server()
     
@@ -340,20 +340,20 @@ def test_disconnect():
     
     
     # Clients receive closure messages even if the server exits without closing
-    server_proc = start_process()
-    server_proc.client['self']._closed = 'sabotage!'
+    server_proc2 = start_process('test_disconnect_server_proc2')
+    server_proc2.client['self']._closed = 'sabotage!'
     time.sleep(0.1)
-    assert server_proc.client.disconnected() is True
+    assert server_proc2.client.disconnected() is True
     
     # add by Sam: force the end of process
-    server_proc.kill()
+    server_proc2.kill()
     
     # Clients gracefully handle sudden death of server (with timeout)
-    server_proc = start_process()
-    server_proc.kill()
+    server_proc3 = start_process('test_disconnect_server_proc3')
+    server_proc3.kill()
     
     try:
-        server_proc.client.ping(timeout=1)
+        server_proc3.client.ping(timeout=1)
         assert False, "Expected TimeoutError"
     except TimeoutError:
         pass
@@ -361,20 +361,20 @@ def test_disconnect():
 
     # server doesn't hang up if clients are not available to receive disconnect
     # message
-    server_proc = start_process()
+    server_proc4 = start_process('test_disconnect_server_proc4')
     for i in range(4):
         # create a bunch of dead clients
-        cp = start_process()
-        cli = cp.client._import('teleprox').RPCClient(server_proc.client.address)
+        cp = start_process(f'test_disconnect_client_proc{i}')
+        cli = cp.client._import('teleprox').RPCClient(server_proc4.client.address)
         cp.kill()
     
     start = time.time()
-    server_proc.client.close_server()
+    server_proc4.client.close_server()
     assert time.time() - start < 1.0
-    assert server_proc.client.disconnected() == True
+    assert server_proc4.client.disconnected() == True
     
     # add by Sam: force the end of process
-    server_proc.kill()
+    server_proc4.kill()
 
 
 

@@ -22,6 +22,9 @@ class Handler(logging.Handler):
             if re.match(regex, record.msg):
                 return record
         return None
+    
+    def __str__(self):
+        return '\n'.join([str(record) for record in self.records])
 
 
 def test_log_server():

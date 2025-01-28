@@ -19,7 +19,7 @@ class CustomType:
 
 @pytest.fixture(scope='module')
 def test_data():
-    proc = start_process()
+    proc = start_process('test_serializer_fixture_process')
     test_data = {
         'int': 1,
         'float': 1.,

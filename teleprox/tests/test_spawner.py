@@ -5,11 +5,11 @@ import pytest
 
 from teleprox import start_process
 import os
-from check_qt import requires_qt
+from teleprox.tests.check_qt import requires_qt
 
 
 def test_spawner():
-    proc = start_process()
+    proc = start_process('test_spawner_proc')
     cli = proc.client
     
     # check spawned RPC server has a different PID
@@ -21,7 +21,7 @@ def test_spawner():
 
 
 def test_serverless_client():
-    proc = start_process(start_local_server=False)
+    proc = start_process('test_serverless_client_proc', start_local_server=False)
     cli = proc.client
 
     # check spawned RPC server has a different PID
@@ -46,7 +46,7 @@ def test_serverless_client():
 @requires_qt
 def test_qt_spawner():
     # start process with QtRPCServer
-    proc = start_process(qt=True)
+    proc = start_process('test_qt_spawner_proc', qt=True)
     cli = proc.client
 
     rqt = cli._import('teleprox.qt')

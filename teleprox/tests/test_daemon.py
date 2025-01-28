@@ -6,6 +6,7 @@ import time
 import pytest
 from teleprox import start_process
 from teleprox.log.remote import LogServer, start_log_server
+from teleprox.tests import test_logging
 from teleprox.util import assert_pid_dead
 
 
@@ -17,29 +18,21 @@ def test_daemon():
     got_exception = False
     try:
         # start a child
-        child1 = start_process()
+        child1 = start_process('test_daemon_child1')
         pids_to_clean['child1'] = child1.pid
 
         # ask the child to start a daemon
-        daemon = child1.client._import('teleprox').start_process(daemon=False)
+        daemon = child1.client._import('teleprox').start_process('test_daemon', daemon=False)
         address = daemon.client.address._get_value()
         pid = daemon.client._import('os').getpid()
         pids_to_clean['daemon'] = pid
 
         # kill the child; check that we can still connect to daemon
         time.sleep(1)
-        print(f"Killing child1 with pid {child1.pid}")
-        try:
-            child1.kill()
-        except Exception as exc:
-            try:
-                assert_pid_dead(child1.pid)
-            except AssertionError:
-                print("Failed to kill child1")
-            raise exc
+        child1.kill()
 
         # start second child
-        child2 = start_process()
+        child2 = start_process('test_daemon_child2')
         pids_to_clean['child2'] = child2.pid
 
         # ask second child to connect to daemon
@@ -69,42 +62,41 @@ def test_daemon():
             raise AssertionError(f"Failed to kill processes: {failures}") from exc
 
 
+
 def test_daemon_stdio():
     """Check that daemon process stdout and stderr are redirected to /dev/null.
     """
+    pids_to_clean = {}
     try:
         # Start a log server to catch stdout and stderr from child processes    
-        log_records = []
         logger = logging.getLogger('test_daemon_stdio_logger')
         logger.level = logging.DEBUG
-        def handler(record):
-            log_records.append(record)
-            print("LOG:", record)
+        handler = test_logging.Handler()
         logger.addHandler(handler)
         log_server = LogServer(logger)
         log_server.start()
 
         # create a child process and log all of its stdout/stderr
-        child = start_process(name='child_process', log_addr=log_server.address)
+        child = start_process(name='test_daemon_stdio_child', log_addr=log_server.address, log_level=logging.INFO)
         pids_to_clean = {'child': child.pid}
 
         # create a grandchild process and check that printing from here is logged (because normal children share stdio with parents)
-        child2 = child.client._import('teleprox').start_process(name='child2_process')
+        child2 = child.client._import('teleprox').start_process(name='test_daemon_stdio_child2')
         pids_to_clean['child2'] = child2.pid
         child2.client._import('builtins').print("from child2")
         time.sleep(0.1)
-        assert len(log_records) == 1 and log_records[0].msg == "from child2"
+        assert handler.find_message("from child2") is not None
 
         # create a daemon process and check that printing from here is not logged
-        daemon = child.client._import('teleprox').start_process(daemon=True)
+        daemon = child.client._import('teleprox').start_process(name="test_daemon_stdio_daemon", daemon=True)
         pids_to_clean['daemon'] = daemon.pid
         daemon.client._import('builtins').print("from daemon")
         time.sleep(0.1)
-        assert len(log_records) == 1   # no new messages should have been logged
+        assert len(handler.records) == 1   # no new messages should have been logged
 
         daemon.kill()
-        child.kill()
         child2.kill()
+        child.kill()
 
     finally:
         log_server.stop()

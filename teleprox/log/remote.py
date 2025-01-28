@@ -197,8 +197,10 @@ class LogSender(logging.Handler):
         # if this socket is left open when the process exits, it can lead to
         # deadlock.
         self.record_queue.put(None)
-        self.socket.close()
-
+        socket, self.socket = self.socket, None
+        if socket is not None:
+            socket.close()
+        
 
 class LogServer(threading.Thread):
     """Thread for receiving log records via zmq socket.
