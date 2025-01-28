@@ -7,39 +7,7 @@ import pytest
 from teleprox import start_process
 from teleprox.log.remote import LogServer, start_log_server
 from teleprox.tests import test_logging
-from teleprox.util import assert_pid_dead
-
-
-class ProcessCleaner:
-    """Context manager that collects a list of processes to kill when it exits.
-
-    The expectation is that all processes are already dead when the context manager exits. 
-
-    If an exception is raised, the processes are killed before the exception is re-raised.
-    If no exception is raised, any processes that are still alive will be killed and cause an exception to be raised.
-    """
-    def __init__(self):
-        self.procs = []
-
-    def add(self, name, pid):
-        assert isinstance(pid, int)
-        self.procs.append((name, pid))
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_typ, exc, tb):
-        failures = []
-        for name, pid in self.procs:
-            try:
-                assert_pid_dead(pid)
-            except AssertionError:
-                failures.append(name)
-        # only report kill failures if we didn't get an exception in the main test
-        if failures and exc is None:
-            raise AssertionError(f"Processes failed to exit: {failures}")
-        else:
-            return False  # process exception normally, if any
+from teleprox.util import ProcessCleaner, assert_pid_dead
 
 
 def test_daemon():

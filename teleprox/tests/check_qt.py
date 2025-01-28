@@ -1,3 +1,4 @@
+import time
 import pytest
 import teleprox
 
@@ -25,6 +26,7 @@ finally:
     for i in range(10):
         if p.poll() is not None:
             break
+        time.sleep(0.1)
     if p.poll() is None:
         # indicates presence of deadlock; see failure_modes.py exit_deadlock_qt6
         qt_available = False

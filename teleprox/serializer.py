@@ -10,7 +10,7 @@ import pickle
 import numpy as np
 import multiprocessing.shared_memory
 
-from . import qt
+from . import qt_util
 from .shmem import SharedNDArray
 
 try:
@@ -43,7 +43,8 @@ default_serialize_types = (
     multiprocessing.shared_memory.SharedMemory, SharedNDArray, 
 )
 
-if qt.HAVE_QT:
+if qt_util.HAVE_QT:
+    from . import qt
     default_serialize_types += (
         qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform, 
         qt.QVector3D, qt.QVector4D, qt.QQuaternion,

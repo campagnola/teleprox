@@ -73,3 +73,36 @@ def kill_procs(search, wait=5):
     for pid, line in procs:
         kill_pid(pid)
     return procs
+
+
+class ProcessCleaner:
+    """Context manager that collects a list of processes to kill when it exits.
+
+    If raise_exc is True, then the expectation is that all processes are already dead when the context manager exits.
+    If not, then an exception will be raised saying which processes are still alive.
+    If an exception is raised inside the context, then stray processes will be killed silently and the exception re-raised. 
+    """
+    def __init__(self, raise_exc=True):
+        self.raise_exc = raise_exc
+        self.procs = []
+
+    def add(self, name, pid):
+        assert isinstance(pid, int)
+        self.procs.append((name, pid))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_typ, exc, tb):
+        failures = []
+        for name, pid in self.procs:
+            try:
+                assert_pid_dead(pid)
+            except AssertionError:
+                failures.append(name)
+        # only report kill failures if we didn't get an exception in the main test
+        if self.raise_exc and len(failures) > 0 and exc is None:
+            raise AssertionError(f"Processes failed to exit: {failures}")
+        else:
+            return False  # process exception normally, if any
+
