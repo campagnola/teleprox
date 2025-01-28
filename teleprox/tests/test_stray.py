@@ -4,7 +4,6 @@ from teleprox.util import kill_procs
 
 def test_stray_children():
     procs = kill_procs(teleprox.process.PROCESS_NAME_PREFIX)
-    print(f"========== Found {len(procs)} stray teleprox processes")
     if procs:
         msg = f'\n------------- Found {len(procs)} stray teleprox processes: ----------------\n'
         for pid, line in procs:

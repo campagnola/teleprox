@@ -327,6 +327,8 @@ def test_disconnect():
     
     assert cli.disconnected() is True
     
+    # Check that our local client for server_proc knows the server is disconnected, even though
+    # it was client_proc that closed the server.
     assert server_proc.client.disconnected() is True
     try:
         print(server_proc.client.ping())
@@ -334,9 +336,8 @@ def test_disconnect():
     except RuntimeError:
         pass
     
-    # add by Sam: force the end of process
     server_proc.kill()
-    
+    client_proc.kill()
     
     # Clients receive closure messages even if the server exits without closing
     server_proc2 = start_process('test_disconnect_server_proc2')

@@ -57,14 +57,14 @@ def test_log_server():
         proc.stop()
 
         expected = [
-            (r"\[child_process.stdout\] message 1", logging.INFO),
-            (r"\[child_process.stderr\] message 2", logging.WARNING),
+            (r"child_process.stdout\] message 1", logging.INFO),
+            (r"child_process.stderr\] message 2", logging.WARNING),
             (r"logged message 3", logging.INFO),
             (r".*No module named 'fake_module'.*", logging.WARNING),
         ]
         for regex, level in expected:
             rec = handler.find_message(regex)
-            assert rec is not None
+            assert rec is not None, f"Expected log message not found: {regex}"
             assert rec.levelno == level
 
     finally:
