@@ -52,7 +52,6 @@ def import_qt(qt_lib=None):
                 importlib.import_module(qt_lib+'.QtCore')
                 HAVE_QT = True
                 QT_LIB = qt_lib
-                print(f'Imported: {qt_lib}')
                 break
             except ImportError:
                 pass
