@@ -78,7 +78,7 @@ if conf['logaddr'] is not None:
 # Also send unhandled exceptions to log server
 log.log_exceptions()
 
-logger.info("Bootstrapping new process {procname} {class_name}({listen_addr}) log_addr:{logaddr} log_level:{loglevel}".format(**conf))
+logger.info('Bootstrapping new process "{procname}" {class_name}({listen_addr}) log_addr:{logaddr} log_level:{loglevel}'.format(**conf))
 
 # Create RPC server
 try:
@@ -115,4 +115,7 @@ if 'address' in status:
     server.run_forever()
     
 if conf['qt']:
-    app.exec_()
+    try:
+        app.exec()
+    except AttributeError:
+        app.exec_()

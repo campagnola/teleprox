@@ -64,7 +64,6 @@ def process_name_prefix():
     # All (grand)child processes will have this prefix for easy cleanup
     prefix = f'teleprox_test_{os.getpid()}:'
     teleprox.process.PROCESS_NAME_PREFIX = prefix
-    print("Setting up process name prefix", prefix)
     yield prefix
     assert teleprox.process.PROCESS_NAME_PREFIX == prefix, "Process name prefix was changed during test run, this is not allowed."
 

@@ -19,7 +19,7 @@ class Handler(logging.Handler):
 
     def find_message(self, regex):
         for record in self.records:
-            if re.match(regex, record.msg):
+            if re.search(regex, record.msg):
                 return record
         return None
     

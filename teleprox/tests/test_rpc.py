@@ -187,7 +187,6 @@ def test_rpc():
     arr = np.ones(10, dtype='float32')
     arr_prox = client.transfer(arr)
     assert arr_prox.dtype.name == 'float32'
-    print(arr_prox, arr_prox.shape)
     assert arr_prox.shape._get_value() == (10,)
 
 

@@ -6,7 +6,7 @@ import sys
 import json
 import subprocess
 import atexit
-from teleprox.log.remote import get_process_name
+from teleprox.log.remote import get_process_name, set_thread_name
 from teleprox.util import kill_pid
 import zmq
 import logging
@@ -154,7 +154,9 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         else:
             executable = 'python'  # let env decide which python to use
 
-    cmd = (executable, '-m', 'teleprox.bootstrap') + tuple(bootstrap_args)
+    # note: the -u flag is used to force unbuffered stdout/stderr so that all
+    # output is captured in real time.
+    cmd = (executable, '-u', '-m', 'teleprox.bootstrap') + tuple(bootstrap_args)
 
     if conda_env is not None:
         cmd = ('conda', 'run', '--no-capture-output', '-n', conda_env) + cmd
@@ -307,14 +309,16 @@ class ChildProcess:
 
 
 class PipePoller(threading.Thread):    
-    def __init__(self, pipe, callback, prefix):
+    def __init__(self, pipe, callback, prefix, name):
         threading.Thread.__init__(self, daemon=True)
         self.pipe = pipe
         self.callback = callback
         self.prefix = prefix
+        self.name = name
         self.start()
         
     def run(self):
+        set_thread_name(f'{self.name}_poller')
         callback = self.callback
         prefix = self.prefix
         pipe = self.pipe
@@ -341,5 +345,5 @@ class StdioLogSender:
             self.child_logger.level = log_level
         
         # create threads to poll stdout/stderr and generate / send log records
-        self.stdout_poller = PipePoller(proc.stdout, self.child_logger.info, '[%s.stdout] '%name)
-        self.stderr_poller = PipePoller(proc.stderr, self.child_logger.warning, '[%s.stderr] '%name)
+        self.stdout_poller = PipePoller(proc.stdout, self.child_logger.info, f'[{name}.stdout] ', name='stdout')
+        self.stderr_poller = PipePoller(proc.stderr, self.child_logger.warning, f'[{name}.stderr] ', name='stderr')
