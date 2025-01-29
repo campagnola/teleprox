@@ -4,7 +4,7 @@ import time
 import teleprox
 from teleprox.client import RemoteCallException
 from teleprox.log.remote import LogServer
-from teleprox.util import assert_pid_dead
+from teleprox.util import ProcessCleaner, assert_pid_dead
 
 
 class Handler(logging.Handler):
@@ -27,20 +27,42 @@ class Handler(logging.Handler):
         return '\n'.join([str(record) for record in self.records])
 
 
+class RemoteLogRecorder:
+    """Sets up a log server to receive log messages and a handler to store them.
+    """
+    def __init__(self, name):
+        self.logger = logging.getLogger(name)
+        self.logger.level = logging.DEBUG
+        self.logger.propagate = False  # keep these messages for ourselves
+        self.handler = Handler()
+        self.logger.addHandler(self.handler)
+        self.log_server = LogServer(self.logger)
+        self.log_server.start()
+        self.address = self.log_server.address
+
+    def find_message(self, regex):
+        return self.handler.find_message(regex)
+
+    def stop(self):
+        self.log_server.stop()
+        self.logger.removeHandler(self.handler)
+
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
+
+
+
 def test_log_server():
-    log_server = None
+    logger = None
     proc = None
     try:
         # Start a log server to catch stdout, stderr, and log messages from child processes
-        logger = logging.getLogger('test_log_server_logger')
-        logger.level = logging.DEBUG
-        logger.propagate = False  # keep these messages for ourselves
-        handler = Handler()
-        logger.addHandler(handler)
-        log_server = LogServer(logger)
-        log_server.start()
+        logger = RemoteLogRecorder('test_log_server_logger')
 
-        proc = teleprox.start_process(name='child_process', log_addr=log_server.address, log_level=logging.INFO)
+        proc = teleprox.start_process(name='child_process', log_addr=logger.address, log_level=logging.INFO)
         # check that we get log records for the child's stdout
         proc.client._import('sys').stdout.write("message 1\n")
         # check that we get log records for the child's stderr
@@ -63,12 +85,48 @@ def test_log_server():
             (r".*No module named 'fake_module'.*", logging.WARNING),
         ]
         for regex, level in expected:
-            rec = handler.find_message(regex)
+            rec = logger.find_message(regex)
             assert rec is not None, f"Expected log message not found: {regex}"
             assert rec.levelno == level
 
     finally:
         if proc is not None:
             assert_pid_dead(proc.pid)
-        if log_server is not None:
-            log_server.stop()
+        if logger is not None:
+            logger.stop()
+
+
+def test_quick_exit():
+    # can we get log messages if the process exits immediately after generating them?
+    with ProcessCleaner() as cleaner:
+        with RemoteLogRecorder('test_quick_exit_logger') as logger:
+            proc = teleprox.start_process(name='test_quick_exit_logged', log_addr=logger.address, log_level=logging.INFO)
+            cleaner.add(proc)
+            proc.client._import('logging').getLogger().info("quick exit message")
+            proc.stop()
+
+            assert logger.find_message(r"quick exit message") is not None
+
+    with ProcessCleaner() as cleaner:
+        with RemoteLogRecorder('test_quick_exit_logger') as logger:
+            proc = teleprox.start_process(name='test_quick_exit_stdout', log_addr=logger.address, log_level=logging.INFO)
+            cleaner.add(proc)
+            proc.client._import('sys').stdout.write("quick exit message\n")
+            proc.stop()
+
+            assert logger.find_message(r"quick exit message") is not None
+
+
+def test_unhandled_exception():
+    with ProcessCleaner() as cleaner:
+        with RemoteLogRecorder('test_unhandled_exception_logger') as logger:
+            proc = teleprox.start_process(name='test_unhandled_exception', log_addr=logger.address, log_level=logging.INFO)
+            cleaner.add(proc)
+
+            # should generate an unhandled exception log message
+            proc.client._import('os').listdir('nonexistent', _sync='off')
+
+            time.sleep(0.1)  # wait for log messages to be received
+            proc.stop()
+
+            assert logger.find_message(r"Unhandled exception") is not None
