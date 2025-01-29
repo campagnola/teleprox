@@ -6,7 +6,7 @@ from teleprox.tests.check_qt import requires_qt
 
 
 def test_qt_unimportable():
-    with ProcessCleaner(raise_exc=False) as cleaner:
+    with ProcessCleaner() as cleaner:
         child = teleprox.start_process('test_qt_import_child')
         cleaner.add(child.name, child.pid)
         rqt = child.client._import('teleprox.qt_util')
@@ -17,11 +17,12 @@ def test_qt_unimportable():
         with pytest.raises(RemoteCallException):
             rqt.import_qt()
 
+        child.stop()
 
 @requires_qt
 def test_qt_import():
     # test that qt is not imported until requested
-    with ProcessCleaner(raise_exc=False) as cleaner:
+    with ProcessCleaner() as cleaner:
         child = teleprox.start_process('test_qt_import_child')
         cleaner.add(child.name, child.pid)
         rqt = child.client._import('teleprox.qt_util')
@@ -31,9 +32,11 @@ def test_qt_import():
         # keep track of which qt lib we have
         qt_lib = rqt.QT_LIB._get_value()
 
+        child.stop()
+
     # check that if we import Qt on our own, teleprox.qt won't
     # override that decision
-    with ProcessCleaner(raise_exc=False) as cleaner:
+    with ProcessCleaner() as cleaner:
         child = teleprox.start_process('test_qt_import_child')
         cleaner.add(child.name, child.pid)
         rqt = child.client._import('teleprox.qt_util')
@@ -45,9 +48,10 @@ def test_qt_import():
 
         rqt.import_qt()
         assert rqt.QT_LIB._get_value() == qt_lib
+        child.stop()
 
     # check that we can explicitly import a qt lib
-    with ProcessCleaner(raise_exc=False) as cleaner:
+    with ProcessCleaner() as cleaner:
         child = teleprox.start_process('test_qt_import_child')
         cleaner.add(child.name, child.pid)
         rqt = child.client._import('teleprox.qt_util')
@@ -61,4 +65,5 @@ def test_qt_import():
             rqt.import_qt(wrong_qt_lib)
         
         app = child.client._import('teleprox.qt').QApplication([])
+        child.stop()
         
