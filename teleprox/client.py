@@ -9,6 +9,7 @@ import time
 import weakref
 import concurrent.futures
 import threading
+from teleprox.util import check_tcp_port
 import zmq
 import logging
 import numpy as np
@@ -159,7 +160,7 @@ class RPCClient(object):
             
             self.ensure_connection()
         except:
-            RPCClient.clients_by_thread[key] = None
+            RPCClient.clients_by_thread.pop(key, None)
             raise
 
     @staticmethod
@@ -180,16 +181,7 @@ class RPCClient(object):
         
         host, port = parts.groups()
         port = int(port)
-
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(timeout)
-            try:
-                s.connect((host, port))
-                return "open"
-            except socket.timeout:
-                return "timeout"
-            except (ConnectionRefusedError, OSError):
-                return "closed"
+        return check_tcp_port(host, port, timeout)
 
     def _get_poller(self):
         # Return the poller that should be used to listen for incoming messages
@@ -503,7 +495,8 @@ class RPCClient(object):
         Parameters
         ----------
         timeout : float
-            Maximum time (seconds) to wait for a message.
+            Maximum time (seconds) to wait for a message. Use timeout=None to
+            block indefinitely.
         
         """
         # timeout is in seconds; convert to ms

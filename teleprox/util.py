@@ -1,3 +1,6 @@
+import re
+import socket
+import subprocess
 import os, sys, signal
 import time
 
@@ -106,3 +109,81 @@ class ProcessCleaner:
         else:
             return False  # process exception normally, if any
 
+
+def check_tcp_port(host, port, timeout=1):
+    """Attempt to determine whether a TCP port is open, closed, or filtered.
+
+    On windows, closed ports will appear to be filtered (we can't tell the difference)
+    _except_ when asking about the localhost.
+
+    Returns
+    -------
+    state : str
+        'open', 'closed', or 'timeout'
+    """
+    # quick check for open local ports on windows
+    if host in ('localhost', '127.0.0.1') and sys.platform == 'win32':
+        ports = netstat()
+        for p in ports:
+            if p.proto == 'tcp' and p.addr == '127.0.0.1' and p.port == port:
+                return "open"
+        return "closed"
+
+    # on linux, we can use a socket to check the port        
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        try:
+            s.connect((host, port))
+            return "open"
+        except socket.timeout:
+            return "timeout"
+        except (ConnectionRefusedError, OSError):
+            return "closed"
+
+
+class Port:
+    def __init__(self, proto, addr, port, state, pid):
+        self.proto = proto
+        self.addr = addr
+        self.port = port
+        self.state = state
+        self.pid = pid
+
+
+def netstat():
+    """Return a list describing all ports in use on the system (listening, established, etc).
+    
+    Each item in the list is a Port object with attributes proto, addr, port, state, pid.
+    """
+    
+    if sys.platform == 'win32':
+        output = subprocess.check_output(['netstat', '-ano']).decode()
+        lines = output.split('\n')
+        ports = []
+        for line in lines:
+            parts = re.split(r'\s+', line.strip())
+            if len(parts) < 5 or parts[0] not in ('TCP', 'UDP'):
+                continue
+
+            proto = parts[0].lower()
+            local_addr, local_port = parts[1].rsplit(':', 1)
+            state = {'LISTENING': 'LISTEN'}.get(parts[3], parts[3])  # windows uses LISTENING instead of LISTEN
+            pid = int(parts[4])
+            ports.append(Port(proto, local_addr, int(local_port), state, pid))
+    elif sys.platform == 'linux':
+        output = subprocess.check_output(['netstat', '-tpln']).decode()
+        lines = output.split('\n')
+        ports = []
+        for line in lines:
+            parts = re.split(r'\s+', line.strip())
+            if len(parts) < 7 or parts[0] not in ('tcp', 'udp'):
+                continue
+
+            proto = parts[0]
+            local_addr, local_port = parts[3].rsplit(':', 1)
+            state = parts[5]
+            pid = int(parts[6].lsplit('/', 1)[0])
+            ports.append(Port(proto, local_addr, int(local_port), state, pid))
+    else:
+        raise NotImplementedError(f"netstat not implemented for platform {sys.platform}")
+    return ports
