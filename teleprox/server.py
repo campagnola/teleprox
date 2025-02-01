@@ -160,6 +160,7 @@ class RPCServer(object):
         
         # Id of thread that this server is registered to
         self._thread = None
+        self._run_thread = None
         
         # Objects that may be retrieved by name using client['obj_name']
         self._namespace = {'self': self}
@@ -451,6 +452,12 @@ class RPCServer(object):
         while self.running():
             name, msg = self._read_one(self._socket)
             self._process_one(name, msg)
+
+    def run_in_thread(self):
+        """Call run_forever in a new thread.
+        """
+        self._run_thread = threading.Thread(target=self.run_forever, daemon=True)
+        self._run_thread.start()
             
     def run_lazy(self):
         """Register this server as being active for the current thread, but do

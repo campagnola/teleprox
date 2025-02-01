@@ -42,7 +42,7 @@ class RPCClient(object):
         for a response. This is necessary to avoid deadlocks in case of 
         reentrant RPC requests (eg, server A calls server B, which then calls
         server A again). Default is True.
-    start_server : bool
+    start_local_server : bool
         If True, start an RPCServer in this thread (or reuse an existing server) and 
         call run_lazy() so that it can receive requests whenever this client is waiting
         on a result. This would be needed, for example, if you send a callback function
@@ -56,7 +56,7 @@ class RPCClient(object):
         If a local server is running, then types not in this list will be sent by proxy. 
         Otherwise, a TypeError is raised.
         If None, then ``serializer.default_serialize_types`` is used instead. 
-        This is also used in the construction of the local RPCServer if start_server is True.
+        This is also used in the construction of the local RPCServer if start_local_server is True.
 
     
     Raises ConnectionRefusedError if no server is running at the given address.
@@ -430,7 +430,7 @@ class RPCClient(object):
                     return
                 except TimeoutError:
                     continue
-            raise TimeoutError("Could not establish connection with RPC server.")
+            raise TimeoutError(f"Could not establish connection with RPC server at {self.address.decode()}")
         finally:
             self.establishing_connect = False
 
