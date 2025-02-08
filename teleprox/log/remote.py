@@ -73,7 +73,7 @@ sender = None
 server_addr = None
 
 
-def start_log_server(logger):
+def start_log_server(logger=__file__):
     """Create a global log server and attach it to a logger.
     
     Use `get_logger_address()` to return the socket address for the server

@@ -3,52 +3,48 @@ Create a daemon process -- one that is completely disconnected from this termina
 
 Show that we can reconnect to the process and catch logging output from it.
 """
+import time
 import teleprox
 import logging
 
 # start a daemon process
-daemon = teleprox.start_process('daemon', daemon=False)
+daemon = teleprox.start_process('example-daemon', daemon=True)
 
 address = daemon.client.address
-pid = daemon.client._import('os').getpid()
-print(f"Started daemon process {pid} with address {address}")
-
-# create a log sender in the remote process
-remote_log = daemon.client._import('teleprox.log')
-remote_sender = remote_log.LogSender(logger='')  # prepare to send all messages from the root logger to a log server
-daemon.client['log_sender'] = remote_sender  # publish a reference to the sender so we can access it easily later on
-# request to log exceptions in the daemon
-remote_log.log_exceptions()
+print(f"Started daemon process {daemon.pid} with address {address}")
 
 # now close and forget our connection to the daemon
 daemon.client.close()
 del daemon
 print("Closed connection to daemon")
 
-# .. some time passes, and now we wish to reconnect to the daemon
+
+# ---------------------------------------------------------------
+# Some time passes, and now we wish to reconnect to the daemon.
+# The code below could be run from a totally different process.
+
 
 client = teleprox.RPCClient.get_client(address=address)
-new_pid = client._import('os').getpid()
+new_pid = client._import('os').getpid()  # just to prove it's the same daemon
 print(f"Reconnected to daemon process at {address} (pid {new_pid})")
 
 print("Connecting logging from daemon to this process..")
-# set up logging in this process
-logger = logging.getLogger('')
-logger.setLevel(logging.INFO)
-# create a handler to print log messages to the console
-handler = teleprox.log.RPCLogHandler()  
-# attach to the root logger so we get messages from both processes
-logger.addHandler(handler)
-# create a log server to receive messages from the daemon
-log_server = teleprox.log.LogServer(logger='daemon')
+# set up logging to console in this process
+teleprox.log.basic_config(log_level='INFO')
 
-# connect the remote log sender to our log server
-client['log_sender'].connect(log_server.address)
+# set up a log server to receive log messages from the daemon
+teleprox.log.start_log_server('')
+log_addr = teleprox.log.get_logger_address()
 
-# log a message in the daemon process
+# set up logging in the daemon to send messages to this process
+client._import('teleprox.log').set_logger_address(log_addr)
+client._import('logging').getLogger().setLevel('INFO')
+
+# create a log message in the daemon process
 client._import('logging').info("Hello from the daemon!")
 
-# finally, close the daemon process
-client.close_server()
+# # finally, close the daemon process
+# client.close_server()
 
 
+# time.sleep(1)  # wait for all messages to be processed before exiting

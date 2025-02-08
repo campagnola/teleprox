@@ -141,23 +141,27 @@ class RPCLogHandler(logging.StreamHandler):
 
 
 _sys_excepthook = None
+_threading_excepthook = None
 
 
 def _log_unhandled_exception(exc, val, tb):
-    global _sys_excepthook
     exc_str = traceback.format_stack()
     exc_str += [" < exception caught here >\n"]
     exc_str += traceback.format_exception(exc, val, tb)[1:]
     exc_str = ''.join(['    ' + line for line in exc_str])
     logging.getLogger().warning("Unhandled exception:\n%s", exc_str)
-    #_sys_excepthook(exc, val, tb)
+
+def _log_unhandled_exc_from_thread(args):
+    _log_unhandled_exception(args.exc_type, args.exc_value, args.exc_traceback)
 
 
 def log_exceptions():
     """Install a hook that creates log messages from unhandled exceptions.
     """
-    global _sys_excepthook
-    if sys.excepthook is _log_unhandled_exception:
-        return
-    _sys_excepthook = sys.excepthook
-    sys.excepthook = _log_unhandled_exception
+    global _sys_excepthook, _threading_excepthook
+    if sys.excepthook is not _log_unhandled_exception:
+        _sys_excepthook = sys.excepthook
+        sys.excepthook = _log_unhandled_exception    
+    if threading.excepthook is not _log_unhandled_exc_from_thread:
+        _threading_excepthook = threading.excepthook
+        threading.excepthook = _log_unhandled_exc_from_thread

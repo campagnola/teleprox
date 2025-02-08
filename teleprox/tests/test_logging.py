@@ -120,13 +120,32 @@ def test_quick_exit():
 def test_unhandled_exception():
     with ProcessCleaner() as cleaner:
         with RemoteLogRecorder('test_unhandled_exception_logger') as logger:
-            proc = teleprox.start_process(name='test_unhandled_exception', log_addr=logger.address, log_level=logging.INFO)
+            # start process with stdio logging disabled. 
+            # We should still get a log message for the unhandled exception
+            # because tx.log.log_exceptions() is called in teleprox/bootstrap.py
+            proc = teleprox.start_process(
+                name='test_unhandled_exception', 
+                log_stdio=False, 
+                log_addr=logger.address,
+                log_level=logging.INFO
+            )
             cleaner.add(proc)
+
+            # just verify stdio logging is disabled
+            proc.client._import('sys').stderr.write("message 1\n")
+            time.sleep(0.1)  # wait for log messages to be received
+            assert logger.find_message(r"message 1") is None
 
             # should generate an unhandled exception log message
             proc.client._import('os').listdir('nonexistent', _sync='off')
-
             time.sleep(0.1)  # wait for log messages to be received
-            proc.stop()
+            rec = logger.find_message(r"Unhandled exception")
+            assert rec is not None
+            assert 'stderr' not in rec.msg
 
-            assert logger.find_message(r"Unhandled exception") is not None
+            # test that the exception hander works from a background thread
+            proc.client._import('teleprox.tests.threaded_exceptions').raise_in_thread("threaded exception")
+            time.sleep(0.1)  # wait for log messages to be received
+            assert logger.find_message(r"threaded exception") is not None
+
+            proc.stop()

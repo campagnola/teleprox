@@ -158,8 +158,11 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     bootstrap_args.extend([
         f'--listen_addr={address}',
         f'--bootstrap_addr={bootstrap_addr.decode()}',
-        f'--child_name_prefix={PROCESS_NAME_PREFIX}',
     ])
+    if PROCESS_NAME_PREFIX not in ('', None):
+        bootstrap_args.append(
+            f'--child_name_prefix={PROCESS_NAME_PREFIX}'
+        )
     
     if executable is None:
         if conda_env is None:
@@ -205,6 +208,8 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     # set up stdout/stderr logging if requested
     if log_stdio is True:
         stdio_logger = StdioLogSender(proc, name, log_addr, log_level)
+    else:
+        stdio_logger = None
         
     logger.info(f'Spawned process "{name}" with pid {proc.pid}')
     if daemon is True and sys.platform != 'win32':
@@ -233,10 +238,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     if daemon is True:
         return DaemonProcess(client, name, qt, status['pid'])
     else:
-        if log_addr is None:
-            return ChildProcess(proc, client, name, qt)
-        else:
-            return ChildProcess(proc, client, name, qt, stdio_logger)
+        return ChildProcess(proc, client, name, qt, stdio_logger)
 
 
 class DaemonProcess:
