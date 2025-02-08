@@ -332,7 +332,7 @@ class RPCServer(object):
     def _send_result(self, caller, req_id, rval=None, error=None):
         result = {'action': 'return', 'req_id': req_id,
                   'rval': rval, 'error': error}
-        logger.debug("RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id'])
+        logger.info("RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id'])
         logger.debug("    => %s", result)
         
         # Select the correct serializer for this client

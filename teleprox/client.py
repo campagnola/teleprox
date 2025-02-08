@@ -89,6 +89,14 @@ class RPCClient(object):
         
         return RPCClient(address)
     
+    @staticmethod
+    def forget_client(client):
+        """Forget a client that is no longer needed.
+        """
+        key = (threading.current_thread().ident, client.address)
+        with RPCClient.clients_by_thread_lock:
+            RPCClient.clients_by_thread.pop(key, None)
+    
     def __init__(self, address, reentrant=True, start_local_server=False, serializer='msgpack', serialize_types=None):
         if isinstance(address, str):
             address = address.encode()
@@ -210,7 +218,11 @@ class RPCClient(object):
             return True
         
         # check to see if we have received any new messages
-        self._read_and_process_all()
+        try:
+            self._read_and_process_all()
+        except zmq.error.ZMQError:
+            self._disconnected = True
+        
         return self._disconnected
 
     def send(self, action, opts=None, return_type='auto', sync='sync', timeout=10.0):
@@ -512,8 +524,8 @@ class RPCClient(object):
             self._socket.setsockopt(zmq.RCVTIMEO, timeout)
             msg = self._socket.recv()
             msg = self.serializer.loads(msg, server=None, proxy_opts=self.default_proxy_options)
-        except zmq.error.Again:
-            raise TimeoutError("Timeout waiting for Future result.")
+        except zmq.error.Again as exc:
+            raise TimeoutError("Timeout waiting for Future result.") from None
         
         self.process_msg(msg)
 
@@ -587,6 +599,7 @@ class RPCClient(object):
         # reference management is disabled for now..
         #self.send('release_all', return_type=None) 
         self._socket.close()
+        RPCClient.forget_client(self)
 
     def close_server(self, sync='sync', timeout=1.0, **kwds):
         """Ask the server to close.
