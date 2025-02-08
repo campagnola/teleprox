@@ -1,7 +1,7 @@
 import logging
 import re
 import time
-import teleprox
+import teleprox.log
 from teleprox.client import RemoteCallException
 from teleprox.log.remote import LogServer
 from teleprox.util import ProcessCleaner, assert_pid_dead
@@ -40,8 +40,13 @@ class RemoteLogRecorder:
         self.log_server.start()
         self.address = self.log_server.address
 
-    def find_message(self, regex):
-        return self.handler.find_message(regex)
+    def find_message(self, regex, timeout=0.5):
+        start_time = time.perf_counter()
+        while time.perf_counter() - start_time < timeout:
+            rec = self.handler.find_message(regex)
+            if rec is not None:
+                return rec
+            time.sleep(0.1)        
 
     def stop(self):
         self.log_server.stop()
@@ -133,19 +138,64 @@ def test_unhandled_exception():
 
             # just verify stdio logging is disabled
             proc.client._import('sys').stderr.write("message 1\n")
-            time.sleep(0.1)  # wait for log messages to be received
             assert logger.find_message(r"message 1") is None
 
             # should generate an unhandled exception log message
             proc.client._import('os').listdir('nonexistent', _sync='off')
-            time.sleep(0.1)  # wait for log messages to be received
             rec = logger.find_message(r"Unhandled exception")
             assert rec is not None
             assert 'stderr' not in rec.msg
 
             # test that the exception hander works from a background thread
             proc.client._import('teleprox.tests.threaded_exceptions').raise_in_thread("threaded exception")
-            time.sleep(0.1)  # wait for log messages to be received
             assert logger.find_message(r"threaded exception") is not None
 
             proc.stop()
+
+
+def test_log_server_reconnect(debug=False):
+    """Show that we can start a daemon, connect to it from another process,
+    and redirect the daemon's log messages to that new process.
+
+    If debug=True, then we also print all captured messages to the console.
+    """
+    with ProcessCleaner() as cleaner:
+        if debug:
+            teleprox.log.basic_config(log_level='DEBUG')
+        with RemoteLogRecorder('test_unhandled_exception_logger1') as logger:
+            logger.logger.propagate = debug
+            child1 = teleprox.start_process(
+                name='test_log_server_reconnect_child1',
+                daemon=True,
+                log_addr=logger.address, log_level=logging.DEBUG,
+            )
+            cleaner.add(child1)
+
+            # test logging from daemon
+            child1.client._import('logging').getLogger().info("message 1")
+            assert logger.find_message(r"message 1") is not None
+
+        # create a new logger and reconnect to the daemon
+        with RemoteLogRecorder('test_unhandled_exception_logger2') as logger:
+            logger.logger.propagate = debug
+            # create a new process from which we will contact the original
+            child2 = teleprox.start_process(
+                name='test_log_server_reconnect_child2',
+                log_addr=logger.address, log_level=logging.DEBUG,
+            )
+            cleaner.add(child2)
+
+            # reconnect, redirect log output to new log server
+            client2 = child2.client._import('teleprox').RPCClient.get_client(address=child1.client.address)
+            client2._import('teleprox.log').set_logger_address(logger.address)
+
+            # test logging from daemon
+            client2._import('logging').getLogger().info("message 2")
+            assert logger.find_message(r"message 2") is not None
+
+            # raise an exception using the old client
+            child1.client._import('teleprox.tests.threaded_exceptions').raise_in_thread("message 3")
+            assert logger.find_message(r"message 3") is not None
+
+        child1.kill()  # can't wait() on a daemon process, so just murder it
+        child2.stop()
