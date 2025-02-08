@@ -109,6 +109,7 @@ class ObjectProxy(object):
                 'defer_getattr': True,   ## True, False
                 'no_proxy_types': [type(None), str, int, float, tuple, list, dict, ObjectProxy],
                 'auto_delete': False,
+                'safe_print': True,
             }
         ))
 
@@ -214,6 +215,12 @@ class ObjectProxy(object):
         auto_delete : bool
             If True, then the proxy will automatically call
             `self._delete()` when it is collected by Python.
+        safe_print : bool
+            If True, then the proxy will return a safe string representation
+            (that does not require contacting the remote process)
+            when str(obj) or repr(obj) are called. If False, then str(obj)
+            is unchanged from the server, and repr(obj) will indicate that
+            the object is a proxy.
         """
         for k in kwds:
             if k not in self._proxy_options:
@@ -232,7 +239,10 @@ class ObjectProxy(object):
             return self._client().get_obj(self, return_type='value')
         
     def __repr__(self):
-        orep = '.'.join((self._type_str,) + self._attributes)
+        if self._proxy_options['safe_print'] is True:
+            orep = '.'.join((self._type_str,) + self._attributes)
+        else:
+            orep = self._deferred_attr('__repr__')(_return_type='value')
         rep = '<ObjectProxy for %s[%d] %s >' % (self._rpc_addr.decode(), self._obj_id, orep)
         return rep
 
@@ -356,9 +366,10 @@ class ObjectProxy(object):
         return self._deferred_attr('__setattr__')(*args)
         
     def __str__(self, *args):
-        # for safe printing
-        return repr(self)
-        #return self._deferred_attr('__str__')(*args, _return_type='value')
+        if self._proxy_options['safe_print'] is True:
+            return repr(self)
+        else:
+            return self._deferred_attr('__str__')(*args, _return_type='value')
         
     def __len__(self, *args):
         return self._deferred_attr('__len__')(*args)

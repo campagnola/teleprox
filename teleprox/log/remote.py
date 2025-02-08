@@ -111,8 +111,9 @@ def set_logger_address(addr):
     """
     global sender, server_addr
     if sender is not None:
-        raise Exception("A global LogSender has already been created.")
-    sender = LogSender(addr, '')
+        sender.connect(addr)
+    else:
+        sender = LogSender(addr, '')
     server_addr = addr
 
 
@@ -142,9 +143,6 @@ class LogSender(logging.Handler):
         self.socket = None
         logging.Handler.__init__(self)
         
-        if address is not None:
-            self.connect(address)
-            
         # attach to logger if requested
         if isinstance(logger, str):
             logger = logging.getLogger(logger)
@@ -157,6 +155,9 @@ class LogSender(logging.Handler):
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
 
+        if address is not None:
+            self.connect(address)
+            
         atexit.register(self.close)
 
     def handle(self, record):
@@ -189,6 +190,9 @@ class LogSender(logging.Handler):
         sent. This value should be acquired from `log_server.address` or
         `get_logger_address()`.
         """
+        if self.socket is not None:
+            self.socket.close()
+
         self.socket = zmq.Context.instance().socket(zmq.PUSH)
         self.socket.linger = 1000  # don't let socket deadlock when exiting
         self.socket.connect(addr)
