@@ -116,22 +116,6 @@ class RPCLogHandler(logging.StreamHandler):
             self.thread_headers[key] = header
         return header
 
-    def colorize(self, message, record):
-        if not HAVE_COLORAMA:
-            return message
-        
-        try:
-            tid = threading.current_thread().ident
-            color = RPCLogHandler.thread_colors.get(tid, None)
-            if color is None:
-                ind = len(RPCLogHandler.thread_colors) % len(_color_list)
-                ind = ind//10*10  # decrease to multiple of 10
-                color = _color_list[ind]
-                RPCLogHandler.thread_colors[tid] = color
-            return (color + message + colorama.Style.RESET_ALL)
-        except KeyError:
-            return message
-
     def flush_records(self):
         with self.record_lock:
             recs = self.records[:]

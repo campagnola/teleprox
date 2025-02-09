@@ -3,19 +3,19 @@ Create a daemon process -- one that is completely disconnected from this termina
 
 Show that we can reconnect to the process and catch logging output from it.
 """
-import time
-import teleprox
-import logging
+import time, atexit, logging
+import teleprox.log
+
 
 # start a daemon process
 daemon = teleprox.start_process('example-daemon', daemon=True)
+atexit.register(daemon.client.close_server)
 
 address = daemon.client.address
 print(f"Started daemon process {daemon.pid} with address {address}")
 
 # now close and forget our connection to the daemon
 daemon.client.close()
-del daemon
 print("Closed connection to daemon")
 
 
@@ -29,22 +29,14 @@ new_pid = client._import('os').getpid()  # just to prove it's the same daemon
 print(f"Reconnected to daemon process at {address} (pid {new_pid})")
 
 print("Connecting logging from daemon to this process..")
-# set up logging to console in this process
-teleprox.log.basic_config(log_level='INFO')
-
-# set up a log server to receive log messages from the daemon
-teleprox.log.start_log_server('')
+# set up logging to console and a log server in this process
+teleprox.log.basic_config(log_level='WARNING', exceptions=False)
 log_addr = teleprox.log.get_logger_address()
 
-# set up logging in the daemon to send messages to this process
+# direct the daemon to send log messages to this process
 client._import('teleprox.log').set_logger_address(log_addr)
-client._import('logging').getLogger().setLevel('INFO')
 
 # create a log message in the daemon process
-client._import('logging').info("Hello from the daemon!")
+client._import('logging').warning("Hello from the daemon!")
 
-# # finally, close the daemon process
-# client.close_server()
-
-
-# time.sleep(1)  # wait for all messages to be processed before exiting
+time.sleep(1)  # wait for all messages to be processed before exiting

@@ -10,8 +10,8 @@ import zmq
 import logging
 import atexit
 import json
+
 logger = logging.getLogger(__name__)
-logger.propagate = False
 
 
 # Provide access to process and thread names for logging purposes.
@@ -73,7 +73,7 @@ sender = None
 server_addr = None
 
 
-def start_log_server(logger=__file__):
+def start_log_server():
     """Create a global log server and attach it to a logger.
     
     Use `get_logger_address()` to return the socket address for the server
@@ -81,11 +81,9 @@ def start_log_server(logger=__file__):
     connect it to the server. Then all messages logged remotely will be
     forwarded to the server and handled by the logging system there.
     """
-    global server
+    global server, logger
     if server is not None:
         raise Exception("A global LogServer has already been created.")
-    if isinstance(logger, str):
-        logger = logging.getLogger(logger)
     server = LogServer(logger)
     server.start()
 
@@ -207,7 +205,7 @@ class LogSender(logging.Handler):
         
 
 class LogServer(threading.Thread):
-    """Thread for receiving log records via zmq socket.
+    """Thread for receiving log records via zmq socket from a LogSender.
     
     Messages are immediately passed to a python logger for local handling.
     
@@ -215,10 +213,32 @@ class LogServer(threading.Thread):
     ----------
     logger : Logger
         The python logger that should handle incoming messages.
+    address : str
+        The zmq address to which the server should bind. Default is 
+        'tcp://127.0.0.1:*'.
+    filter_by_level : bool
+        If True (default), then only messages with a level greater than or equal
+        to the logger's level will be passed to the logger.
+
+    Notes
+    -----
+    Log messages are passed to a LogServer via a LogSender in a remote process.
+    The LogSender is attached to a logger hierarchy, and these loggers must decide
+    (by their level) which messages to send to the LogServer. In a sense, this 
+    allows loggers in a remote process to become part of the local logging hierarchy.
+
+    However, this also breaks the normal behavior of loggers inheriting their level
+    from their parents. Ordinarily once can set the level of the root logger and
+    expect most upstream loggers to inherit this level. Remote loggers, on the other
+    hand, have their own level which could cause low-level messages to be handled
+    in the main process even if the local logger's level is set higher. To avoid this,
+    the `filter_by_level` parameter can be set to True to filter out messages that
+    are below the local logger's effective level.
     """
-    def __init__(self, logger, address='tcp://127.0.0.1:*', sort=True):
+    def __init__(self, logger, address='tcp://127.0.0.1:*', filter_by_level=True):
         threading.Thread.__init__(self, daemon=True)
         self.running = True
+        self.filter_by_level = filter_by_level
         self.logger = logger
         self.socket = zmq.Context.instance().socket(zmq.PULL)
         self.socket.linger = 1000  # don't let socket deadlock when exiting
@@ -238,5 +258,7 @@ class LogServer(threading.Thread):
             msg = self.socket.recv()
             kwds = json.loads(msg)
             rec = logging.makeLogRecord(kwds)
+            if self.filter_by_level and rec.levelno < self.logger.getEffectiveLevel():
+                continue
             self.logger.handle(rec)
         self.socket.close()

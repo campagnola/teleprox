@@ -151,6 +151,7 @@ def test_unhandled_exception():
             assert logger.find_message(r"threaded exception") is not None
 
             proc.stop()
+    time.sleep(1)
 
 
 def test_log_server_reconnect(debug=False):
@@ -199,3 +200,4 @@ def test_log_server_reconnect(debug=False):
 
         child1.kill()  # can't wait() on a daemon process, so just murder it
         child2.stop()
+    time.sleep(1)
