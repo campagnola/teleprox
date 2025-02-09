@@ -8,8 +8,30 @@ all_shmem = []
 class SharedNDArray:
     """A wrapper for a numpy ndarray that is shared between processes.
 
-    Note that garbage collection on shared memory is somewhat broken.
-    See https://github.com/python/cpython/issues/82300
+    Typically initialized using SharedNDArray.zeros() or SharedNDArray.copy().
+
+    Parameters
+    ----------
+    shmem : multiprocessing.shared_memory.SharedMemory
+        A SharedMemory instance
+    data : ndarray
+        A numpy array pointing to the shared memory buffer
+    close : bool
+        Whether the shared memory should be closed at exit or when 
+        close_all() is called.
+
+    Notes
+    -----
+    Garbage collection on shared memory is somewhat broken
+    (see https://github.com/python/cpython/issues/82300).
+    In particular, it uses resource tracking so that shared memory
+    won't be leaked on posix systems (whereas windows does this automatically),
+    but the resource tracking doesn't always work correctly. 
+
+    The practical effects are:
+    - Extra warnings about leaked shared_memory objects appear at exit time 
+    - Closing any process that has a shared memory object may cause the shared memory
+      to be unlinked, preventing other processes from accessing it.
     """
     def __init__(self, shmem, data, close=False):
         self.shmem = shmem
@@ -26,7 +48,7 @@ class SharedNDArray:
         return cls(shmem, data, close)
     
     @classmethod
-    def copy(cls, arr, close):
+    def copy(cls, arr, close=True):
         """Create a SharedNDArray containing a copy of the given array."""
         shmem = mp_shm.SharedMemory(create=True, size=arr.nbytes)
         data = np.ndarray(arr.shape, dtype=arr.dtype, buffer=shmem.buf)

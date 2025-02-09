@@ -9,7 +9,7 @@ import teleprox.log
 
 # start a daemon process
 daemon = teleprox.start_process('example-daemon', daemon=True)
-atexit.register(daemon.client.close_server)
+atexit.register(daemon.kill)
 
 address = daemon.client.address
 print(f"Started daemon process {daemon.pid} with address {address}")

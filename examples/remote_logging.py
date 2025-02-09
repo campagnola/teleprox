@@ -15,7 +15,7 @@ handler = RPCLogHandler()
 logger.addHandler(handler)
 
 # Start a server that will receive log messages from other processes
-start_log_server(logger)
+start_log_server()
 
 # Set the name of this process and thread for logging
 set_process_name('main_process')
