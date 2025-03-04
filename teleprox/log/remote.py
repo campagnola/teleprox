@@ -85,7 +85,6 @@ def start_log_server():
     if server is not None:
         raise Exception("A global LogServer has already been created.")
     server = LogServer(logger)
-    server.start()
 
 
 def get_logger_address():
@@ -244,6 +243,7 @@ class LogServer(threading.Thread):
         self.socket.linger = 1000  # don't let socket deadlock when exiting
         self.socket.bind(address)
         self.address = self.socket.last_endpoint
+        self.start()
 
     def stop(self):
         self.running = False

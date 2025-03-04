@@ -37,7 +37,6 @@ class RemoteLogRecorder:
         self.handler = Handler()
         self.logger.addHandler(self.handler)
         self.log_server = LogServer(self.logger)
-        self.log_server.start()
         self.address = self.log_server.address
 
     def find_message(self, regex, timeout=0.5):

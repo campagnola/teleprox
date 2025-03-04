@@ -58,7 +58,6 @@ def test_daemon_stdio():
             handler = test_logging.Handler()
             logger.addHandler(handler)
             log_server = LogServer(logger)
-            log_server.start()
 
             # create a child process and log all of its stdout/stderr
             child = start_process(name='test_daemon_stdio_child', log_addr=log_server.address, log_level=logging.INFO)
