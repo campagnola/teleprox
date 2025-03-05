@@ -50,10 +50,8 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         a :class:`QtRPCServer`.
     log_addr : str
         Optional log server address to which the new process will send its log
-        records. This will also cause the new process's stdout and stderr to be
-        captured and forwarded as log records. Note: logging is not allowed in
-        daemon processes because the parent is not guaranteed to stay alive longer
-        than the daemon process.
+        records. For non-daemon processes, this will also cause log_stdio to be
+        enabled by default.
     log_level : int
         Optional initial log level to assign to the root logger in the new
         process.
@@ -113,17 +111,19 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
       
     """
     #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
-    assert daemon in (True, False)
-    assert qt in (True, False)
-    assert isinstance(address, (str, bytes))
-    assert name is None or isinstance(name, str)
-    assert log_addr is None or isinstance(log_addr, (str, bytes)), "log_addr must be str or None; got %r" % log_addr
+    assert daemon in (True, False), f"daemon must be bool; got {repr(daemon)}"
+    assert qt in (True, False), f"qt must be bool; got {repr(qt)}"
+    assert isinstance(address, (str, bytes)), f"address must be str or bytes; got {repr(address)}"
+    assert name is None or isinstance(name, str), f"name must be str or None; got {repr(name)}"
+    assert log_addr is None or isinstance(log_addr, (str, bytes)), f"log_addr must be str or None; got {repr(log_addr)}"
     if log_addr is None and not daemon:
         log_addr = get_logger_address()
-    assert log_level is None or isinstance(log_level, int)
+    assert log_level is None or isinstance(log_level, (int, str)), f"log_level must be int, str, or None; got {repr(log_level)}"
     if log_level is None:
         log_level = logger.getEffectiveLevel()
-    assert log_stdio in (True, False, None), f'log_stdio must be True, False, or None; got {log_stdio}'
+    elif isinstance(log_level, str):
+        log_level = getattr(logging, log_level.upper())
+    assert log_stdio in (True, False, None), f'log_stdio must be True, False, or None; got {repr(log_stdio)}'
     if log_stdio is True:
         assert stdout is None and stderr is None, "Cannot use log_stdio with stdout/stderr."
     # If we have a log server and stdio/stderr have not been explicitly set, then

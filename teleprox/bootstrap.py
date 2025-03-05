@@ -3,6 +3,7 @@
 import os
 import sys
 import argparse
+import logging
 
 parser = argparse.ArgumentParser(description='Start a new process with RPC server')
 parser.add_argument('procname', nargs='?', default=None, help='Name of this process')
@@ -21,7 +22,10 @@ conf = vars(args)
 conf['class_name'] = 'QtRPCServer' if conf['qt'] else 'RPCServer'
 try:
     # loglevel might be sent as an integer string
-    conf['loglevel'] = int(conf['loglevel'])
+    if conf['loglevel'].isdigit():
+        conf['loglevel'] = int(conf['loglevel'])
+    else:
+        conf['loglevel'] = getattr(logging, conf['loglevel'].upper())
 except ValueError:
     pass
 

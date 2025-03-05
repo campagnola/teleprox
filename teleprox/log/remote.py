@@ -238,6 +238,8 @@ class LogServer(threading.Thread):
         threading.Thread.__init__(self, daemon=True)
         self.running = True
         self.filter_by_level = filter_by_level
+        if isinstance(logger, str):
+            logger = logging.getLogger(logger)
         self.logger = logger
         self.socket = zmq.Context.instance().socket(zmq.PULL)
         self.socket.linger = 1000  # don't let socket deadlock when exiting
