@@ -20,14 +20,14 @@ def test_daemon():
         cleaner.add('child1', child1.pid)
 
         # ask the child to start a daemon
-        daemon = child1.client._import('teleprox').start_process('test_daemon', daemon=False)
+        daemon = child1.client._import('teleprox').start_process('test_daemon', daemon=True)
         address = daemon.client.address._get_value()
         pid = daemon.client._import('os').getpid()
         cleaner.add('daemon', pid)
 
         # kill the child; check that we can still connect to daemon
         time.sleep(1)
-        child1.kill()
+        child1.stop()  # kill would pass even with daemon=False
 
         # start second child
         child2 = start_process('test_daemon_child2')

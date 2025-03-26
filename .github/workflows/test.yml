@@ -1,0 +1,35 @@
+name: Run Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      options: --init  # otherwise daemon processes won't get cleaned up and will error when expected to have been stopped
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1 libglx-mesa0 libxcb1 libxcb-keysyms1 libxcb-render0 libxcb-render-util0 libxcb-shape0 libxcb-icccm4 libxcb-image0 libxcb-shm0 libxcb-xkb1 libxcb-xinerama0 libxkbcommon-x11-0
+
+    - name: Install python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest msgpack pyzmq numpy pyqt5
+        python -m ipykernel install --user
+
+    - name: Run tests
+      env:
+        QT_QPA_PLATFORM: offscreen
+      run: |
+        python -m pytest
