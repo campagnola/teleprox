@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "teleprox"
+dynamic = ["version"]
+authors = [
+    {name = "Luke Campagnola and Samuel Garcia", email = "lukec@alleninstitute.org"},
+]
+description = "Object proxies over TCP"
+readme = "README.md"
+license = {text = "BSD"}
+classifiers = []
+requires-python = ">=3.6"
+dependencies = [
+    "pyzmq",
+    "msgpack"
+]
+
+[project.urls]
+Homepage = "http://github.com/campagnola/teleprox"
+Repository = "http://github.com/campagnola/teleprox"
+
+[tool.setuptools]
+packages = ["teleprox"]
+
+[tool.setuptools.dynamic]
+version = {attr = "teleprox.__version__"}
