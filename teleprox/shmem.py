@@ -1,6 +1,10 @@
-import numpy as np
 import multiprocessing.shared_memory as mp_shm
 import atexit
+try:
+    import numpy as np
+    have_numpy = True
+except ImportError:
+    have_numpy = False
 
 
 all_shmem = []
@@ -34,6 +38,8 @@ class SharedNDArray:
       to be unlinked, preventing other processes from accessing it.
     """
     def __init__(self, shmem, data, close=False):
+        if not have_numpy:
+            raise ImportError("numpy is required for SharedNDArray")
         self.shmem = shmem
         self.data = data
         self.close = close

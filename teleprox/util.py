@@ -117,7 +117,7 @@ class ProcessCleaner:
             return False  # process exception normally, if any
 
 
-def check_tcp_port(host, port, timeout=1):
+def check_tcp_port(host, port, timeout=1.0):
     """Attempt to determine whether a TCP port is open, closed, or filtered.
 
     On windows, closed ports will appear to be filtered (we can't tell the difference)

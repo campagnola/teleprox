@@ -12,7 +12,6 @@ import threading
 from teleprox.util import check_tcp_port
 import zmq
 import logging
-import numpy as np
 
 from .serializer import all_serializers
 from .server import RPCServer
@@ -623,12 +622,12 @@ class RPCClient(object):
         for i in range(10):
             ltimes.append(time.perf_counter())
             rtimes.append(rcounter())
-        ltimes = np.array(ltimes)
-        rtimes = np.array(rtimes[:-1])
-        dif = rtimes - ((ltimes[1:] + ltimes[:-1]) * 0.5)
+        rtimes = rtimes[:-1]
+        dif = [rt - ((lt1 + lt2) * 0.5) for rt, lt1, lt2 in zip(rtimes, ltimes[1:], ltimes[:-1])]
+        avg = sum(dif) / len(dif)
         # we can probably constrain this estimate a bit more by looking at
         # min/max times and excluding outliers.
-        return dif.mean()
+        return avg
 
     def __del__(self):
         if hasattr(self, 'socket'):
