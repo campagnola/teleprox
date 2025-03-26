@@ -7,8 +7,8 @@ name = "teleprox"
 dynamic = ["version"]
 authors = [
     {name = "Luke Campagnola", email = "lukec@alleninstitute.org"},
-    {name = "Samuel Garcia"},
-    {name = "Martin Chase"},
+    {name = "Samuel Garcia", email = ""},
+    {name = "Martin Chase", email = ""},
 ]
 description = "Object proxies over TCP"
 readme = "README.md"
