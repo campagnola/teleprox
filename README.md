@@ -1,5 +1,7 @@
-Teleprox: simple python object proxies over TCP
-===============================================
+# Teleprox: simple python object proxies over TCP
+
+[![Tests](https://github.com/campagnola/teleprox/actions/workflows/test.yml/badge.svg)](https://github.com/campagnola/teleprox/actions)
+[![PyPI version](https://badge.fury.io/py/teleprox.svg)](https://badge.fury.io/py/teleprox)
 
 No declarations required; just access remote objects as if they are local.
 
