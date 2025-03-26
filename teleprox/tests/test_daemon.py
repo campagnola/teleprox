@@ -17,13 +17,13 @@ def test_daemon():
     with ProcessCleaner() as cleaner:
         # start a child
         child1 = start_process('test_daemon_child1')
-        cleaner.add('child1', child1.pid)
+        cleaner.add(child1)
 
         # ask the child to start a daemon
         daemon = child1.client._import('teleprox').start_process('test_daemon', daemon=True)
         address = daemon.client.address._get_value()
         pid = daemon.client._import('os').getpid()
-        cleaner.add('daemon', pid)
+        cleaner.add('test_daemon', pid)
 
         # kill the child; check that we can still connect to daemon
         time.sleep(1)
@@ -31,7 +31,7 @@ def test_daemon():
 
         # start second child
         child2 = start_process('test_daemon_child2')
-        cleaner.add('child2', child2.pid)
+        cleaner.add(child2)
 
         # ask second child to connect to daemon
         daemon_client = child2.client._import('teleprox').RPCClient(address=address)

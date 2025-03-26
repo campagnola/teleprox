@@ -11,7 +11,7 @@ Requires
 - python 3
 - pyzmq
 - msgpack
-
+- numpy (optional; required only for SharedNDArray)
 
 
 Examples
