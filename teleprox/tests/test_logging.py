@@ -115,7 +115,7 @@ def test_quick_exit():
         with RemoteLogRecorder('test_quick_exit_logger') as logger:
             proc = teleprox.start_process(name='test_quick_exit_stdout', log_addr=logger.address, log_level=logging.INFO)
             cleaner.add(proc)
-            proc.client._import('sys').stdout.write("quick exit message\n")
+            proc.client._import('sys').stdout.write("quick exit message\n", flush=True)
             proc.stop()
 
             assert logger.find_message(r"quick exit message") is not None
