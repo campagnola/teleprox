@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "teleprox"
-version = "1.0.1"
+dynamic = ["version"]
 authors = [
     {name = "Luke Campagnola and Samuel Garcia", email = "lukec@alleninstitute.org"},
 ]
