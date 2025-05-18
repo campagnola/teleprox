@@ -36,12 +36,21 @@ class LogViewer(qt.QWidget):
         self.layout = qt.QGridLayout()
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.layout)
-        self.text = qt.QTextBrowser()
-        self.text.document().setDefaultStyleSheet(Stylesheet)
-        self.layout.addWidget(self.text, 0, 0)
+        self.tree = qt.QTreeWidget()
+        self.tree.setColumnCount(4)
+        self.tree.setHeaderLabels(['Timestamp', 'Source', 'Level', 'Message'])
+        self.layout.addWidget(self.tree, 0, 0)
         
     def new_record(self, rec):
-        print("NEW LOG RECORD:", rec)
+        # Extract relevant information from the log record
+        timestamp = rec.created
+        source = f"{rec.processName}/{rec.threadName}"
+        level = rec.levelname
+        message = rec.getMessage()
+
+        # Create a new tree widget item
+        item = qt.QTreeWidgetItem([str(timestamp), source, level, message])
+        self.tree.addTopLevelItem(item)
         
         
 
