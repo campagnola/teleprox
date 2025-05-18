@@ -19,7 +19,19 @@ Stylesheet = """
 """
 
 
-class LogViewer(qt.QWidget):
+class LogTreeWidgetItem(qt.QTreeWidgetItem):
+    """Custom QTreeWidgetItem for displaying log messages."""
+    
+    def __init__(self, rec):
+        # Extract relevant information from the log record
+        timestamp = rec.created
+        source = f"{rec.processName}/{rec.threadName}"
+        level = rec.levelname
+        message = rec.getMessage()
+
+        # Initialize the QTreeWidgetItem with the extracted information
+        super().__init__([str(timestamp), source, level, message])
+        
     """QWidget for displaying and filtering log messages.
     """
     def __init__(self, logger='', parent=None):
@@ -42,14 +54,8 @@ class LogViewer(qt.QWidget):
         self.layout.addWidget(self.tree, 0, 0)
         
     def new_record(self, rec):
-        # Extract relevant information from the log record
-        timestamp = rec.created
-        source = f"{rec.processName}/{rec.threadName}"
-        level = rec.levelname
-        message = rec.getMessage()
-
-        # Create a new tree widget item
-        item = qt.QTreeWidgetItem([str(timestamp), source, level, message])
+        # Create a new LogTreeWidgetItem
+        item = LogTreeWidgetItem(rec)
         self.tree.addTopLevelItem(item)
         
         
