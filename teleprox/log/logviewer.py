@@ -31,8 +31,6 @@ class LogTreeWidgetItem(qt.QTreeWidgetItem):
 
         # Initialize the QTreeWidgetItem with the extracted information
         super().__init__([str(timestamp), source, level, message])
-        
-    """QWidget for displaying and filtering log messages.
     """
     def __init__(self, logger='', parent=None):
         qt.QWidget.__init__(self, parent=parent)
