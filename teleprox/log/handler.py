@@ -61,7 +61,7 @@ class RPCLogHandler(logging.StreamHandler):
         self.delay = 0.2
         self.record_lock = threading.Lock()
         self.records = []
-        self.thread = threading.Thread(target=self.poll_records, daemon=True)
+        self.thread = threading.Thread(target=self.poll_records, daemon=True, name='teleprox_RPCLogHandler')
         self.thread.start()
         atexit.register(self.flush_records)
 
@@ -103,9 +103,9 @@ class RPCLogHandler(logging.StreamHandler):
         return header + ' ' + message
 
     def get_thread_header(self, record):
-        hid = getattr(record, 'hostname', get_host_name())
-        pid = getattr(record, 'process_name', get_process_name())
-        tid = getattr(record, 'thread_name', get_thread_name(record.thread))
+        hid = getattr(record, 'hostName', get_host_name())
+        pid = getattr(record, 'processName', get_process_name())
+        tid = getattr(record, 'threadName', get_thread_name(record.thread))
         key = (hid, pid, tid)
         header = self.thread_headers.get(key, None)
         if header is None:

@@ -149,7 +149,7 @@ class LogSender(logging.Handler):
         # make thread-safe: handle() may be called from any thread
         # and log records are passed to the server in a background thread.
         self.record_queue = queue.Queue()
-        self.thread = threading.Thread(target=self.run, daemon=True)
+        self.thread = threading.Thread(target=self.run, daemon=True, name='teleprox_LogSender')
         self.thread.start()
 
         if address is not None:
@@ -177,9 +177,9 @@ class LogSender(logging.Handler):
         if len(args) > 0:
             rec['msg'] = rec['msg'] % args
         if process_name is not None:
-            rec['process_name'] = process_name
-        rec['thread_name'] = thread_names.get(rec['thread'], rec['threadName'])
-        rec['host_name'] = host_name
+            rec['processName'] = process_name
+        rec['threadName'] = thread_names.get(rec['thread'], rec['threadName'])
+        rec['hostName'] = host_name
         self.socket.send(json.dumps(rec).encode('utf-8'))
         
     def connect(self, addr):

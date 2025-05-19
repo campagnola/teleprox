@@ -44,6 +44,6 @@ class StdioLogSender:
             self.logger.level = log_level
         
         # create threads to poll stdout/stderr and generate / send log records
-        self.stdout_poller = PipePoller(proc.stdout, self.logger.info, f'[{name}.stdout] ', name='stdout')
-        self.stderr_poller = PipePoller(proc.stderr, self.logger.warning, f'[{name}.stderr] ', name='stderr')
+        self.stdout_poller = PipePoller(proc.stdout, self.logger.info, f'[{name}.stdout] ', name=f'{name}_stdout')
+        self.stderr_poller = PipePoller(proc.stderr, self.logger.warning, f'[{name}.stderr] ', name=f'{name}_stderr')
 

@@ -23,8 +23,10 @@ set_thread_name('main_thread')
 
 # import pyqtgraph as pg
 # pg.mkQApp()
-# lv = LogViewer()
-# lv.show()
+from PyQt5 import QtWidgets
+app = QtWidgets.QApplication([])
+lv = LogViewer()
+lv.show()
 
 
 proc = start_process(name='child_process')
