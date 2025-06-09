@@ -89,6 +89,48 @@ class LogTreeWidgetItem(qt.QTreeWidgetItem):
         self.setForeground(3, qt.QColor(level_color))
 
 
+class FilterTagWidget(qt.QWidget):
+    """Widget representing an active filter with a label and a close button."""
+    def __init__(self, text, parent=None):
+        super().__init__(parent)
+        self.text = text
+        self.layout = qt.QHBoxLayout()
+        self.setLayout(self.layout)
+        
+        self.label = qt.QLabel(text)
+        self.close_button = qt.QPushButton('x')
+        self.close_button.setFixedSize(16, 16)
+        self.close_button.clicked.connect(self.remove_self)
+        
+        self.layout.addWidget(self.label)
+        self.layout.addWidget(self.close_button)
+    
+    def remove_self(self):
+        self.setParent(None)
+        self.deleteLater()
+
+
+class FilterInputWidget(qt.QWidget):
+    """Widget for entering and displaying active filters."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = qt.QHBoxLayout()
+        self.setLayout(self.layout)
+        
+        self.filter_input = qt.QLineEdit()
+        self.filter_input.setPlaceholderText("Enter filter criteria...")
+        self.filter_input.returnPressed.connect(self.add_filter)
+        self.filter_input.editingFinished.connect(self.add_filter)
+        
+        self.layout.addWidget(self.filter_input)
+    
+    def add_filter(self):
+        text = self.filter_input.text().strip()
+        if text:
+            filter_tag = FilterTagWidget(text)
+            self.layout.insertWidget(self.layout.count() - 1, filter_tag)
+            self.filter_input.clear()
+
 class LogViewer(qt.QWidget):
     """QWidget for displaying and filtering log messages."""
     def __init__(self, logger='', parent=None):
@@ -106,9 +148,14 @@ class LogViewer(qt.QWidget):
         self.layout = qt.QGridLayout()
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.layout)
+
+        # Add filter input widget
+        self.filter_input_widget = FilterInputWidget()
+        self.layout.addWidget(self.filter_input_widget, 0, 0)
+
         self.model = qt.QStandardItemModel()
         self.model.setHorizontalHeaderLabels(['Timestamp', 'Source', 'Logger', 'Level', 'Message'])
-        self.model.setSortRole(qt.Qt.DisplayRole)  # Ensure sorting is based on display text
+        
         self.proxy_model = qt.QSortFilterProxyModel()
         self.proxy_model.setSourceModel(self.model)
         self.proxy_model.setSortRole(qt.Qt.DisplayRole)  # Ensure sorting is based on display text
@@ -120,7 +167,7 @@ class LogViewer(qt.QWidget):
         self.tree.setSortingEnabled(True)
         self.proxy_model.sort(0, qt.Qt.AscendingOrder)  # Sort by the first column (Timestamp) initially
         self.tree.sortByColumn(0, qt.Qt.AscendingOrder)
-        self.layout.addWidget(self.tree, 0, 0)
+        self.layout.addWidget(self.tree, 1, 0)
         self.resize(1200, 600)
         self.tree.setColumnWidth(0, 200)
         self.tree.setColumnWidth(1, 200)
