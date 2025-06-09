@@ -111,6 +111,8 @@ class FilterTagWidget(qt.QLineEdit):
     def check_for_removal(self):
         """Remove this widget if text is cleared."""
         if not self.text():
+            # Disconnect signals before removal to prevent issues
+            self.textChanged.disconnect()
             self.setParent(None)
             self.deleteLater()
 
