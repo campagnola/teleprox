@@ -104,6 +104,7 @@ class FilterTagWidget(qt.QWidget):
         self.line_edit.textChanged.connect(self.adjust_line_edit_width)
         self.adjust_line_edit_width()
         
+        self.close_button = qt.QPushButton('x')
         self.close_button.setFixedSize(16, 16)
         self.close_button.clicked.connect(self.remove_self)
         
@@ -115,6 +116,8 @@ class FilterTagWidget(qt.QWidget):
         font_metrics = self.line_edit.fontMetrics()
         text_width = font_metrics.horizontalAdvance(self.line_edit.text())
         self.line_edit.setFixedWidth(text_width + 10)  # Add some padding
+
+    def remove_self(self):
         self.setParent(None)
         self.deleteLater()
 
