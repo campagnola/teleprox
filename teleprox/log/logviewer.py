@@ -107,7 +107,7 @@ class LogViewer(qt.QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.layout)
         self.model = qt.QStandardItemModel()
-        self.model.setHorizontalHeaderLabels(['Timestamp', 'Source', 'Level', 'Message'])
+        self.model.setHorizontalHeaderLabels(['Timestamp', 'Source', 'Logger', 'Level', 'Message'])
         
         self.tree = qt.QTreeView()
         self.tree.setModel(self.model)
@@ -123,12 +123,14 @@ class LogViewer(qt.QWidget):
         # Create a new row for the log record
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(rec.created)) + f'{rec.created % 1.0:.3f}'.lstrip('0')
         source = f"{rec.processName}/{rec.threadName}"
+        logger_name = rec.name
         level = f"{rec.levelno} - {rec.levelname}"
         message = rec.getMessage()
         
         # Create items for each column
         timestamp_item = qt.QStandardItem(timestamp)
         source_item = qt.QStandardItem(source)
+        logger_item = qt.QStandardItem(logger_name)
         level_item = qt.QStandardItem(level)
         message_item = qt.QStandardItem(message)
         
@@ -140,7 +142,7 @@ class LogViewer(qt.QWidget):
         message_item.setForeground(qt.QColor(level_color))
         
         # Add items to the model
-        self.model.appendRow([timestamp_item, source_item, level_item, message_item])
+        self.model.appendRow([timestamp_item, source_item, logger_item, level_item, message_item])
 
 
 class QtLogHandlerSignals(qt.QObject):
