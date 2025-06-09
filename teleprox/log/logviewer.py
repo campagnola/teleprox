@@ -110,6 +110,9 @@ class FilterTagWidget(qt.QWidget):
         
         self.layout.addWidget(self.line_edit)
         self.layout.addWidget(self.close_button)
+
+        # set size policy to minimum suggested by children
+        self.setSizePolicy(qt.QSizePolicy.Minimum, qt.QSizePolicy.Fixed)
     
     def adjust_line_edit_width(self):
         """Adjust the width of the line edit to fit its content."""
