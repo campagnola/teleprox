@@ -99,12 +99,13 @@ class FilterTagWidget(qt.QWidget):
         self.layout.setSpacing(3)
         self.setLayout(self.layout)
         
-        self.label = qt.QLabel(text)
+        self.line_edit = qt.QLineEdit()
+        self.line_edit.setText(text)
         self.close_button = qt.QPushButton('x')
         self.close_button.setFixedSize(16, 16)
         self.close_button.clicked.connect(self.remove_self)
         
-        self.layout.addWidget(self.label)
+        self.layout.addWidget(self.line_edit)
         self.layout.addWidget(self.close_button)
     
     def remove_self(self):
