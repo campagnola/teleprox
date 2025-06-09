@@ -134,6 +134,8 @@ class LogViewer(qt.QWidget):
         
         # Set colors based on log level
         level_color = level_colors.get(rec.levelno, "#000000")
+        source_color = thread_color(source)
+        source_item.setForeground(qt.QColor(source_color))
         level_item.setForeground(qt.QColor(level_color))
         message_item.setForeground(qt.QColor(level_color))
         
