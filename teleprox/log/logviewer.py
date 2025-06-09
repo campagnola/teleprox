@@ -3,6 +3,8 @@
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
 import logging
+import time
+
 from teleprox import qt
 
 
@@ -19,18 +21,72 @@ Stylesheet = """
 """
 
 
+# Major log level colors
+_level_color_stops = {
+    0: (0, 0, 255),      # Blue
+    10: (128, 128, 128), # Grey
+    20: (0, 0, 0),       # Black
+    30: (255, 128, 0),   # Orange
+    40: (255, 0, 0),     # Red
+    50: (128, 0, 0),     # Dark red
+}
+
+# Compute interpolated colors for all levels 0-50
+level_colors = {}
+for level in range(51):
+    # Find the two stops to interpolate between
+    lower_stop = max(k for k in _level_color_stops.keys() if k <= level)
+    upper_stop = min(k for k in _level_color_stops.keys() if k >= level)
+    
+    # Interpolate between stops
+    lower_r, lower_g, lower_b = _level_color_stops[lower_stop]
+    upper_r, upper_g, upper_b = _level_color_stops[upper_stop]
+    
+    # Calculate interpolation factor
+    factor = 1 if lower_stop == upper_stop else (level - lower_stop) / (upper_stop - lower_stop)
+    
+    # Interpolate each color component
+    r = int(lower_r + (upper_r - lower_r) * factor)
+    g = int(lower_g + (upper_g - lower_g) * factor)
+    b = int(lower_b + (upper_b - lower_b) * factor)
+    
+    # Convert to hex format
+    level_colors[level] = f"#{r:02X}{g:02X}{b:02X}"
+
+
+available_thread_colors = ['#B00', '#0B0', '#00B', '#BB0', '#B0B', '#0BB', '#CA0', '#C0A', '#0CA', '#AC0', '#A0C', '#0AC']
+thread_colors = {}
+def thread_color(thread_name):
+    global thread_colors
+    try:
+        return thread_colors[thread_name]
+    except KeyError:
+        thread_colors[thread_name] = available_thread_colors[len(thread_colors) % len(available_thread_colors)]
+        return thread_colors[thread_name]
+
+
 class LogTreeWidgetItem(qt.QTreeWidgetItem):
     """Custom QTreeWidgetItem for displaying log messages."""
-    
     def __init__(self, rec):
         # Extract relevant information from the log record
         timestamp = rec.created
         source = f"{rec.processName}/{rec.threadName}"
-        level = rec.levelname
+        
+        # Format level with number and name
+        level_number = rec.levelno
+        level_name = rec.levelname
+        level = f"{level_number} - {level_name}"
+        
         message = rec.getMessage()
+        time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp)) + f'{timestamp % 1.0:.3f}'.lstrip('0')
 
-        # Initialize the QTreeWidgetItem with the extracted information
-        super().__init__([str(timestamp), source, level, message])
+        super().__init__([time_str, source, level, message])
+
+        tc = thread_color(source)
+        self.setForeground(1, qt.QColor(tc))
+        level_color = level_colors.get(level_number, "#000000")
+        self.setForeground(2, qt.QColor(level_color))
+        self.setForeground(3, qt.QColor(level_color))
 
 
 class LogViewer(qt.QWidget):
@@ -38,6 +94,7 @@ class LogViewer(qt.QWidget):
     def __init__(self, logger='', parent=None):
         qt.QWidget.__init__(self, parent=parent)
         
+
         # Set up handler to send log records to this widget by signal
         self.handler = QtLogHandler()
         self.handler.new_record.connect(self.new_record)
@@ -52,23 +109,32 @@ class LogViewer(qt.QWidget):
         self.tree = qt.QTreeWidget()
         self.tree.setColumnCount(4)
         self.tree.setHeaderLabels(['Timestamp', 'Source', 'Level', 'Message'])
-        self.layout.addWidget(self.tree, 0, 0)
+        self.tree.setAlternatingRowColors(True)
         
+        self.layout.addWidget(self.tree, 0, 0)
+        self.resize(1200, 600)
+        self.tree.setColumnWidth(0, 200)
+        self.tree.setColumnWidth(1, 200)
+        self.tree.setColumnWidth(2, 100)
+
     def new_record(self, rec):
         # Create a new LogTreeWidgetItem
         item = LogTreeWidgetItem(rec)
         self.tree.addTopLevelItem(item)
-        
-        
 
-class QtLogHandler(logging.Handler, qt.QObject):
-    """Log handler that emits a Qt signal for each record.
-    """
+
+class QtLogHandlerSignals(qt.QObject):
+    """QObject subclass that provides the new_record signal for QtLogHandler."""
     new_record = qt.Signal(object)
+
+
+class QtLogHandler(logging.Handler):
+    """Log handler that emits a Qt signal for each record."""
     
     def __init__(self):
         logging.Handler.__init__(self)
-        qt.QObject.__init__(self)
+        self._signals = QtLogHandlerSignals()
+        self.new_record = self._signals.new_record
         
     def handle(self, record):
         self.new_record.emit(record)

@@ -37,3 +37,7 @@ print("Child process PID is:", r_os.getpid())
 r_sys = proc.client._import('sys')
 r_sys.stdout.write("Hello from child process!\n")
 
+
+for i in range(12):
+    p = start_process(name=f'junk process {i}')
+    p.stop()
