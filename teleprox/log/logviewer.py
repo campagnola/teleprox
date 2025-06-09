@@ -4,6 +4,7 @@
 
 import logging
 import time
+import re
 
 from teleprox import qt
 
@@ -179,12 +180,14 @@ class LogViewer(qt.QWidget):
 
         # Add filter input widget
         self.filter_input_widget = FilterInputWidget()
+        self.filter_input_widget.filters_changed.connect(self.apply_filters)
         self.layout.addWidget(self.filter_input_widget, 0, 0)
 
         self.model = qt.QStandardItemModel()
         self.model.setHorizontalHeaderLabels(['Timestamp', 'Source', 'Logger', 'Level', 'Message'])
         
-        self.proxy_model = qt.QSortFilterProxyModel()
+        # Create custom proxy model for advanced filtering
+        self.proxy_model = LogFilterProxyModel()
         self.proxy_model.setSourceModel(self.model)
         self.proxy_model.setSortRole(qt.Qt.DisplayRole)  # Ensure sorting is based on display text
         
@@ -223,8 +226,151 @@ class LogViewer(qt.QWidget):
         level_item.setForeground(qt.QColor(level_color))
         message_item.setForeground(qt.QColor(level_color))
         
+        # Store additional data for filtering
+        timestamp_item.setData(rec.created, qt.Qt.UserRole)  # Store numeric timestamp
+        source_item.setData(rec.processName, qt.Qt.UserRole)  # Store process name
+        source_item.setData(rec.threadName, qt.Qt.UserRole + 1)  # Store thread name
+        logger_item.setData(rec.name, qt.Qt.UserRole)  # Store logger name
+        level_item.setData(rec.levelno, qt.Qt.UserRole)  # Store numeric level
+        message_item.setData(rec.getMessage(), qt.Qt.UserRole)  # Store message text
+        
         # Add items to the model
         self.model.appendRow([timestamp_item, source_item, logger_item, level_item, message_item])
+
+    def apply_filters(self, filter_strings):
+        """Apply the given filter strings to the proxy model."""
+        self.proxy_model.set_filters(filter_strings)
+
+
+class LogFilterProxyModel(qt.QSortFilterProxyModel):
+    """Custom proxy model that supports advanced filtering of log records."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.filters = []
+        
+    def set_filters(self, filter_strings):
+        """Set the filter strings and invalidate the filter."""
+        self.filters = filter_strings
+        self.invalidateFilter()
+        
+    def filterAcceptsRow(self, source_row, source_parent):
+        """Return True if the row should be included in the filtered model."""
+        if not self.filters:
+            return True
+            
+        model = self.sourceModel()
+        
+        # Get all the items for this row
+        timestamp_item = model.item(source_row, 0)
+        source_item = model.item(source_row, 1)
+        logger_item = model.item(source_row, 2)
+        level_item = model.item(source_row, 3)
+        message_item = model.item(source_row, 4)
+        
+        # Extract data for filtering
+        timestamp = timestamp_item.data(qt.Qt.UserRole) if timestamp_item else 0
+        process_name = source_item.data(qt.Qt.UserRole) if source_item else ""
+        thread_name = source_item.data(qt.Qt.UserRole + 1) if source_item else ""
+        logger_name = logger_item.data(qt.Qt.UserRole) if logger_item else ""
+        level_num = level_item.data(qt.Qt.UserRole) if level_item else 0
+        message_text = message_item.data(qt.Qt.UserRole) if message_item else ""
+        
+        # Display text for generic search
+        display_texts = [
+            timestamp_item.text() if timestamp_item else "",
+            source_item.text() if source_item else "",
+            logger_name,
+            level_item.text() if level_item else "",
+            message_text
+        ]
+        combined_text = " ".join(display_texts).lower()
+        
+        # Check each filter
+        for filter_str in self.filters:
+            if not filter_str.strip():
+                continue
+                
+            filter_str = filter_str.strip()
+            
+            # Parse field-specific filters
+            if self._matches_level_filter(filter_str, level_num):
+                continue
+            elif self._matches_logger_filter(filter_str, logger_name):
+                continue
+            elif self._matches_thread_filter(filter_str, thread_name):
+                continue
+            elif self._matches_process_filter(filter_str, process_name):
+                continue
+            elif self._matches_generic_filter(filter_str, combined_text):
+                continue
+            else:
+                # Filter doesn't match, exclude this row
+                return False
+                
+        return True
+        
+    def _matches_level_filter(self, filter_str, level_num):
+        """Check if filter matches level criteria (e.g., 'level > 10')."""
+        level_match = re.match(r'level\s*([><=]+)\s*(\d+)', filter_str, re.IGNORECASE)
+        if level_match:
+            operator, value = level_match.groups()
+            value = int(value)
+            if operator == '>':
+                return level_num > value
+            elif operator == '>=':
+                return level_num >= value
+            elif operator == '<':
+                return level_num < value
+            elif operator == '<=':
+                return level_num <= value
+            elif operator == '=' or operator == '==':
+                return level_num == value
+        return False
+        
+    def _matches_logger_filter(self, filter_str, logger_name):
+        """Check if filter matches logger criteria (e.g., 'logger: myLogger')."""
+        logger_match = re.match(r'logger:\s*(.+)', filter_str, re.IGNORECASE)
+        if logger_match:
+            pattern = logger_match.group(1).strip()
+            try:
+                return bool(re.search(pattern, logger_name, re.IGNORECASE))
+            except re.error:
+                # If regex is invalid, do literal match
+                return pattern.lower() in logger_name.lower()
+        return False
+        
+    def _matches_thread_filter(self, filter_str, thread_name):
+        """Check if filter matches thread criteria (e.g., 'thread: main.*')."""
+        thread_match = re.match(r'thread:\s*(.+)', filter_str, re.IGNORECASE)
+        if thread_match:
+            pattern = thread_match.group(1).strip()
+            try:
+                return bool(re.search(pattern, thread_name, re.IGNORECASE))
+            except re.error:
+                # If regex is invalid, do literal match
+                return pattern.lower() in thread_name.lower()
+        return False
+        
+    def _matches_process_filter(self, filter_str, process_name):
+        """Check if filter matches process criteria (e.g., 'process: worker.*')."""
+        process_match = re.match(r'process:\s*(.+)', filter_str, re.IGNORECASE)
+        if process_match:
+            pattern = process_match.group(1).strip()
+            try:
+                return bool(re.search(pattern, process_name, re.IGNORECASE))
+            except re.error:
+                # If regex is invalid, do literal match
+                return pattern.lower() in process_name.lower()
+        return False
+        
+    def _matches_generic_filter(self, filter_str, combined_text):
+        """Check if filter matches any text in the record."""
+        try:
+            return bool(re.search(filter_str, combined_text, re.IGNORECASE))
+        except re.error:
+            # If regex is invalid, do literal match
+            return filter_str.lower() in combined_text
 
 
 class QtLogHandlerSignals(qt.QObject):
