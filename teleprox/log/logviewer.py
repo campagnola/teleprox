@@ -113,6 +113,8 @@ class LogViewer(qt.QWidget):
         self.tree.setModel(self.model)
         self.tree.setAlternatingRowColors(True)
         
+        self.tree.setSortingEnabled(True)
+        self.tree.sortByColumn(0, qt.Qt.AscendingOrder)
         self.layout.addWidget(self.tree, 0, 0)
         self.resize(1200, 600)
         self.tree.setColumnWidth(0, 200)
