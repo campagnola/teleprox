@@ -89,40 +89,30 @@ def thread_color(thread_name):
 #         self.setForeground(3, qt.QColor(level_color))
 
 
-class FilterTagWidget(qt.QWidget):
-    """Widget representing an active filter with a label and a close button."""
+class FilterTagWidget(qt.QLineEdit):
+    """Widget representing an active filter with built-in clear button."""
     def __init__(self, text, parent=None):
         super().__init__(parent)
-        self.text = text
-        self.layout = qt.QHBoxLayout()
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(3)
-        self.setLayout(self.layout)
+        self.setText(text)
+        self.setClearButtonEnabled(True)
+        self.textChanged.connect(self.adjust_width)
+        self.textChanged.connect(self.check_for_removal)
+        self.adjust_width()
         
-        self.line_edit = qt.QLineEdit()
-        self.line_edit.setText(text)
-        self.line_edit.textChanged.connect(self.adjust_line_edit_width)
-        self.adjust_line_edit_width()
-        
-        self.close_button = qt.QPushButton('x')
-        self.close_button.setFixedSize(16, 16)
-        self.close_button.clicked.connect(self.remove_self)
-        
-        self.layout.addWidget(self.line_edit)
-        self.layout.addWidget(self.close_button)
-
-        # set size policy to minimum suggested by children
+        # Set size policy to fixed
         self.setSizePolicy(qt.QSizePolicy.Fixed, qt.QSizePolicy.Fixed)
     
-    def adjust_line_edit_width(self):
+    def adjust_width(self):
         """Adjust the width of the line edit to fit its content."""
-        font_metrics = self.line_edit.fontMetrics()
-        text_width = font_metrics.horizontalAdvance(self.line_edit.text())
-        self.line_edit.setFixedWidth(text_width + 10)  # Add some padding
-
-    def remove_self(self):
-        self.setParent(None)
-        self.deleteLater()
+        font_metrics = self.fontMetrics()
+        text_width = font_metrics.horizontalAdvance(self.text())
+        self.setFixedWidth(text_width + 30)  # Add padding for clear button
+    
+    def check_for_removal(self):
+        """Remove this widget if text is cleared."""
+        if not self.text():
+            self.setParent(None)
+            self.deleteLater()
 
 
 class FilterInputWidget(qt.QWidget):
