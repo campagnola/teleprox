@@ -117,6 +117,9 @@ class FilterTagWidget(qt.QLineEdit):
 
 class FilterInputWidget(qt.QWidget):
     """Widget for entering and displaying active filters."""
+    
+    filters_changed = qt.Signal(list)  # Signal emitted when filters change
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = qt.QHBoxLayout()
@@ -136,8 +139,23 @@ class FilterInputWidget(qt.QWidget):
         text = self.filter_input.text().strip()
         if text:
             filter_tag = FilterTagWidget(text)
+            filter_tag.textChanged.connect(self._emit_filters_changed)
             self.layout.insertWidget(self.layout.count() - 1, filter_tag)
             self.filter_input.clear()
+            self._emit_filters_changed()
+    
+    def get_filter_strings(self):
+        """Return a list of current filter strings."""
+        filters = []
+        for i in range(self.layout.count() - 1):  # Exclude the input widget
+            widget = self.layout.itemAt(i).widget()
+            if isinstance(widget, FilterTagWidget):
+                filters.append(widget.text())
+        return filters
+    
+    def _emit_filters_changed(self):
+        """Emit the filters_changed signal with current filter strings."""
+        self.filters_changed.emit(self.get_filter_strings())
 
 class LogViewer(qt.QWidget):
     """QWidget for displaying and filtering log messages."""
