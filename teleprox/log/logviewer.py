@@ -95,6 +95,8 @@ class FilterTagWidget(qt.QWidget):
         super().__init__(parent)
         self.text = text
         self.layout = qt.QHBoxLayout()
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(3)
         self.setLayout(self.layout)
         
         self.label = qt.QLabel(text)
