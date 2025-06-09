@@ -112,7 +112,7 @@ class FilterTagWidget(qt.QWidget):
         self.layout.addWidget(self.close_button)
 
         # set size policy to minimum suggested by children
-        self.setSizePolicy(qt.QSizePolicy.Minimum, qt.QSizePolicy.Fixed)
+        self.setSizePolicy(qt.QSizePolicy.Fixed, qt.QSizePolicy.Fixed)
     
     def adjust_line_edit_width(self):
         """Adjust the width of the line edit to fit its content."""
@@ -138,6 +138,7 @@ class FilterInputWidget(qt.QWidget):
         self.filter_input.setPlaceholderText("Enter filter criteria...")
         self.filter_input.returnPressed.connect(self.add_filter)
         self.filter_input.editingFinished.connect(self.add_filter)
+        self.filter_input.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Fixed)
         
         self.layout.addWidget(self.filter_input)
     
