@@ -65,28 +65,28 @@ def thread_color(thread_name):
         return thread_colors[thread_name]
 
 
-class LogTreeWidgetItem(qt.QTreeWidgetItem):
-    """Custom QTreeWidgetItem for displaying log messages."""
-    def __init__(self, rec):
-        # Extract relevant information from the log record
-        timestamp = rec.created
-        source = f"{rec.processName}/{rec.threadName}"
+# class LogTreeWidgetItem(qt.QTreeWidgetItem):
+#     """Custom QTreeWidgetItem for displaying log messages."""
+#     def __init__(self, rec):
+#         # Extract relevant information from the log record
+#         timestamp = rec.created
+#         source = f"{rec.processName}/{rec.threadName}"
         
-        # Format level with number and name
-        level_number = rec.levelno
-        level_name = rec.levelname
-        level = f"{level_number} - {level_name}"
+#         # Format level with number and name
+#         level_number = rec.levelno
+#         level_name = rec.levelname
+#         level = f"{level_number} - {level_name}"
         
-        message = rec.getMessage()
-        time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp)) + f'{timestamp % 1.0:.3f}'.lstrip('0')
+#         message = rec.getMessage()
+#         time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp)) + f'{timestamp % 1.0:.3f}'.lstrip('0')
 
-        super().__init__([time_str, source, level, message])
+#         super().__init__([time_str, source, level, message])
 
-        tc = thread_color(source)
-        self.setForeground(1, qt.QColor(tc))
-        level_color = level_colors.get(level_number, "#000000")
-        self.setForeground(2, qt.QColor(level_color))
-        self.setForeground(3, qt.QColor(level_color))
+#         tc = thread_color(source)
+#         self.setForeground(1, qt.QColor(tc))
+#         level_color = level_colors.get(level_number, "#000000")
+#         self.setForeground(2, qt.QColor(level_color))
+#         self.setForeground(3, qt.QColor(level_color))
 
 
 class FilterTagWidget(qt.QWidget):
