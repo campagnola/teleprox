@@ -109,14 +109,16 @@ class LogViewer(qt.QWidget):
         self.model = qt.QStandardItemModel()
         self.model.setHorizontalHeaderLabels(['Timestamp', 'Source', 'Logger', 'Level', 'Message'])
         self.model.setSortRole(qt.Qt.DisplayRole)  # Ensure sorting is based on display text
-        self.model.setDynamicSortFilter(True)  # Enable dynamic sorting
+        self.proxy_model = qt.QSortFilterProxyModel()
+        self.proxy_model.setSourceModel(self.model)
+        self.proxy_model.setSortRole(qt.Qt.DisplayRole)  # Ensure sorting is based on display text
         
         self.tree = qt.QTreeView()
-        self.tree.setModel(self.model)
+        self.tree.setModel(self.proxy_model)
         self.tree.setAlternatingRowColors(True)
         
         self.tree.setSortingEnabled(True)
-        self.model.sort(0, qt.Qt.AscendingOrder)  # Sort by the first column (Timestamp) initially
+        self.proxy_model.sort(0, qt.Qt.AscendingOrder)  # Sort by the first column (Timestamp) initially
         self.tree.sortByColumn(0, qt.Qt.AscendingOrder)
         self.layout.addWidget(self.tree, 0, 0)
         self.resize(1200, 600)
