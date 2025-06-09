@@ -117,6 +117,8 @@ class FilterInputWidget(qt.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = qt.QHBoxLayout()
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(3)
         self.setLayout(self.layout)
         
         self.filter_input = qt.QLineEdit()
