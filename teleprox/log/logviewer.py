@@ -66,32 +66,72 @@ def thread_color(thread_name):
         return thread_colors[thread_name]
 
 
-# class LogTreeWidgetItem(qt.QTreeWidgetItem):
-#     """Custom QTreeWidgetItem for displaying log messages."""
-#     def __init__(self, rec):
-#         # Extract relevant information from the log record
-#         timestamp = rec.created
-#         source = f"{rec.processName}/{rec.threadName}"
-        
-#         # Format level with number and name
-#         level_number = rec.levelno
-#         level_name = rec.levelname
-#         level = f"{level_number} - {level_name}"
-        
-#         message = rec.getMessage()
-#         time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp)) + f'{timestamp % 1.0:.3f}'.lstrip('0')
+# Level cipher system for chained filtering
+def level_to_cipher(level_int):
+    """Convert integer level (0-50) to cipher character for filtering."""
+    if 0 <= level_int <= 25:
+        return chr(ord('a') + level_int)  # a-z
+    elif 26 <= level_int <= 50:
+        return chr(ord('A') + (level_int - 26))  # A-Y
+    else:
+        return 'Z'  # fallback for > 50
 
-#         super().__init__([time_str, source, level, message])
 
-#         tc = thread_color(source)
-#         self.setForeground(1, qt.QColor(tc))
-#         level_color = level_colors.get(level_number, "#000000")
-#         self.setForeground(2, qt.QColor(level_color))
-#         self.setForeground(3, qt.QColor(level_color))
+def parse_level_value(value_str):
+    """Parse level value from user input, supporting both numbers and names."""
+    # Standard Python logging level names
+    level_names = {
+        'debug': 10, 'info': 20, 'warning': 30, 'warn': 30,
+        'error': 40, 'critical': 50, 'fatal': 50
+    }
+    
+    value_str = value_str.strip().lower()
+    
+    # Try parsing as number first
+    try:
+        return int(value_str)
+    except ValueError:
+        pass
+    
+    # Try parsing as level name
+    return level_names.get(value_str, 0)
+
+
+def level_threshold_to_cipher_regex(threshold):
+    """Convert level threshold to cipher regex pattern for levels >= threshold."""
+    if threshold <= 0:
+        return ".*"  # Match all levels
+    
+    # Create character class with ranges for better readability and performance
+    patterns = []
+    
+    # Add lowercase range if needed (a-z covers 0-25)
+    if threshold <= 25:
+        start_char = level_to_cipher(threshold)
+        patterns.append(f"{start_char}-z")
+    
+    # Add uppercase range if needed (A-Y covers 26-50)  
+    if threshold <= 50:
+        if threshold <= 25:
+            patterns.append("A-Y")
+        else:
+            start_char = level_to_cipher(threshold)
+            patterns.append(f"{start_char}-Y")
+    
+    # Add fallback for > 50
+    if threshold <= 50:
+        patterns.append("Z")
+    
+    if not patterns:
+        return "Z"  # Only match fallback level
+    
+    # Create character class with ranges
+    return f"[{''.join(patterns)}]"
 
 
 class FilterTagWidget(qt.QLineEdit):
     """Widget representing an active filter with built-in clear button."""
+    
     def __init__(self, text, parent=None):
         super().__init__(parent)
         self.setText(text)
@@ -112,10 +152,15 @@ class FilterTagWidget(qt.QLineEdit):
     def check_for_removal(self):
         """Remove this widget if text is cleared."""
         if not self.text():
+            # Store reference to parent widget to emit signal later
+            parent_widget = self.parent()
             # Disconnect signals before removal to prevent issues
             self.textChanged.disconnect()
             self.setParent(None)
             self.deleteLater()
+            # Emit signal after removal using timer
+            if parent_widget and hasattr(parent_widget, '_emit_filters_changed'):
+                qt.QTimer.singleShot(0, parent_widget._emit_filters_changed)
 
 
 class FilterInputWidget(qt.QWidget):
@@ -131,7 +176,7 @@ class FilterInputWidget(qt.QWidget):
         self.setLayout(self.layout)
         
         self.filter_input = qt.QLineEdit()
-        self.filter_input.setPlaceholderText("Enter filter criteria...")
+        self.filter_input.setPlaceholderText("Filter  [level: N|debug|info|warn|error] [source: ...] [logger: ...] [message regex]")
         self.filter_input.returnPressed.connect(self.add_filter)
         self.filter_input.editingFinished.connect(self.add_filter)
         self.filter_input.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Fixed)
@@ -160,11 +205,85 @@ class FilterInputWidget(qt.QWidget):
         """Emit the filters_changed signal with current filter strings."""
         self.filters_changed.emit(self.get_filter_strings())
 
+
+class HighlightDelegate(qt.QStyledItemDelegate):
+    """Custom delegate that handles row highlighting based on source/logger matching."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.selected_source = None
+        self.selected_logger = None
+        
+    def set_highlight_criteria(self, source, logger):
+        """Set the source and logger to highlight."""
+        self.selected_source = source
+        self.selected_logger = logger
+        
+    def clear_highlight(self):
+        """Clear highlighting criteria."""
+        self.selected_source = None
+        self.selected_logger = None
+        
+    def paint(self, painter, option, index):
+        """Custom paint method that adds highlighting."""
+        if self.selected_source is None:
+            # No highlighting needed
+            super().paint(painter, option, index)
+            return
+            
+        # Get source and logger data directly from current model (no complex mapping needed)
+        model = index.model()
+        row = index.row()
+        
+        try:
+            # Get data directly from the current model using data() method
+            current_source = model.data(model.index(row, 1), qt.Qt.DisplayRole)
+            current_logger = model.data(model.index(row, 2), qt.Qt.DisplayRole)
+            
+            if current_source and current_logger:
+                
+                # Determine if this row should be highlighted
+                highlight_type = None
+                if current_source == self.selected_source and current_logger == self.selected_logger:
+                    highlight_type = 'source_logger'
+                elif current_source == self.selected_source:
+                    highlight_type = 'source'
+                
+                # Apply highlighting by modifying the option
+                if highlight_type:
+                    # Get base color for theme detection
+                    palette = option.palette
+                    base_color = palette.color(palette.Base)
+                    
+                    # Create highlight colors based on theme
+                    if base_color.lightness() > 128:  # Light theme
+                        if highlight_type == 'source_logger':
+                            highlight_color = qt.QColor(255, 255, 0, 60)  # Stronger yellow
+                        else:
+                            highlight_color = qt.QColor(255, 255, 0, 30)  # Light yellow
+                    else:  # Dark theme
+                        if highlight_type == 'source_logger':
+                            highlight_color = qt.QColor(255, 255, 0, 80)  # Stronger yellow
+                        else:
+                            highlight_color = qt.QColor(255, 255, 0, 40)  # Muted yellow
+                    
+                    # Draw custom background
+                    painter.fillRect(option.rect, highlight_color)
+        except:
+            # If anything fails, just paint normally
+            pass
+            
+        # Paint the item content
+        super().paint(painter, option, index)
+
+
 class LogViewer(qt.QWidget):
     """QWidget for displaying and filtering log messages."""
-    def __init__(self, logger='', parent=None):
+    def __init__(self, logger='', initial_filters=('level: info',), parent=None):
         qt.QWidget.__init__(self, parent=parent)
         
+        # Unique ID counter for log entries
+        self._next_log_id = 0
 
         # Set up handler to send log records to this widget by signal
         self.handler = QtLogHandler()
@@ -187,22 +306,52 @@ class LogViewer(qt.QWidget):
         self.model.setHorizontalHeaderLabels(['Timestamp', 'Source', 'Logger', 'Level', 'Message'])
         
         # Create custom proxy model for advanced filtering
-        self.proxy_model = LogFilterProxyModel()
-        self.proxy_model.setSourceModel(self.model)
-        self.proxy_model.setSortRole(qt.Qt.DisplayRole)  # Ensure sorting is based on display text
+        if USE_CHAINED_FILTERING:
+            self.proxy_model = LogFilterProxyModel(self.model)
+            tree_model = self.proxy_model.final_model
+        else:
+            self.proxy_model = LogFilterProxyModel()
+            self.proxy_model.setSourceModel(self.model)
+            tree_model = self.proxy_model
         
         self.tree = qt.QTreeView()
-        self.tree.setModel(self.proxy_model)
+        self.tree.setModel(tree_model)
         self.tree.setAlternatingRowColors(True)
+        self.tree.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)  # Make non-editable
+        
+        # Set up custom header with context menu
+        self.header = self.tree.header()
+        self.header.setContextMenuPolicy(qt.Qt.CustomContextMenu)
+        self.header.customContextMenuRequested.connect(self._show_header_context_menu)
+        
+        # Create custom delegate for efficient highlighting (will be set on models)
+        self.highlight_delegate = HighlightDelegate(self)
+        
+        # Set delegate on initial model
+        self.tree.setItemDelegate(self.highlight_delegate)
         
         self.tree.setSortingEnabled(True)
-        self.proxy_model.sort(0, qt.Qt.AscendingOrder)  # Sort by the first column (Timestamp) initially
-        self.tree.sortByColumn(0, qt.Qt.AscendingOrder)
+        # Ensure chronological sorting from the start
+        self._ensure_chronological_sorting()
+        
+        # Set up selection handling for highlighting
+        self.tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        
         self.layout.addWidget(self.tree, 1, 0)
         self.resize(1200, 600)
         self.tree.setColumnWidth(0, 200)
         self.tree.setColumnWidth(1, 200)
         self.tree.setColumnWidth(2, 100)
+        
+        # Apply initial filters if provided
+        if initial_filters:
+            # Add initial filters to the UI
+            for filter_expr in initial_filters:
+                self.filter_input_widget.filter_input.setText(filter_expr)
+                self.filter_input_widget.add_filter()
+            
+            # Apply the filters
+            self.apply_filters(list(initial_filters))
 
     def new_record(self, rec):
         # Create a new row for the log record
@@ -226,23 +375,165 @@ class LogViewer(qt.QWidget):
         level_item.setForeground(qt.QColor(level_color))
         message_item.setForeground(qt.QColor(level_color))
         
+        # Assign unique ID to this log entry
+        log_id = self._next_log_id
+        self._next_log_id += 1
+        
         # Store additional data for filtering
         timestamp_item.setData(rec.created, qt.Qt.UserRole)  # Store numeric timestamp
+        timestamp_item.setData(log_id, qt.Qt.UserRole + 3)  # Store unique log ID
         source_item.setData(rec.processName, qt.Qt.UserRole)  # Store process name
         source_item.setData(rec.threadName, qt.Qt.UserRole + 1)  # Store thread name
         logger_item.setData(rec.name, qt.Qt.UserRole)  # Store logger name
         level_item.setData(rec.levelno, qt.Qt.UserRole)  # Store numeric level
+        level_item.setData(level_to_cipher(rec.levelno), qt.Qt.UserRole + 2)  # Store level cipher
         message_item.setData(rec.getMessage(), qt.Qt.UserRole)  # Store message text
         
         # Add items to the model
         self.model.appendRow([timestamp_item, source_item, logger_item, level_item, message_item])
+        
+        # Ensure sorting is maintained when adding new data
+        self._ensure_chronological_sorting()
 
     def apply_filters(self, filter_strings):
         """Apply the given filter strings to the proxy model."""
+        old_final_model = self.proxy_model.final_model if USE_CHAINED_FILTERING else None
+        
         self.proxy_model.set_filters(filter_strings)
+        
+        # Update tree view model if using chained filtering and chain changed
+        if USE_CHAINED_FILTERING:
+            new_final_model = self.proxy_model.final_model
+            if self.tree.model() != new_final_model:
+                # Save current selection ID before changing model
+                selected_log_id = self._get_selected_item_data()
+                
+                # Clear selection and highlighting before changing model
+                self.tree.selectionModel().clear()
+                self.highlight_delegate.clear_highlight()
+                
+                self.tree.setModel(new_final_model)
+                
+                # Reapply delegate to new model
+                self.tree.setItemDelegate(self.highlight_delegate)
+                
+                # Reconnect selection handler since model changed
+                self.tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
+                
+                # Always ensure chronological sorting
+                self._ensure_chronological_sorting()
+                
+                # Restore selection if possible
+                if selected_log_id is not None:
+                    self._restore_selection(selected_log_id)
+        
+    def _ensure_chronological_sorting(self):
+        """Ensure the tree view is sorted chronologically by timestamp."""
+        current_model = self.tree.model()
+        
+        # Set sort role to use numeric timestamp from UserRole
+        if hasattr(current_model, 'setSortRole'):
+            current_model.setSortRole(qt.Qt.UserRole)
+        
+        # Apply sorting
+        if hasattr(current_model, 'sort'):
+            current_model.sort(0, qt.Qt.AscendingOrder)
+        
+        # Also tell the tree view about the sorting
+        self.tree.sortByColumn(0, qt.Qt.AscendingOrder)
+    
+    def _show_header_context_menu(self, position):
+        """Show context menu for column visibility when right-clicking on header."""
+        menu = qt.QMenu(self)
+        
+        # Get column headers
+        headers = ['Timestamp', 'Source', 'Logger', 'Level', 'Message']
+        
+        for i, header_text in enumerate(headers):
+            action = qt.QAction(header_text, self)
+            action.setCheckable(True)
+            action.setChecked(not self.tree.isColumnHidden(i))
+            action.triggered.connect(lambda checked, col=i: self._toggle_column_visibility(col, checked))
+            menu.addAction(action)
+        
+        menu.exec_(self.header.mapToGlobal(position))
+    
+    def _toggle_column_visibility(self, column, visible):
+        """Toggle visibility of a column."""
+        self.tree.setColumnHidden(column, not visible)
+    
+    def _on_selection_changed(self, selected, deselected):
+        """Handle selection changes to highlight related entries."""
+        if not selected.indexes():
+            # Clear highlighting when nothing is selected
+            self.highlight_delegate.clear_highlight()
+            self.tree.viewport().update()  # Trigger repaint
+            return
+        
+        # Get the selected row data directly from the current model
+        index = selected.indexes()[0]  # Use first selected index
+        model = self.tree.model()
+        
+        # Get data directly from the current model using the data() method
+        # This avoids manual index mapping through proxy chains
+        source_data = model.data(model.index(index.row(), 1), qt.Qt.DisplayRole)
+        logger_data = model.data(model.index(index.row(), 2), qt.Qt.DisplayRole)
+        
+        if not source_data or not logger_data:
+            self.highlight_delegate.clear_highlight()
+            self.tree.viewport().update()
+            return
+            
+        selected_source = source_data
+        selected_logger = logger_data
+        
+        # Set highlighting criteria in the delegate
+        self.highlight_delegate.set_highlight_criteria(selected_source, selected_logger)
+        
+        
+        # Trigger a repaint of the entire tree
+        self.tree.viewport().update()
+    
+    def _get_selected_item_data(self):
+        """Get unique ID from currently selected item for selection preservation."""
+        selection = self.tree.selectionModel().selectedIndexes()
+        if not selection:
+            return None
+            
+        # Get the first selected index
+        index = selection[0]
+        model = self.tree.model()
+        row = index.row()
+        
+        # Get the unique log ID from the timestamp column
+        try:
+            log_id = model.data(model.index(row, 0), qt.Qt.UserRole + 3)
+            return log_id
+        except:
+            return None
+    
+    def _restore_selection(self, selected_log_id):
+        """Restore selection to an item with the given unique ID."""
+        if selected_log_id is None:
+            return
+            
+        model = self.tree.model()
+        
+        # Search through the model to find the row with matching log ID
+        for row in range(model.rowCount()):
+            try:
+                log_id = model.data(model.index(row, 0), qt.Qt.UserRole + 3)
+                if log_id == selected_log_id:
+                    # Found matching row, select it
+                    index = model.index(row, 0)
+                    self.tree.selectionModel().select(index, qt.QItemSelectionModel.Select | qt.QItemSelectionModel.Rows)
+                    self.tree.scrollTo(index)  # Scroll to show the selected item
+                    break
+            except:
+                continue
 
 
-class LogFilterProxyModel(qt.QSortFilterProxyModel):
+class PythonLogFilterProxyModel(qt.QSortFilterProxyModel):
     """Custom proxy model that supports advanced filtering of log records."""
     
     def __init__(self, parent=None):
@@ -371,6 +662,167 @@ class LogFilterProxyModel(qt.QSortFilterProxyModel):
         except re.error:
             # If regex is invalid, do literal match
             return filter_str.lower() in combined_text
+
+
+# Chained filtering implementation
+class FieldFilterProxy(qt.QSortFilterProxyModel):
+    """Base class for field-specific filtering using Qt native regex."""
+    
+    def __init__(self, field_name, column, parent=None):
+        super().__init__(parent)
+        self.field_name = field_name
+        self.column = column
+        self.setFilterKeyColumn(column)
+        self.setFilterCaseSensitivity(qt.Qt.CaseInsensitive)
+        self.filter_pattern = ""
+    
+    def set_filter_pattern(self, pattern):
+        """Set the filter pattern for this field."""
+        self.filter_pattern = pattern
+        if pattern:
+            self.setFilterRegExp(pattern)
+        else:
+            self.setFilterRegExp("")
+
+
+class LevelCipherFilterProxy(FieldFilterProxy):
+    """Handles level filtering using cipher data from UserRole+2."""
+    
+    def __init__(self, parent=None):
+        super().__init__("level", 3, parent)  # Column 3 is level column
+        self.setFilterRole(qt.Qt.UserRole + 2)  # Filter on cipher data
+        self.setFilterCaseSensitivity(qt.Qt.CaseSensitive)  # Cipher patterns are case-sensitive
+    
+    def set_level_filter(self, level_value):
+        """Set level filter using threshold (levels >= threshold)."""
+        if not level_value:
+            self.set_filter_pattern("")
+            return
+            
+        threshold = parse_level_value(level_value)
+        cipher_regex = level_threshold_to_cipher_regex(threshold)
+        self.set_filter_pattern(cipher_regex)
+
+
+class ChainedLogFilterManager:
+    """Manages a chain of proxy models for efficient filtering."""
+    
+    def __init__(self, source_model, parent=None):
+        self.source_model = source_model
+        self.proxies = {}
+        self.chain_order = []
+        self.final_model = source_model
+        
+        # Available proxy types mapped to column names where possible
+        self.proxy_types = {
+            'level': lambda: LevelCipherFilterProxy(),
+            'logger': lambda: FieldFilterProxy('logger', 2),
+            'source': lambda: FieldFilterProxy('source', 1),
+            'message': lambda: FieldFilterProxy('message', 4),
+        }
+    
+    def set_filters(self, filter_strings):
+        """Parse filters and build/update proxy chain dynamically."""
+        if not filter_strings:
+            # No filters, use source model directly
+            self._rebuild_chain([])
+            return
+        
+        # Parse filters to determine needed proxies
+        filter_configs = []
+        
+        for filter_str in filter_strings:
+            filter_str = filter_str.strip()
+
+            if not filter_str:
+                continue                
+            
+            # Parse field-specific filters
+            key, colon, value = filter_str.partition(':')
+            if colon:
+                field = key.strip().lower()
+                value = value.strip()
+                
+                if field not in self.proxy_types:
+                    continue
+
+                filter_configs.append((field, value))
+            else:
+                # Generic search terms apply to message column
+                filter_configs.append(('message', filter_str))
+        
+        # Rebuild chain with filter configs
+        self._rebuild_chain(filter_configs)
+    
+    def _rebuild_chain(self, filter_configs):
+        """Rebuild the proxy chain with the specified filter configs in order."""
+        # filter_configs is a list of (field, value) tuples in the order they should be applied
+        
+        # Clear existing proxies
+        self.proxies.clear()
+        self.chain_order.clear()
+        
+        # If no filters, use source model directly
+        if not filter_configs:
+            self.final_model = self.source_model
+            return
+        
+        # Create proxies in the exact order specified
+        proxy_list = []
+        for i, (field, value) in enumerate(filter_configs):
+            if field not in self.proxy_types:
+                continue
+                
+            # Create a unique proxy for each filter (even if same field type)
+            proxy = self.proxy_types[field]()
+            self._apply_filter_to_proxy(proxy, field, value)
+            
+            # Use unique key for each proxy to allow multiple of same type
+            proxy_key = f"{field}_{i}"
+            self.proxies[proxy_key] = proxy
+            self.chain_order.append(proxy_key)
+            proxy_list.append(proxy)
+        
+        # Chain the proxies in order: source -> proxy1 -> proxy2 -> ... -> final
+        if not proxy_list:
+            self.final_model = self.source_model
+            return
+            
+        current_model = self.source_model
+        for proxy in proxy_list:
+            proxy.setSourceModel(current_model)
+            current_model = proxy
+        
+        self.final_model = current_model
+    
+    def _apply_filter_to_proxy(self, proxy, field, value):
+        """Apply the filter value to the appropriate proxy."""
+        if field == 'level':
+            proxy.set_level_filter(value)
+        elif field in ['source', 'logger', 'message']:
+            # For text fields, create regex to match the field
+            escaped_pattern = re.escape(value)
+            regex_pattern = f".*{escaped_pattern}.*"
+            proxy.set_filter_pattern(regex_pattern)
+        else:
+            # Fallback for any other text fields
+            escaped_pattern = re.escape(value)
+            regex_pattern = f".*{escaped_pattern}.*"
+            proxy.set_filter_pattern(regex_pattern)
+    
+    def rowCount(self):
+        """Return row count of final model."""
+        return self.final_model.rowCount()
+
+
+# Create type alias for easy switching between implementations
+# Change this line to switch between Python and Chained filtering
+USE_CHAINED_FILTERING = True
+
+if USE_CHAINED_FILTERING:
+    LogFilterProxyModel = ChainedLogFilterManager
+else:
+    LogFilterProxyModel = PythonLogFilterProxyModel
 
 
 class QtLogHandlerSignals(qt.QObject):
