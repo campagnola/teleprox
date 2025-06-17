@@ -98,6 +98,35 @@ class HighlightDelegate(qt.QStyledItemDelegate):
         """Clear highlighting criteria."""
         self.selected_source = None
         self.selected_logger = None
+    
+    def _get_highlight_color(self, highlight_type, is_child, palette):
+        """Get the appropriate highlight color based on type and context."""
+        base_color = palette.color(palette.Base)
+        is_light_theme = base_color.lightness() > 128
+        
+        # Base alpha values
+        if highlight_type == 'source_logger':
+            alpha = 90 if is_light_theme else 110
+        else:  # source only
+            alpha = 40 if is_light_theme else 60
+        
+        # Reduce alpha for child items to make them more muted
+        if is_child:
+            alpha = int(alpha * 0.7)
+        
+        return qt.QColor(128, 128, 0, alpha)
+    
+    def _should_highlight(self, source, logger):
+        """Determine if given source/logger should be highlighted and return type."""
+        if not source or not logger:
+            return None
+        
+        if source == self.selected_source and logger == self.selected_logger:
+            return 'source_logger'
+        elif source == self.selected_source:
+            return 'source'
+        
+        return None
         
     def paint(self, painter, option, index):
         """Custom paint method that adds highlighting."""
@@ -106,44 +135,35 @@ class HighlightDelegate(qt.QStyledItemDelegate):
             super().paint(painter, option, index)
             return
             
-        # Get source and logger data directly from current model (no complex mapping needed)
+        # Get source and logger data directly from current model
         model = index.model()
         row = index.row()
         
         try:
-            # Get data directly from the current model using data() method
+            # Check if this is a child item (has parent)
+            parent_index = index.parent()
+            if parent_index.isValid():
+                # This is a child item - check if parent should be highlighted
+                parent_source = model.data(model.index(parent_index.row(), 1), qt.Qt.DisplayRole)
+                parent_logger = model.data(model.index(parent_index.row(), 2), qt.Qt.DisplayRole)
+                
+                highlight_type = self._should_highlight(parent_source, parent_logger)
+                if highlight_type:
+                    highlight_color = self._get_highlight_color(highlight_type, is_child=True, palette=option.palette)
+                    painter.fillRect(option.rect, highlight_color)
+                
+                # Paint the child item content
+                super().paint(painter, option, index)
+                return
+            
+            # This is a top-level item - check for highlighting
             current_source = model.data(model.index(row, 1), qt.Qt.DisplayRole)
             current_logger = model.data(model.index(row, 2), qt.Qt.DisplayRole)
             
-            if current_source and current_logger:
-                
-                # Determine if this row should be highlighted
-                highlight_type = None
-                if current_source == self.selected_source and current_logger == self.selected_logger:
-                    highlight_type = 'source_logger'
-                elif current_source == self.selected_source:
-                    highlight_type = 'source'
-                
-                # Apply highlighting by modifying the option
-                if highlight_type:
-                    # Get base color for theme detection
-                    palette = option.palette
-                    base_color = palette.color(palette.Base)
-                    
-                    # Create highlight colors based on theme
-                    if base_color.lightness() > 128:  # Light theme
-                        if highlight_type == 'source_logger':
-                            highlight_color = qt.QColor(255, 255, 0, 60)  # Stronger yellow
-                        else:
-                            highlight_color = qt.QColor(255, 255, 0, 30)  # Light yellow
-                    else:  # Dark theme
-                        if highlight_type == 'source_logger':
-                            highlight_color = qt.QColor(255, 255, 0, 80)  # Stronger yellow
-                        else:
-                            highlight_color = qt.QColor(255, 255, 0, 40)  # Muted yellow
-                    
-                    # Draw custom background
-                    painter.fillRect(option.rect, highlight_color)
+            highlight_type = self._should_highlight(current_source, current_logger)
+            if highlight_type:
+                highlight_color = self._get_highlight_color(highlight_type, is_child=False, palette=option.palette)
+                painter.fillRect(option.rect, highlight_color)
         except:
             # If anything fails, just paint normally
             pass

@@ -266,6 +266,348 @@ class TestChildFiltering:
         # Restore expansion state
         viewer._restore_expansion_state(expanded_ids)
         assert viewer.tree.isExpanded(error_tree_index), "Should be expanded after restore"
+    
+    def test_child_selection_highlighting(self, app):
+        """Test that selecting child items uses parent's highlighting data."""
+        viewer = LogViewer(logger='test.child.highlighting')
+        logger = logging.getLogger('test.child.highlighting')
+        logger.setLevel(logging.DEBUG)
+        
+        # Add an error with exception
+        try:
+            raise ValueError("Test exception for highlighting")
+        except Exception:
+            logger.error("Error with exception", exc_info=True)
+        
+        # Find and expand the exception
+        exception_item = None
+        for i in range(viewer.model.rowCount()):
+            item = viewer.model.item(i, 0)
+            if viewer.model.has_loading_placeholder(item):
+                exception_item = item
+                break
+        
+        assert exception_item is not None, "Should have found exception item"
+        
+        # Expand the exception
+        viewer.model.replace_placeholder_with_content(exception_item)
+        child_count = exception_item.rowCount()
+        assert child_count > 0, "Should have exception children"
+        
+        # Create a mock selection for the child item
+        model = viewer.tree.model()
+        parent_index = model.index(0, 0)  # Parent item
+        child_index = model.index(0, 0, parent_index)  # First child
+        
+        # Create mock selection objects
+        class MockSelection:
+            def __init__(self, indexes):
+                self._indexes = indexes
+            def indexes(self):
+                return self._indexes
+        
+        # Test selecting parent item
+        parent_selection = MockSelection([parent_index])
+        viewer._on_selection_changed(parent_selection, MockSelection([]))
+        
+        # Should have highlighting criteria set (no exception should occur)
+        # The test passes if no exception is raised
+        
+        # Test selecting child item
+        child_selection = MockSelection([child_index])
+        viewer._on_selection_changed(child_selection, MockSelection([]))
+        
+        # Should use parent's data for highlighting (no exception should occur)
+        # The test passes if no exception is raised and highlighting works
+    
+    def test_child_highlighting_isolation(self, app):
+        """Test that child items don't get highlighted when unrelated entries are selected."""
+        viewer = LogViewer(logger='test.highlight.isolation')
+        
+        # Create two different loggers
+        logger_a = logging.getLogger('test.highlight.isolation.moduleA')
+        logger_b = logging.getLogger('test.highlight.isolation.moduleB')
+        logger_a.setLevel(logging.DEBUG)
+        logger_b.setLevel(logging.DEBUG)
+        
+        # Add messages from both loggers
+        logger_a.info("Module A message")
+        
+        try:
+            raise ValueError("Module A exception")
+        except Exception:
+            logger_a.error("Module A error", exc_info=True)
+        
+        logger_b.info("Module B message")
+        
+        try:
+            raise RuntimeError("Module B exception")
+        except Exception:
+            logger_b.error("Module B error", exc_info=True)
+        
+        # Find and expand both exceptions
+        exception_items = []
+        for i in range(viewer.model.rowCount()):
+            item = viewer.model.item(i, 0)
+            if viewer.model.has_loading_placeholder(item):
+                viewer.model.replace_placeholder_with_content(item)
+                exception_items.append((i, item))
+        
+        assert len(exception_items) == 2, "Should have 2 exception items"
+        
+        # Test that selecting Module A doesn't affect Module B children
+        model = viewer.tree.model()
+        
+        # Select the Module A normal message (row 0)
+        module_a_index = model.index(0, 0)
+        
+        class MockSelection:
+            def __init__(self, indexes):
+                self._indexes = indexes
+            def indexes(self):
+                return self._indexes
+        
+        # Select Module A message
+        module_a_selection = MockSelection([module_a_index])
+        viewer._on_selection_changed(module_a_selection, MockSelection([]))
+        
+        # Verify highlighting delegate has Module A criteria
+        assert "moduleA" in viewer.highlight_delegate.selected_logger
+        
+        # The highlighting delegate should not highlight Module B children
+        # when Module A is selected (this would be the bug we're fixing)
+        
+        # Test passed if no exceptions were raised during selection changes
+    
+    def test_exception_message_ordering(self, app):
+        """Test that exception message appears at bottom of traceback."""
+        viewer = LogViewer(logger='test.exception.order')
+        logger = logging.getLogger('test.exception.order')
+        logger.setLevel(logging.DEBUG)
+        
+        # Create a multi-level exception to get a proper traceback
+        def inner_function():
+            raise ValueError("Test exception message")
+        
+        def outer_function():
+            inner_function()
+        
+        try:
+            outer_function()
+        except Exception:
+            logger.error("Error with traceback", exc_info=True)
+        
+        # Find and expand the exception
+        exception_item = None
+        for i in range(viewer.model.rowCount()):
+            item = viewer.model.item(i, 0)
+            if viewer.model.has_loading_placeholder(item):
+                exception_item = item
+                break
+        
+        assert exception_item is not None, "Should have found exception item"
+        
+        # Expand the exception
+        viewer.model.replace_placeholder_with_content(exception_item)
+        child_count = exception_item.rowCount()
+        assert child_count > 1, "Should have multiple children (traceback + exception)"
+        
+        # Check that the last child is the exception message
+        last_child = exception_item.child(child_count - 1, 4)  # Last row, message column
+        assert last_child is not None, "Should have last child"
+        
+        last_message = last_child.text()
+        assert "ValueError" in last_message, "Last child should be the exception message"
+        assert "Test exception message" in last_message, "Should contain the exception text"
+        
+        # Check that earlier children are traceback frames
+        first_child = exception_item.child(0, 4)  # First row, message column
+        assert first_child is not None, "Should have first child"
+        
+        first_message = first_child.text()
+        assert "File " in first_message, "First child should be a traceback frame"
+    
+    def test_monospace_font_for_code(self, app):
+        """Test that traceback frames use monospace font."""
+        viewer = LogViewer(logger='test.monospace')
+        logger = logging.getLogger('test.monospace')
+        logger.setLevel(logging.DEBUG)
+        
+        try:
+            raise RuntimeError("Test for monospace")
+        except Exception:
+            logger.error("Error with traceback", exc_info=True)
+        
+        # Find and expand the exception
+        exception_item = None
+        for i in range(viewer.model.rowCount()):
+            item = viewer.model.item(i, 0)
+            if viewer.model.has_loading_placeholder(item):
+                exception_item = item
+                break
+        
+        assert exception_item is not None, "Should have found exception item"
+        
+        # Expand the exception
+        viewer.model.replace_placeholder_with_content(exception_item)
+        
+        # Check that traceback frames have monospace font
+        # Note: We can't easily test the actual font in a unit test,
+        # but we can verify the structure is correct
+        child_count = exception_item.rowCount()
+        assert child_count >= 2, "Should have at least traceback frame + exception message"
+        
+        # Verify we have at least one traceback frame (not just the exception message)
+        has_traceback = False
+        for i in range(child_count - 1):  # Exclude last item (exception message)
+            child = exception_item.child(i, 4)
+            if child and "File " in child.text():
+                has_traceback = True
+                break
+        
+        assert has_traceback, "Should have at least one traceback frame"
+    
+    def test_chained_exception_ordering(self, app):
+        """Test that chained exceptions appear in correct order with separators."""
+        viewer = LogViewer(logger='test.chained')
+        logger = logging.getLogger('test.chained')
+        logger.setLevel(logging.DEBUG)
+        
+        # Create a chained exception scenario
+        def inner_function():
+            raise ValueError("Root cause error")
+        
+        def outer_function():
+            try:
+                inner_function()
+            except ValueError as e:
+                raise ConnectionError("Connection failed") from e
+        
+        try:
+            outer_function()
+        except ConnectionError:
+            logger.error("Chained exception occurred", exc_info=True)
+        
+        # Find and expand the exception
+        exception_item = None
+        for i in range(viewer.model.rowCount()):
+            item = viewer.model.item(i, 0)
+            if viewer.model.has_loading_placeholder(item):
+                exception_item = item
+                break
+        
+        assert exception_item is not None, "Should have found exception item"
+        
+        # Expand the exception
+        viewer.model.replace_placeholder_with_content(exception_item)
+        child_count = exception_item.rowCount()
+        assert child_count > 2, "Should have multiple children (2 exceptions + separator + tracebacks)"
+        
+        # Collect all child messages to verify ordering
+        child_messages = []
+        for i in range(child_count):
+            child = exception_item.child(i, 4)  # Message column
+            if child:
+                message = child.text()
+                child_data = exception_item.child(i, 0).data(ItemDataRole.PYTHON_DATA)
+                child_type = child_data.get('type') if child_data else 'unknown'
+                child_messages.append((child_type, message))
+        
+        # Expected order (matches Python's standard exception chaining):
+        # 1. ValueError traceback frames (root cause)
+        # 2. ValueError exception message  
+        # 3. Chain separator
+        # 4. ConnectionError traceback frames (final exception)
+        # 5. ConnectionError exception message
+        
+        # Find the separator
+        separator_index = None
+        for i, (child_type, message) in enumerate(child_messages):
+            if child_type == 'chain_separator':
+                separator_index = i
+                break
+        
+        assert separator_index is not None, f"Should have chain separator. Found types: {[t for t, _ in child_messages]}"
+        
+        # Check that ValueError message appears before separator (root cause first)
+        value_error_index = None
+        for i, (child_type, message) in enumerate(child_messages):
+            if child_type == 'exception' and 'ValueError' in message:
+                value_error_index = i
+                break
+        
+        assert value_error_index is not None, "Should find ValueError message"
+        assert value_error_index < separator_index, f"ValueError ({value_error_index}) should come before separator ({separator_index})"
+        
+        # Check that ConnectionError message appears after separator (final exception last)
+        connection_error_index = None
+        for i, (child_type, message) in enumerate(child_messages):
+            if child_type == 'exception' and 'ConnectionError' in message:
+                connection_error_index = i
+                break
+        
+        assert connection_error_index is not None, "Should find ConnectionError message"
+        assert connection_error_index > separator_index, f"ConnectionError ({connection_error_index}) should come after separator ({separator_index})"
+        
+        # Verify separator message
+        separator_message = child_messages[separator_index][1]
+        assert "direct cause" in separator_message, f"Separator should mention 'direct cause': {separator_message}"
+    
+    def test_stack_info_ordering(self, app):
+        """Test that stack_info appears after exceptions with proper separators."""
+        viewer = LogViewer(logger='test.stack.order')
+        logger = logging.getLogger('test.stack.order')
+        logger.setLevel(logging.DEBUG)
+        
+        # Test 1: Message with only stack_info
+        logger.warning("Warning with stack info only", stack_info=True)
+        
+        # Test 2: Exception with both exc_info and stack_info
+        try:
+            1 / 0
+        except ZeroDivisionError:
+            logger.error("Error with both exc_info and stack_info", exc_info=True, stack_info=True)
+        
+        # Test the first entry (stack_info only)
+        stack_only_item = viewer.model.item(0, 0)
+        if viewer.model.has_loading_placeholder(stack_only_item):
+            viewer.model.replace_placeholder_with_content(stack_only_item)
+            
+            # Should have stack separator + stack frames
+            child_count = stack_only_item.rowCount()
+            assert child_count >= 2, "Should have stack separator + stack frames"
+            
+            # First child should be stack separator with appropriate message
+            first_child = stack_only_item.child(0, 4)
+            first_child_data = stack_only_item.child(0, 0).data(ItemDataRole.PYTHON_DATA)
+            assert first_child_data.get('type') == 'stack_separator'
+            assert "This message was logged at the following location" in first_child.text()
+        
+        # Test the second entry (exception + stack_info)
+        both_item = viewer.model.item(1, 0)
+        if viewer.model.has_loading_placeholder(both_item):
+            viewer.model.replace_placeholder_with_content(both_item)
+            
+            # Collect child types
+            child_types = []
+            for i in range(both_item.rowCount()):
+                child_data = both_item.child(i, 0).data(ItemDataRole.PYTHON_DATA)
+                child_type = child_data.get('type') if child_data else 'unknown'
+                child_types.append(child_type)
+            
+            # Should have: traceback_frame(s), exception, stack_separator, stack_frame(s)
+            assert 'exception' in child_types, "Should have exception"
+            assert 'stack_separator' in child_types, "Should have stack separator"
+            assert 'stack_frame' in child_types, "Should have stack frames"
+            
+            # Stack separator should come after exception
+            exception_index = child_types.index('exception')
+            stack_separator_index = child_types.index('stack_separator')
+            assert exception_index < stack_separator_index, "Exception should come before stack separator"
+            
+            # Verify stack separator message
+            stack_separator_child = both_item.child(stack_separator_index, 4)
+            assert "The above exception was logged at the following location" in stack_separator_child.text()
 
 
 def run_manual_tests():

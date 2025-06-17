@@ -21,34 +21,52 @@ class LogModel(qt.QStandardItemModel):
     def _create_exception_children(self, record):
         """Create child items for exception information."""
         children = []
+        has_exceptions = False
         
-        # Handle exc_info
+        # Handle exc_info (including chained exceptions) FIRST
         if hasattr(record, 'exc_info') and record.exc_info:
             exc_type, exc_value, exc_tb = record.exc_info
             if exc_type and exc_value:
-                # Exception type and message
-                exc_msg = f"{exc_type.__name__}: {exc_value}"
-                exc_row = self._create_child_row("", exc_msg, {
-                    'type': 'exception',
-                    'text': exc_msg,
-                    'parent_record': record
-                }, record)
-                children.append(exc_row)
+                has_exceptions = True
+                # Process the full exception chain
+                exception_chain = self._build_exception_chain(exc_type, exc_value, exc_tb)
                 
-                # Traceback frames
-                if exc_tb:
-                    tb_lines = traceback.format_tb(exc_tb)
-                    for i, line in enumerate(tb_lines):
-                        frame_row = self._create_child_row("", line.strip(), {
-                            'type': 'traceback_frame',
-                            'text': line.strip(),
-                            'frame_number': i + 1,
+                # Add all exceptions in the chain (root cause first, final exception last)
+                for i, chain_item in enumerate(exception_chain):
+                    # Add traceback frames for this exception
+                    if chain_item['traceback']:
+                        tb_lines = traceback.format_tb(chain_item['traceback'])
+                        for j, line in enumerate(tb_lines):
+                            frame_row = self._create_child_row("", line.strip(), {
+                                'type': 'traceback_frame',
+                                'text': line.strip(),
+                                'frame_number': j + 1,
+                                'parent_record': record
+                            }, record)
+                            children.append(frame_row)
+                    
+                    # Add the exception message
+                    exc_msg = f"{chain_item['type'].__name__}: {chain_item['value']}"
+                    exc_row = self._create_child_row("", exc_msg, {
+                        'type': 'exception',
+                        'text': exc_msg,
+                        'parent_record': record
+                    }, record)
+                    children.append(exc_row)
+                    
+                    # Add chain separator AFTER the exception (if the NEXT exception has a cause_text)
+                    # This ensures the separator appears between root cause and final exception
+                    if i < len(exception_chain) - 1 and exception_chain[i + 1]['cause_text']:
+                        separator_row = self._create_child_row("", exception_chain[i + 1]['cause_text'], {
+                            'type': 'chain_separator',
+                            'text': exception_chain[i + 1]['cause_text'],
                             'parent_record': record
                         }, record)
-                        children.append(frame_row)
+                        children.append(separator_row)
         
         # Handle exc_text
         elif hasattr(record, 'exc_text') and record.exc_text:
+            has_exceptions = True
             lines = record.exc_text.split('\n')
             for i, line in enumerate(lines):
                 if line.strip():
@@ -60,20 +78,117 @@ class LogModel(qt.QStandardItemModel):
                     }, record)
                     children.append(line_row)
         
-        # Handle stack_info
+        # Handle stack_info LAST (after all exception information)
         if hasattr(record, 'stack_info') and record.stack_info:
-            lines = record.stack_info.split('\n')
-            for i, line in enumerate(lines):
-                if line.strip():
-                    stack_row = self._create_child_row("", line.strip(), {
-                        'type': 'stack_frame',
-                        'text': line.strip(),
-                        'frame_number': i + 1,
-                        'parent_record': record
-                    }, record)
-                    children.append(stack_row)
+            # Add separator message to introduce stack info
+            if has_exceptions:
+                stack_separator_msg = "The above exception was logged at the following location:"
+            else:
+                stack_separator_msg = "This message was logged at the following location:"
+            
+            stack_separator_row = self._create_child_row("", stack_separator_msg, {
+                'type': 'stack_separator',
+                'text': stack_separator_msg,
+                'parent_record': record
+            }, record)
+            children.append(stack_separator_row)
+            
+            # Parse stack info into frames like traceback frames
+            stack_frames = self._parse_stack_info(record.stack_info)
+            for frame_text in stack_frames:
+                stack_row = self._create_child_row("", frame_text, {
+                    'type': 'stack_frame',
+                    'text': frame_text,
+                    'parent_record': record
+                }, record)
+                children.append(stack_row)
         
         return children
+    
+    def _parse_stack_info(self, stack_info):
+        """Parse stack_info into frames like traceback frames (one item per code line)."""
+        frames = []
+        lines = stack_info.split('\n')
+        
+        current_frame = []
+        for line in lines:
+            line = line.rstrip()
+            if not line:
+                continue
+                
+            # Check if this is a file location line (starts with '  File ')
+            if line.startswith('  File '):
+                # If we have a previous frame, save it
+                if current_frame:
+                    frames.append('\n'.join(current_frame))
+                # Start new frame with the file line
+                current_frame = [line]
+            elif line.startswith('    '):
+                # This is a code line, add to current frame
+                if current_frame:
+                    current_frame.append(line)
+            else:
+                # Other lines (like stack header), treat as separate frames
+                if current_frame:
+                    frames.append('\n'.join(current_frame))
+                    current_frame = []
+                if line.strip():
+                    frames.append(line)
+        
+        # Don't forget the last frame
+        if current_frame:
+            frames.append('\n'.join(current_frame))
+            
+        return frames
+    
+    def _build_exception_chain(self, exc_type, exc_value, exc_tb):
+        """Build the complete exception chain including causes and context."""
+        chain = []
+        current_exc = exc_value
+        current_type = exc_type
+        current_tb = exc_tb
+        
+        while current_exc is not None:
+            # Determine cause text for chaining
+            cause_text = None
+            next_exc = None
+            next_type = None
+            next_tb = None
+            
+            # Check for explicit cause (__cause__)
+            if hasattr(current_exc, '__cause__') and current_exc.__cause__ is not None:
+                cause_text = "The above exception was the direct cause of the following exception:"
+                next_exc = current_exc.__cause__ 
+                next_type = type(next_exc)
+                next_tb = getattr(next_exc, '__traceback__', None)
+            # Check for context (__context__) if no explicit cause
+            elif hasattr(current_exc, '__context__') and current_exc.__context__ is not None:
+                # Only show context if suppress_context is False
+                if not getattr(current_exc, '__suppress_context__', False):
+                    cause_text = "During handling of the above exception, another exception occurred:"
+                    next_exc = current_exc.__context__
+                    next_type = type(next_exc)
+                    next_tb = getattr(next_exc, '__traceback__', None)
+            
+            # Add current exception to chain
+            chain.append({
+                'type': current_type,
+                'value': current_exc,
+                'traceback': current_tb,
+                'cause_text': cause_text
+            })
+            
+            # Move to next in chain
+            current_exc = next_exc
+            current_type = next_type
+            current_tb = next_tb
+        
+        # Reverse to match Python's standard display order:
+        # 1. ValueError + traceback + message (root cause first)
+        # 2. "The above exception was the direct cause..." (separator)  
+        # 3. ConnectionError + traceback + message (final exception)
+        
+        return list(reversed(chain))
     
     def _create_child_row(self, label, message, data_dict, parent_record):
         """Create a standardized child row for exception details."""
@@ -100,6 +215,37 @@ class LogModel(qt.QStandardItemModel):
         # Set colors to differentiate from main log entries
         level_item.setForeground(qt.QColor("#666666"))  # Gray for child labels
         message_item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
+        
+        # Make exception/stack items not selectable
+        for item in [timestamp_item, source_item, logger_item, level_item, message_item]:
+            item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
+        
+        # Apply monospace font for code-like content
+        if data_dict.get('type') in ['traceback_frame', 'stack_frame']:
+            # These contain code lines and file paths - use monospace
+            monospace_font = qt.QFont("Consolas, Monaco, 'Courier New', monospace")
+            monospace_font.setStyleHint(qt.QFont.TypeWriter)
+            message_item.setFont(monospace_font)
+        
+        # Make exception messages bold
+        if data_dict.get('type') == 'exception':
+            bold_font = message_item.font()
+            bold_font.setBold(True)
+            message_item.setFont(bold_font)
+        
+        # Style chain separators
+        if data_dict.get('type') == 'chain_separator':
+            italic_font = message_item.font()
+            italic_font.setItalic(True)
+            message_item.setFont(italic_font)
+            message_item.setForeground(qt.QColor("#888888"))  # Lighter gray for separators
+        
+        # Style stack separators
+        if data_dict.get('type') == 'stack_separator':
+            italic_font = message_item.font()
+            italic_font.setItalic(True)
+            message_item.setFont(italic_font)
+            message_item.setForeground(qt.QColor("#888888"))  # Lighter gray for separators
         
         return [timestamp_item, source_item, logger_item, level_item, message_item]
     
@@ -402,10 +548,16 @@ class LogViewer(qt.QWidget):
         index = selected.indexes()[0]  # Use first selected index
         model = self.tree.model()
         
-        # Get data directly from the current model using the data() method
-        # This avoids manual index mapping through proxy chains
-        source_data = model.data(model.index(index.row(), 1), qt.Qt.DisplayRole)
-        logger_data = model.data(model.index(index.row(), 2), qt.Qt.DisplayRole)
+        # Check if this is a child item (has a parent)
+        parent_index = index.parent()
+        if parent_index.isValid():
+            # This is a child item - use parent's highlighting data
+            source_data = model.data(model.index(parent_index.row(), 1), qt.Qt.DisplayRole)
+            logger_data = model.data(model.index(parent_index.row(), 2), qt.Qt.DisplayRole)
+        else:
+            # This is a top-level item - use its own data
+            source_data = model.data(model.index(index.row(), 1), qt.Qt.DisplayRole)
+            logger_data = model.data(model.index(index.row(), 2), qt.Qt.DisplayRole)
         
         if not source_data or not logger_data:
             self.highlight_delegate.clear_highlight()
@@ -417,7 +569,6 @@ class LogViewer(qt.QWidget):
         
         # Set highlighting criteria in the delegate
         self.highlight_delegate.set_highlight_criteria(selected_source, selected_logger)
-        
         
         # Trigger a repaint of the entire tree
         self.tree.viewport().update()
