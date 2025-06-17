@@ -29,6 +29,7 @@ from teleprox.log.logviewer.proxies import (
     FieldFilterProxy,
     LevelCipherFilterProxy
 )
+from teleprox.log.logviewer.constants import ItemDataRole
 from teleprox.log.logviewer.filtering import ChainedLogFilterManager
 
 
@@ -232,7 +233,7 @@ class TestFilterProxies:
         item1 = QStandardItem("test1") 
         item2 = QStandardItem("test2")
         item3 = QStandardItem("test3")
-        item3.setData('k', Qt.UserRole + 2)  # level cipher
+        item3.setData('k', ItemDataRole.LEVEL_CIPHER)  # level cipher
         
         model.appendRow([item0, item1, item2, item3])
         return model
@@ -263,8 +264,8 @@ class TestFilterProxies:
         proxy = LevelCipherFilterProxy()
         proxy.setSourceModel(mock_model)
         
-        # Should filter on UserRole+2 of column 3
-        assert proxy.filterRole() == Qt.UserRole + 2
+        # Should filter on LEVEL_CIPHER role of column 3
+        assert proxy.filterRole() == ItemDataRole.LEVEL_CIPHER
         assert proxy.filterKeyColumn() == 3
         
         # Test level filter setting
@@ -293,21 +294,21 @@ class TestIntegration:
         
         for timestamp, process, thread, logger, level, message in test_data:
             timestamp_item = QStandardItem(f"{timestamp:.1f}")
-            timestamp_item.setData(timestamp, Qt.UserRole)
+            timestamp_item.setData(timestamp, ItemDataRole.NUMERIC_TIMESTAMP)
             
             source_item = QStandardItem(f"{process}/{thread}")
-            source_item.setData(process, Qt.UserRole)
-            source_item.setData(thread, Qt.UserRole + 1)
+            source_item.setData(process, ItemDataRole.PROCESS_NAME)
+            source_item.setData(thread, ItemDataRole.THREAD_NAME)
             
             logger_item = QStandardItem(logger)
-            logger_item.setData(logger, Qt.UserRole)
+            logger_item.setData(logger, ItemDataRole.LOGGER_NAME)
             
             level_item = QStandardItem(str(level))
-            level_item.setData(level, Qt.UserRole)
-            level_item.setData(level_to_cipher(level), Qt.UserRole + 2)
+            level_item.setData(level, ItemDataRole.LEVEL_NUMBER)
+            level_item.setData(level_to_cipher(level), ItemDataRole.LEVEL_CIPHER)
             
             message_item = QStandardItem(message)
-            message_item.setData(message, Qt.UserRole)
+            message_item.setData(message, ItemDataRole.MESSAGE_TEXT)
             
             model.appendRow([timestamp_item, source_item, logger_item, level_item, message_item])
         

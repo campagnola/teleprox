@@ -3,20 +3,184 @@
 
 import logging
 import time
+import traceback
 
 from teleprox import qt
 from .utils import level_colors, thread_color, level_to_cipher
 from .widgets import FilterInputWidget, HighlightDelegate
 from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
+from .constants import ItemDataRole
+
+
+class LogModel(qt.QStandardItemModel):
+    """Custom model that supports lazy loading of exception details using dummy placeholders."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+    
+    def _create_exception_children(self, record):
+        """Create child items for exception information."""
+        children = []
+        
+        # Handle exc_info
+        if hasattr(record, 'exc_info') and record.exc_info:
+            exc_type, exc_value, exc_tb = record.exc_info
+            if exc_type and exc_value:
+                # Exception type and message
+                exc_msg = f"{exc_type.__name__}: {exc_value}"
+                exc_row = self._create_child_row("", exc_msg, {
+                    'type': 'exception',
+                    'text': exc_msg,
+                    'parent_record': record
+                }, record)
+                children.append(exc_row)
+                
+                # Traceback frames
+                if exc_tb:
+                    tb_lines = traceback.format_tb(exc_tb)
+                    for i, line in enumerate(tb_lines):
+                        frame_row = self._create_child_row("", line.strip(), {
+                            'type': 'traceback_frame',
+                            'text': line.strip(),
+                            'frame_number': i + 1,
+                            'parent_record': record
+                        }, record)
+                        children.append(frame_row)
+        
+        # Handle exc_text
+        elif hasattr(record, 'exc_text') and record.exc_text:
+            lines = record.exc_text.split('\n')
+            for i, line in enumerate(lines):
+                if line.strip():
+                    line_row = self._create_child_row("", line.strip(), {
+                        'type': 'exception_text',
+                        'text': line.strip(),
+                        'line_number': i + 1,
+                        'parent_record': record
+                    }, record)
+                    children.append(line_row)
+        
+        # Handle stack_info
+        if hasattr(record, 'stack_info') and record.stack_info:
+            lines = record.stack_info.split('\n')
+            for i, line in enumerate(lines):
+                if line.strip():
+                    stack_row = self._create_child_row("", line.strip(), {
+                        'type': 'stack_frame',
+                        'text': line.strip(),
+                        'frame_number': i + 1,
+                        'parent_record': record
+                    }, record)
+                    children.append(stack_row)
+        
+        return children
+    
+    def _create_child_row(self, label, message, data_dict, parent_record):
+        """Create a standardized child row for exception details."""
+        # Create items for each column
+        timestamp_item = qt.QStandardItem("")  # Empty timestamp for child
+        source_item = qt.QStandardItem("")     # Empty source for child
+        logger_item = qt.QStandardItem("")     # Empty logger for child  
+        level_item = qt.QStandardItem("")      # Empty level for child
+        message_item = qt.QStandardItem(message)  # Exception/stack message
+        
+        # Store data in the first item (timestamp column)
+        timestamp_item.setData(data_dict, ItemDataRole.PYTHON_DATA)
+        
+        # INHERIT PARENT'S FILTER DATA so Qt native filtering includes children
+        # This allows children to pass the same filters as their parents
+        timestamp_item.setData(parent_record.created, ItemDataRole.NUMERIC_TIMESTAMP)
+        source_item.setData(parent_record.processName, ItemDataRole.PROCESS_NAME)
+        source_item.setData(parent_record.threadName, ItemDataRole.THREAD_NAME)
+        logger_item.setData(parent_record.name, ItemDataRole.LOGGER_NAME)
+        level_item.setData(parent_record.levelno, ItemDataRole.LEVEL_NUMBER)
+        level_item.setData(self._get_level_cipher(parent_record.levelno), ItemDataRole.LEVEL_CIPHER)
+        message_item.setData(message, ItemDataRole.MESSAGE_TEXT)  # Child's own message
+        
+        # Set colors to differentiate from main log entries
+        level_item.setForeground(qt.QColor("#666666"))  # Gray for child labels
+        message_item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
+        
+        return [timestamp_item, source_item, logger_item, level_item, message_item]
+    
+    def _get_level_cipher(self, level_int):
+        """Get level cipher for a given level number."""
+        from .utils import level_to_cipher
+        return level_to_cipher(level_int)
+    
+    def add_loading_placeholder(self, parent_item, record):
+        """Add a dummy 'loading...' child to indicate expandable content."""
+        # Create loading placeholder row
+        loading_row = self._create_loading_placeholder_row()
+        
+        # Add the placeholder as child
+        parent_item.appendRow(loading_row)
+        
+        # Store the record data in the parent for later expansion
+        parent_item.setData(record, ItemDataRole.PYTHON_DATA)
+        parent_item.setData(True, ItemDataRole.HAS_CHILDREN)
+    
+    def _create_loading_placeholder_row(self):
+        """Create a dummy 'loading...' row."""
+        timestamp_item = qt.QStandardItem("")
+        source_item = qt.QStandardItem("")
+        logger_item = qt.QStandardItem("")
+        level_item = qt.QStandardItem("⏳ Loading...")
+        message_item = qt.QStandardItem("Click to expand exception details")
+        
+        # Mark as loading placeholder
+        timestamp_item.setData(True, ItemDataRole.IS_LOADING_PLACEHOLDER)
+        
+        # Style the placeholder
+        level_item.setForeground(qt.QColor("#888888"))
+        message_item.setForeground(qt.QColor("#888888"))
+        message_item.setFont(qt.QFont("Arial", 8, qt.QFont.StyleItalic))
+        
+        return [timestamp_item, source_item, logger_item, level_item, message_item]
+    
+    def has_loading_placeholder(self, parent_item):
+        """Check if item has a loading placeholder child."""
+        if parent_item.rowCount() == 1:
+            child = parent_item.child(0, 0)  # Check timestamp column
+            return child and child.data(ItemDataRole.IS_LOADING_PLACEHOLDER) is True
+        return False
+    
+    def replace_placeholder_with_content(self, parent_item):
+        """Replace loading placeholder with actual exception details."""
+        if not self.has_loading_placeholder(parent_item):
+            return
+        
+        # Get the stored log record
+        log_record = parent_item.data(ItemDataRole.PYTHON_DATA)
+        if log_record is None:
+            return
+        
+        # Remove the placeholder child
+        parent_item.removeRow(0)
+        
+        # Create and add real exception children
+        children = self._create_exception_children(log_record)
+        for child_row in children:
+            parent_item.appendRow(child_row)
+        
+        # Mark as fetched
+        parent_item.setData(True, ItemDataRole.CHILDREN_FETCHED)
 
 
 class LogViewer(qt.QWidget):
     """QWidget for displaying and filtering log messages."""
+    
+    # Signal emitted when user clicks on a stack frame
+    stack_frame_clicked = qt.Signal(str, int)  # (filename, line_number)
+    
     def __init__(self, logger='', initial_filters=('level: info',), parent=None):
         qt.QWidget.__init__(self, parent=parent)
         
         # Unique ID counter for log entries
         self._next_log_id = 0
+        
+        # Track filter changes for expansion state preservation
+        self._last_filter_strings = []
 
         # Set up handler to send log records to this widget by signal
         self.handler = QtLogHandler()
@@ -35,7 +199,7 @@ class LogViewer(qt.QWidget):
         self.filter_input_widget.filters_changed.connect(self.apply_filters)
         self.layout.addWidget(self.filter_input_widget, 0, 0)
 
-        self.model = qt.QStandardItemModel()
+        self.model = LogModel()
         self.model.setHorizontalHeaderLabels(['Timestamp', 'Source', 'Logger', 'Level', 'Message'])
         
         # Create custom proxy model for advanced filtering
@@ -69,6 +233,9 @@ class LogViewer(qt.QWidget):
         
         # Set up selection handling for highlighting
         self.tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        
+        # Handle tree expansion to replace loading placeholders
+        self.tree.expanded.connect(self._on_item_expanded)
         
         self.layout.addWidget(self.tree, 1, 0)
         self.resize(1200, 600)
@@ -112,18 +279,30 @@ class LogViewer(qt.QWidget):
         log_id = self._next_log_id
         self._next_log_id += 1
         
-        # Store additional data for filtering
-        timestamp_item.setData(rec.created, qt.Qt.UserRole)  # Store numeric timestamp
-        timestamp_item.setData(log_id, qt.Qt.UserRole + 3)  # Store unique log ID
-        source_item.setData(rec.processName, qt.Qt.UserRole)  # Store process name
-        source_item.setData(rec.threadName, qt.Qt.UserRole + 1)  # Store thread name
-        logger_item.setData(rec.name, qt.Qt.UserRole)  # Store logger name
-        level_item.setData(rec.levelno, qt.Qt.UserRole)  # Store numeric level
-        level_item.setData(level_to_cipher(rec.levelno), qt.Qt.UserRole + 2)  # Store level cipher
-        message_item.setData(rec.getMessage(), qt.Qt.UserRole)  # Store message text
+        # Store data using named constants
+        timestamp_item.setData(rec, ItemDataRole.PYTHON_DATA)  # Store complete log record
+        timestamp_item.setData(rec.created, ItemDataRole.NUMERIC_TIMESTAMP)  # Store numeric timestamp
+        timestamp_item.setData(log_id, ItemDataRole.LOG_ID)  # Store unique log ID
+        source_item.setData(rec.processName, ItemDataRole.PROCESS_NAME)  # Store process name
+        source_item.setData(rec.threadName, ItemDataRole.THREAD_NAME)  # Store thread name
+        logger_item.setData(rec.name, ItemDataRole.LOGGER_NAME)  # Store logger name
+        level_item.setData(rec.levelno, ItemDataRole.LEVEL_NUMBER)  # Store numeric level
+        level_item.setData(level_to_cipher(rec.levelno), ItemDataRole.LEVEL_CIPHER)  # Store level cipher
+        message_item.setData(rec.getMessage(), ItemDataRole.MESSAGE_TEXT)  # Store message text
         
         # Add items to the model
         self.model.appendRow([timestamp_item, source_item, logger_item, level_item, message_item])
+        
+        # Check if this record has exception information for lazy loading
+        has_exception_info = (
+            (hasattr(rec, 'exc_info') and rec.exc_info and rec.exc_info != (None, None, None)) or
+            (hasattr(rec, 'exc_text') and rec.exc_text) or
+            (hasattr(rec, 'stack_info') and rec.stack_info)
+        )
+        
+        if has_exception_info:
+            # Add loading placeholder for lazy expansion
+            self.model.add_loading_placeholder(timestamp_item, rec)
         
         # Ensure sorting is maintained when adding new data
         self._ensure_chronological_sorting()
@@ -131,6 +310,10 @@ class LogViewer(qt.QWidget):
     def apply_filters(self, filter_strings):
         """Apply the given filter strings to the proxy model."""
         old_final_model = self.proxy_model.final_model if USE_CHAINED_FILTERING else None
+        
+        # Save expansion state before changing filters
+        expanded_log_ids = self._save_expansion_state()
+        # print(f"Saved expansion state: {expanded_log_ids}")
         
         self.proxy_model.set_filters(filter_strings)
         
@@ -159,14 +342,26 @@ class LogViewer(qt.QWidget):
                 # Restore selection if possible
                 if selected_log_id is not None:
                     self._restore_selection(selected_log_id)
+                
+                # Restore expansion state
+                self._restore_expansion_state(expanded_log_ids)
+        
+        # Always restore expansion state after any filter change
+        # (in case we're not using chained filtering or model didn't change)
+        if filter_strings != self._last_filter_strings:
+            # print(f"Restoring expansion state: {expanded_log_ids}")
+            self._restore_expansion_state(expanded_log_ids)
+        
+        # Remember the current filter strings
+        self._last_filter_strings = filter_strings[:]
         
     def _ensure_chronological_sorting(self):
         """Ensure the tree view is sorted chronologically by timestamp."""
         current_model = self.tree.model()
         
-        # Set sort role to use numeric timestamp from UserRole
+        # Set sort role to use numeric timestamp from ItemDataRole.NUMERIC_TIMESTAMP
         if hasattr(current_model, 'setSortRole'):
-            current_model.setSortRole(qt.Qt.UserRole)
+            current_model.setSortRole(ItemDataRole.NUMERIC_TIMESTAMP)
         
         # Apply sorting
         if hasattr(current_model, 'sort'):
@@ -227,6 +422,22 @@ class LogViewer(qt.QWidget):
         # Trigger a repaint of the entire tree
         self.tree.viewport().update()
     
+    def _on_item_expanded(self, index):
+        """Handle tree item expansion to replace loading placeholders."""
+        # Get the item from the current model (could be proxy)
+        current_model = self.tree.model()
+        
+        # Map index back to source model if using proxy
+        source_index = index
+        if hasattr(current_model, 'mapToSource'):
+            source_index = current_model.mapToSource(index)
+        
+        # Get the actual item from our LogModel
+        item = self.model.itemFromIndex(source_index)
+        if item and self.model.has_loading_placeholder(item):
+            # Replace placeholder with real content
+            self.model.replace_placeholder_with_content(item)
+    
     def _get_selected_item_data(self):
         """Get unique ID from currently selected item for selection preservation."""
         selection = self.tree.selectionModel().selectedIndexes()
@@ -240,7 +451,7 @@ class LogViewer(qt.QWidget):
         
         # Get the unique log ID from the timestamp column
         try:
-            log_id = model.data(model.index(row, 0), qt.Qt.UserRole + 3)
+            log_id = model.data(model.index(row, 0), ItemDataRole.LOG_ID)
             return log_id
         except:
             return None
@@ -255,7 +466,7 @@ class LogViewer(qt.QWidget):
         # Search through the model to find the row with matching log ID
         for row in range(model.rowCount()):
             try:
-                log_id = model.data(model.index(row, 0), qt.Qt.UserRole + 3)
+                log_id = model.data(model.index(row, 0), ItemDataRole.LOG_ID)
                 if log_id == selected_log_id:
                     # Found matching row, select it
                     index = model.index(row, 0)
@@ -264,6 +475,48 @@ class LogViewer(qt.QWidget):
                     break
             except:
                 continue
+    
+    def _save_expansion_state(self):
+        """Save the expansion state of all items using their unique LOG_IDs."""
+        expanded_log_ids = set()
+        current_model = self.tree.model()
+        
+        if current_model is None:
+            return expanded_log_ids
+        
+        # Walk through all visible items and check if they're expanded
+        for row in range(current_model.rowCount()):
+            index = current_model.index(row, 0)
+            if self.tree.isExpanded(index):
+                # Get the LOG_ID for this item
+                log_id = current_model.data(index, ItemDataRole.LOG_ID)
+                # print(f"  Found expanded item at row {row} with LOG_ID {log_id}")
+                if log_id is not None:
+                    expanded_log_ids.add(log_id)
+        
+        return expanded_log_ids
+    
+    def _restore_expansion_state(self, expanded_log_ids):
+        """Restore expansion state for items with matching LOG_IDs."""
+        if not expanded_log_ids:
+            return
+            
+        current_model = self.tree.model()
+        if current_model is None:
+            return
+        
+        # Walk through all visible items and expand those that should be expanded
+        for row in range(current_model.rowCount()):
+            index = current_model.index(row, 0)
+            log_id = current_model.data(index, ItemDataRole.LOG_ID)
+            
+            if log_id in expanded_log_ids:
+                # print(f"  Expanding item at row {row} with LOG_ID {log_id}")
+                # Ensure the item has children before trying to expand
+                if current_model.rowCount(index) > 0:
+                    self.tree.expand(index)
+                # else:
+                #     print(f"    Item has no children, skipping expansion")
 
 
 class QtLogHandlerSignals(qt.QObject):

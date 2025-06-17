@@ -3,6 +3,7 @@
 
 from teleprox import qt
 from .utils import parse_level_value, level_threshold_to_cipher_regex
+from .constants import ItemDataRole
 
 
 class FieldFilterProxy(qt.QSortFilterProxyModel):
@@ -26,11 +27,11 @@ class FieldFilterProxy(qt.QSortFilterProxyModel):
 
 
 class LevelCipherFilterProxy(FieldFilterProxy):
-    """Handles level filtering using cipher data from UserRole+2."""
+    """Handles level filtering using cipher data from LEVEL_CIPHER role."""
     
     def __init__(self, parent=None):
         super().__init__("level", 3, parent)  # Column 3 is level column
-        self.setFilterRole(qt.Qt.UserRole + 2)  # Filter on cipher data
+        self.setFilterRole(ItemDataRole.LEVEL_CIPHER)  # Filter on cipher data
         self.setFilterCaseSensitivity(qt.Qt.CaseSensitive)  # Cipher patterns are case-sensitive
     
     def set_level_filter(self, level_value):

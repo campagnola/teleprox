@@ -5,6 +5,7 @@ import re
 from teleprox import qt
 from .utils import parse_level_value, level_threshold_to_cipher_regex
 from .proxies import FieldFilterProxy, LevelCipherFilterProxy
+from .constants import ItemDataRole
 
 
 class PythonLogFilterProxyModel(qt.QSortFilterProxyModel):
@@ -34,12 +35,12 @@ class PythonLogFilterProxyModel(qt.QSortFilterProxyModel):
         message_item = model.item(source_row, 4)
         
         # Extract data for filtering
-        timestamp = timestamp_item.data(qt.Qt.UserRole) if timestamp_item else 0
-        process_name = source_item.data(qt.Qt.UserRole) if source_item else ""
-        thread_name = source_item.data(qt.Qt.UserRole + 1) if source_item else ""
-        logger_name = logger_item.data(qt.Qt.UserRole) if logger_item else ""
-        level_num = level_item.data(qt.Qt.UserRole) if level_item else 0
-        message_text = message_item.data(qt.Qt.UserRole) if message_item else ""
+        timestamp = timestamp_item.data(ItemDataRole.NUMERIC_TIMESTAMP) if timestamp_item else 0
+        process_name = source_item.data(ItemDataRole.PROCESS_NAME) if source_item else ""
+        thread_name = source_item.data(ItemDataRole.THREAD_NAME) if source_item else ""
+        logger_name = logger_item.data(ItemDataRole.LOGGER_NAME) if logger_item else ""
+        level_num = level_item.data(ItemDataRole.LEVEL_NUMBER) if level_item else 0
+        message_text = message_item.data(ItemDataRole.MESSAGE_TEXT) if message_item else ""
         
         # Display text for generic search
         display_texts = [
