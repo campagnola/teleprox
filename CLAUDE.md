@@ -6,6 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Testing
 ```bash
+# IMPORTANT: Use conda environment for all testing
+conda activate teleprox
+
 # Run all tests
 pytest
 

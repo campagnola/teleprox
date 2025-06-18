@@ -16,6 +16,13 @@ class FieldFilterProxy(qt.QSortFilterProxyModel):
         self.setFilterKeyColumn(column)
         self.setFilterCaseSensitivity(qt.Qt.CaseInsensitive)
         self.filter_pattern = ""
+        
+        # Set custom filter role for logger and message fields
+        # Source should use display text for backward compatibility
+        if field_name == 'logger':
+            self.setFilterRole(ItemDataRole.LOGGER_NAME)
+        elif field_name == 'message':
+            self.setFilterRole(ItemDataRole.MESSAGE_TEXT)
     
     def set_filter_pattern(self, pattern):
         """Set the filter pattern for this field."""

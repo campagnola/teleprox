@@ -72,11 +72,15 @@ class TestChildFiltering:
         logger.debug("Debug message")
         logger.info("Info message")
         
-        # Add an error with exception details
+        # Add an error with exception details and extra attributes
         try:
             raise ValueError("Test exception for filtering")
         except Exception:
-            logger.error("Error message with exception", exc_info=True)
+            logger.error("Error message with exception", exc_info=True, extra={
+                'user_id': 12345,
+                'session_data': {'ip': '192.168.1.1', 'browser': 'Chrome'},
+                'tags': ['auth', 'security']
+            })
         
         logger.warning("Warning message")
         
@@ -95,6 +99,17 @@ class TestChildFiltering:
         child_count = exception_item.rowCount()
         assert child_count > 0, "Should have exception children"
         
+        # Recursively count all children and grandchildren
+        def count_all_descendants(item):
+            total = item.rowCount()
+            for i in range(item.rowCount()):
+                child = item.child(i, 0)
+                if child:
+                    total += count_all_descendants(child)
+            return total
+        
+        total_descendants = count_all_descendants(exception_item)
+        
         # Apply ERROR level filter
         viewer.apply_filters(['level: error'])
         
@@ -107,6 +122,124 @@ class TestChildFiltering:
         error_index = current_model.index(0, 0)  # First (and likely only) visible row
         visible_children = current_model.rowCount(error_index)
         assert visible_children == child_count, f"Should have {child_count} visible children, got {visible_children}"
+        
+        # Recursively verify all descendants are still accessible
+        def count_all_filtered_descendants(parent_index, model):
+            total = model.rowCount(parent_index)
+            for i in range(model.rowCount(parent_index)):
+                child_index = model.index(i, 0, parent_index)
+                total += count_all_filtered_descendants(child_index, model)
+            return total
+        
+        total_filtered_descendants = count_all_filtered_descendants(error_index, current_model)
+        assert total_filtered_descendants == total_descendants, f"Should have {total_descendants} total descendants, got {total_filtered_descendants}"
+    
+    def test_children_visible_with_complex_filtering(self, app):
+        """Test that children remain visible with various filter combinations."""
+        viewer = LogViewer(logger='test.complex.filtering')
+        logger = logging.getLogger('test.complex.filtering')
+        logger.setLevel(logging.DEBUG)
+        
+        # Add multiple log entries with different characteristics
+        logger.debug("Debug from main thread")
+        logger.info("Info from main thread") 
+        
+        # Error with complex nested data
+        try:
+            raise RuntimeError("Complex error scenario")
+        except Exception:
+            logger.error("Error with nested data", exc_info=True, extra={
+                'request_id': 'REQ-12345',
+                'user_context': {
+                    'user_id': 999,
+                    'permissions': ['read', 'write'],
+                    'metadata': {
+                        'login_time': '2023-01-01T10:00:00Z',
+                        'session_data': {'timeout': 3600}
+                    }
+                },
+                'performance': [
+                    {'operation': 'db_query', 'duration': 0.15},
+                    {'operation': 'cache_lookup', 'duration': 0.002}
+                ]
+            })
+        
+        logger.warning("Warning message")
+        
+        # Find and expand the error
+        error_item = None
+        for i in range(viewer.model.rowCount()):
+            item = viewer.model.item(i, 0)
+            if viewer.model.has_loading_placeholder(item):
+                error_item = item
+                break
+        
+        assert error_item is not None, "Should find error item"
+        viewer.model.replace_placeholder_with_content(error_item)
+        
+        # Count all descendants before filtering
+        def count_all_nodes(item):
+            count = item.rowCount()
+            for i in range(item.rowCount()):
+                child = item.child(i, 0)
+                if child:
+                    count += count_all_nodes(child)
+            return count
+        
+        total_before = count_all_nodes(error_item)
+        assert total_before > 5, f"Should have many descendants, got {total_before}"
+        
+        # Test different filter combinations (only those that should work with current fix)
+        test_filters = [
+            ['level: error'],
+            ['logger: test.complex.filtering'],
+            ['level: error', 'logger: test.complex.filtering']
+        ]
+        
+        for filters in test_filters:
+            viewer.apply_filters(filters)
+            
+            filtered_model = viewer.tree.model()
+            assert filtered_model.rowCount() >= 1, f"Should have visible rows with filters: {filters}"
+            
+            # Find the ERROR level entry in filtered results (check level in correct column)
+            error_index = None
+            for i in range(filtered_model.rowCount()):
+                idx = filtered_model.index(i, 0)
+                level_idx = filtered_model.index(i, 3)  # Level data is in column 3
+                if filtered_model.data(level_idx, ItemDataRole.LEVEL_NUMBER) == 40:  # ERROR level
+                    error_index = idx
+                    break
+            
+            assert error_index is not None, f"Should find error entry with filters: {filters}"
+            total_after = self.count_all_nodes_in_model(error_index, filtered_model)
+            
+            assert total_after == total_before, f"Filter {filters}: Should have {total_before} descendants, got {total_after}"
+        
+        # Clear filters and verify children still accessible
+        viewer.apply_filters([])
+        final_model = viewer.tree.model()
+        
+        # Find the error item again (check level in correct column)
+        error_found = False
+        for i in range(final_model.rowCount()):
+            idx = final_model.index(i, 0)
+            level_idx = final_model.index(i, 3)  # Level data is in column 3
+            if final_model.data(level_idx, ItemDataRole.LEVEL_NUMBER) == 40:  # ERROR level
+                final_count = self.count_all_nodes_in_model(idx, final_model)
+                assert final_count == total_before, f"After clearing filters: Should have {total_before} descendants, got {final_count}"
+                error_found = True
+                break
+        
+        assert error_found, "Should find error item after clearing filters"
+    
+    def count_all_nodes_in_model(self, parent_index, model):
+        """Helper to count all nodes in a model recursively."""
+        count = model.rowCount(parent_index)
+        for i in range(model.rowCount(parent_index)):
+            child_index = model.index(i, 0, parent_index)
+            count += self.count_all_nodes_in_model(child_index, model)
+        return count
     
     def test_expansion_state_preserved_across_filters(self, app):
         """Test that item expansion state is preserved when filters change."""
@@ -170,11 +303,12 @@ class TestChildFiltering:
         # Clear filter and verify children are still accessible
         viewer.apply_filters([])
         
-        # Find the error item again by LOG_ID
+        # Find the error item again by LOG_ID (check in correct column)
         final_model = viewer.tree.model()
         error_found = False
         for i in range(final_model.rowCount()):
             idx = final_model.index(i, 0)
+            # LOG_ID is stored in column 0 (timestamp), so this check is correct
             item_log_id = final_model.data(idx, ItemDataRole.LOG_ID)
             if item_log_id == log_id:
                 error_found = True
