@@ -1,5 +1,5 @@
 import logging
-from teleprox.log.logviewer.core import LogViewer, LogModel
+from teleprox.log.logviewer.viewer import LogViewer, LogModel
 from teleprox.log.logviewer.constants import ItemDataRole
 from teleprox import qt
 
