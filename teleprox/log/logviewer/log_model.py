@@ -13,6 +13,37 @@ class LogModel(qt.QStandardItemModel):
         """Create child items for all log record attributes (exc_info, stack_info, extra, etc.)."""
         children = []
         
+        # Handle exception information
+        exc_children = self._create_exception_children(record)
+        children.extend(exc_children)
+        
+        # Handle stack information
+        stack_children = self._create_stack_children(record)
+        children.extend(stack_children)
+        
+        # Handle extra attributes
+        extra_children = self._create_extra_attribute_children(record)
+        children.extend(extra_children)
+        
+        return children
+
+    def _create_sibling_items_with_filter_data(self, record):
+        """Create sibling items with inherited filter data for Qt-native filtering."""
+        sibling_items = [qt.QStandardItem("") for _ in range(5)]
+        for sibling_item in sibling_items:
+            sibling_item.setData(record.created, ItemDataRole.NUMERIC_TIMESTAMP)
+            sibling_item.setData(record.processName, ItemDataRole.PROCESS_NAME)
+            sibling_item.setData(record.threadName, ItemDataRole.THREAD_NAME)
+            sibling_item.setData(record.name, ItemDataRole.LOGGER_NAME)
+            sibling_item.setData(record.levelno, ItemDataRole.LEVEL_NUMBER)
+            sibling_item.setData(self._get_level_cipher(record.levelno), ItemDataRole.LEVEL_CIPHER)
+            sibling_item.setData(record.getMessage(), ItemDataRole.MESSAGE_TEXT)
+        return sibling_items
+
+    def _create_exception_children(self, record):
+        """Create child items for exception information (exc_info, exc_text)."""
+        children = []
+        
         # Handle exc_info under "Exception: {exc}" category
         if hasattr(record, 'exc_info') and record.exc_info:
             exc_type, exc_value, exc_tb = record.exc_info
@@ -27,18 +58,8 @@ class LogModel(qt.QStandardItemModel):
                     exc_category_item.appendRow(child_row)
                 
                 # Create properly initialized sibling items for the exception category row
-                exc_sibling_items = [qt.QStandardItem("") for _ in range(5)]
-                for sibling_item in exc_sibling_items:
-                    # Inherit parent's filter data for Qt-native filtering
-                    sibling_item.setData(record.created, ItemDataRole.NUMERIC_TIMESTAMP)
-                    sibling_item.setData(record.processName, ItemDataRole.PROCESS_NAME)
-                    sibling_item.setData(record.threadName, ItemDataRole.THREAD_NAME)
-                    sibling_item.setData(record.name, ItemDataRole.LOGGER_NAME)
-                    sibling_item.setData(record.levelno, ItemDataRole.LEVEL_NUMBER)
-                    sibling_item.setData(self._get_level_cipher(record.levelno), ItemDataRole.LEVEL_CIPHER)
-                    sibling_item.setData(record.getMessage(), ItemDataRole.MESSAGE_TEXT)
-                
-                children.append([exc_category_item] + exc_sibling_items)
+                sibling_items = self._create_sibling_items_with_filter_data(record)
+                children.append([exc_category_item] + sibling_items)
         
         # Handle exc_text under exception category if no exc_info
         elif hasattr(record, 'exc_text') and record.exc_text:
@@ -56,18 +77,14 @@ class LogModel(qt.QStandardItemModel):
                     exc_category_item.appendRow(line_row)
             
             # Create properly initialized sibling items for the exception text category row
-            exc_text_sibling_items = [qt.QStandardItem("") for _ in range(5)]
-            for sibling_item in exc_text_sibling_items:
-                # Inherit parent's filter data for Qt-native filtering
-                sibling_item.setData(record.created, ItemDataRole.NUMERIC_TIMESTAMP)
-                sibling_item.setData(record.processName, ItemDataRole.PROCESS_NAME)
-                sibling_item.setData(record.threadName, ItemDataRole.THREAD_NAME)
-                sibling_item.setData(record.name, ItemDataRole.LOGGER_NAME)
-                sibling_item.setData(record.levelno, ItemDataRole.LEVEL_NUMBER)
-                sibling_item.setData(self._get_level_cipher(record.levelno), ItemDataRole.LEVEL_CIPHER)
-                sibling_item.setData(record.getMessage(), ItemDataRole.MESSAGE_TEXT)
-            
-            children.append([exc_category_item] + exc_text_sibling_items)
+            sibling_items = self._create_sibling_items_with_filter_data(record)
+            children.append([exc_category_item] + sibling_items)
+        
+        return children
+
+    def _create_stack_children(self, record):
+        """Create child items for stack information."""
+        children = []
         
         # Handle stack_info under "Log Message Stack" category
         if hasattr(record, 'stack_info') and record.stack_info:
@@ -82,20 +99,15 @@ class LogModel(qt.QStandardItemModel):
                     stack_category_item.appendRow(frame_row)
             
             # Create properly initialized sibling items for the stack category row
-            stack_sibling_items = [qt.QStandardItem("") for _ in range(5)]
-            for sibling_item in stack_sibling_items:
-                # Inherit parent's filter data for Qt-native filtering
-                sibling_item.setData(record.created, ItemDataRole.NUMERIC_TIMESTAMP)
-                sibling_item.setData(record.processName, ItemDataRole.PROCESS_NAME)
-                sibling_item.setData(record.threadName, ItemDataRole.THREAD_NAME)
-                sibling_item.setData(record.name, ItemDataRole.LOGGER_NAME)
-                sibling_item.setData(record.levelno, ItemDataRole.LEVEL_NUMBER)
-                sibling_item.setData(self._get_level_cipher(record.levelno), ItemDataRole.LEVEL_CIPHER)
-                sibling_item.setData(record.getMessage(), ItemDataRole.MESSAGE_TEXT)
-            
-            children.append([stack_category_item] + stack_sibling_items)
+            sibling_items = self._create_sibling_items_with_filter_data(record)
+            children.append([stack_category_item] + sibling_items)
         
-        # Handle extra attributes
+        return children
+
+    def _create_extra_attribute_children(self, record):
+        """Create child items for extra log record attributes."""
+        children = []
+        
         if hasattr(record, '__dict__'):
             # Standard LogRecord attributes to exclude
             standard_attrs = {
@@ -107,50 +119,48 @@ class LogModel(qt.QStandardItemModel):
             
             for attr_name, attr_value in record.__dict__.items():
                 if attr_name not in standard_attrs and not attr_name.startswith('_'):
-                    # Check if this is a simple value that can be displayed inline
-                    attr_children = self._create_attribute_children(attr_value, record)
-                    
-                    if not attr_children:
-                        # Simple value - display as "attribute: value"
-                        try:
-                            value_str = str(attr_value)
-                        except:
-                            try:
-                                value_str = repr(attr_value)
-                            except:
-                                value_str = f"<{type(attr_value).__name__} object>"
-                        
-                        inline_display = f"{attr_name}: {value_str}"
-                        attr_row = self._create_child_row("", inline_display, {
-                            'type': 'simple_attribute',
-                            'text': inline_display,
-                            'attr_name': attr_name,
-                            'attr_value': attr_value,
-                            'parent_record': record
-                        }, record)
-                        children.append(attr_row)
-                    else:
-                        # Complex value - create category with children
-                        attr_category_item = self._create_category_item(attr_name, 'extra_attribute', record)
-                        
-                        for child_row in attr_children:
-                            attr_category_item.appendRow(child_row)
-                        
-                        # Create properly initialized sibling items for the category row
-                        sibling_items = [qt.QStandardItem("") for _ in range(5)]
-                        for sibling_item in sibling_items:
-                            # Inherit parent's filter data for Qt-native filtering
-                            sibling_item.setData(record.created, ItemDataRole.NUMERIC_TIMESTAMP)
-                            sibling_item.setData(record.processName, ItemDataRole.PROCESS_NAME)
-                            sibling_item.setData(record.threadName, ItemDataRole.THREAD_NAME)
-                            sibling_item.setData(record.name, ItemDataRole.LOGGER_NAME)
-                            sibling_item.setData(record.levelno, ItemDataRole.LEVEL_NUMBER)
-                            sibling_item.setData(self._get_level_cipher(record.levelno), ItemDataRole.LEVEL_CIPHER)
-                            sibling_item.setData(record.getMessage(), ItemDataRole.MESSAGE_TEXT)
-                        
-                        children.append([attr_category_item] + sibling_items)
+                    attr_child = self._create_single_extra_attribute_child(attr_name, attr_value, record)
+                    if attr_child:
+                        children.append(attr_child)
         
         return children
+
+    def _create_single_extra_attribute_child(self, attr_name, attr_value, record):
+        """Create a child item for a single extra attribute."""
+        # Check if this is a simple value that can be displayed inline
+        attr_children = self._create_attribute_children(attr_value, record)
+        
+        if not attr_children:
+            # Simple value - display as "attribute: value"
+            try:
+                value_str = str(attr_value)
+            except:
+                try:
+                    value_str = repr(attr_value)
+                except:
+                    value_str = f"<{type(attr_value).__name__} object>"
+            
+            inline_display = f"{attr_name}: {value_str}"
+            attr_row = self._create_child_row("", inline_display, {
+                'type': 'simple_attribute',
+                'text': inline_display,
+                'attr_name': attr_name,
+                'attr_value': attr_value,
+                'parent_record': record
+            }, record)
+            return attr_row
+        else:
+            # Complex value - create category with children
+            attr_category_item = self._create_category_item(attr_name, 'extra_attribute', record)
+            
+            for child_row in attr_children:
+                attr_category_item.appendRow(child_row)
+            
+            # Create properly initialized sibling items for the category row
+            sibling_items = self._create_sibling_items_with_filter_data(record)
+            return [attr_category_item] + sibling_items
+        
+        return None
     
     def _create_category_item(self, name, category_type, parent_record):
         """Create a category item for grouping related log attributes."""

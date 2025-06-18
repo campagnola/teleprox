@@ -12,6 +12,77 @@ from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .constants import ItemDataRole
 from .log_model import LogModel
 
+# HTML export template constants
+HTML_EXPORT_HEADER = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{title}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        .log-table {{ border-collapse: collapse; width: 100%; }}
+        .log-table th, .log-table td {{ padding: 8px; text-align: left; }}
+        .log-table th {{ background-color: #f2f2f2; font-weight: bold; }}
+        .log-entry {{ border-bottom: 2px solid #ccc; }}
+        .child-entry {{ background-color: #f9f9f9; font-family: monospace; }}
+        .exception {{ color: #d9534f; font-weight: bold; }}
+        .traceback {{ color: #555; }}
+        .timestamp {{ white-space: nowrap; }}
+        .level-debug {{ color: #6c757d; }}
+        .level-info {{ color: #17a2b8; }}
+        .level-warning {{ color: #ffc107; }}
+        .level-error {{ color: #dc3545; }}
+        .level-critical {{ color: #dc3545; font-weight: bold; }}
+    </style>
+</head>
+<body>
+    <h1>{title}</h1>
+    <p>Generated on {timestamp}</p>"""
+
+HTML_FILTER_CRITERIA_SECTION = """
+    <div style="background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff;">
+        <h3 style="margin: 0 0 8px 0; color: #495057;">Applied Filters:</h3>
+        <ul style="margin: 0; padding-left: 20px;">
+{filter_items}
+        </ul>
+    </div>"""
+
+HTML_FILTER_ITEM = """            <li style="font-family: monospace; margin: 2px 0;">{filter_expr}</li>"""
+
+HTML_NO_FILTERS = """
+    <div style="background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff;">
+        <h3 style="margin: 0 0 8px 0; color: #495057;">Applied Filters:</h3>
+        <p style="margin: 0; font-style: italic; color: #6c757d;">No filters applied</p>
+    </div>"""
+
+HTML_TABLE_HEADER = """
+    <table class="log-table">
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>Source</th>
+                <th>Logger</th>
+                <th>Level</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>"""
+
+HTML_EXPORT_FOOTER = """        </tbody>
+    </table>
+</body>
+</html>"""
+
+# Level to CSS class mapping for HTML export
+LEVEL_CSS_CLASSES = {
+    'DEBUG': 'level-debug',
+    'INFO': 'level-info',
+    'WARNING': 'level-warning',
+    'WARN': 'level-warning',
+    'ERROR': 'level-error',
+    'CRITICAL': 'level-critical'
+}
+
 
 class LogViewer(qt.QWidget):
     """QWidget for displaying and filtering log messages."""
@@ -661,75 +732,29 @@ class LogViewer(qt.QWidget):
         try:
             with open(filename, 'w', encoding='utf-8') as f:
                 # Write HTML header
-                f.write(f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>{title}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        .log-table {{ border-collapse: collapse; width: 100%; }}
-        .log-table th, .log-table td {{ padding: 8px; text-align: left; }}
-        .log-table th {{ background-color: #f2f2f2; font-weight: bold; }}
-        .log-entry {{ border-bottom: 2px solid #ccc; }}
-        .child-entry {{ background-color: #f9f9f9; font-family: monospace; }}
-        .exception {{ color: #d9534f; font-weight: bold; }}
-        .traceback {{ color: #555; }}
-        .timestamp {{ white-space: nowrap; }}
-        .level-debug {{ color: #6c757d; }}
-        .level-info {{ color: #17a2b8; }}
-        .level-warning {{ color: #ffc107; }}
-        .level-error {{ color: #dc3545; }}
-        .level-critical {{ color: #dc3545; font-weight: bold; }}
-    </style>
-</head>
-<body>
-    <h1>{title}</h1>
-    <p>Generated on {time.strftime('%Y-%m-%d %H:%M:%S')}</p>""")
+                f.write(HTML_EXPORT_HEADER.format(
+                    title=title,
+                    timestamp=time.strftime('%Y-%m-%d %H:%M:%S')
+                ))
                 
                 # Add filter criteria summary if this is a filtered export
                 if filter_criteria:
-                    f.write(f"""
-    <div style="background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff;">
-        <h3 style="margin: 0 0 8px 0; color: #495057;">Applied Filters:</h3>""")
-                    
                     if filter_criteria:
-                        f.write(f"""
-        <ul style="margin: 0; padding-left: 20px;">""")
-                        for filter_expr in filter_criteria:
-                            f.write(f"""
-            <li style="font-family: monospace; margin: 2px 0;">{html.escape(filter_expr)}</li>""")
-                        f.write(f"""
-        </ul>""")
+                        filter_items = '\n'.join(
+                            HTML_FILTER_ITEM.format(filter_expr=html.escape(filter_expr))
+                            for filter_expr in filter_criteria
+                        )
+                        f.write(HTML_FILTER_CRITERIA_SECTION.format(filter_items=filter_items))
                     else:
-                        f.write(f"""
-        <p style="margin: 0; font-style: italic; color: #6c757d;">No filters applied</p>""")
-                    
-                    f.write(f"""
-    </div>""")
+                        f.write(HTML_NO_FILTERS)
                 
-                f.write(f"""
-    <table class="log-table">
-        <thead>
-            <tr>
-                <th>Timestamp</th>
-                <th>Source</th>
-                <th>Logger</th>
-                <th>Level</th>
-                <th>Message</th>
-            </tr>
-        </thead>
-        <tbody>
-""")
+                f.write(HTML_TABLE_HEADER)
                 
                 # Write log entries
                 self._write_model_rows_to_html(f, model, qt.QModelIndex())
                 
                 # Write HTML footer
-                f.write("""        </tbody>
-    </table>
-</body>
-</html>""")
+                f.write(HTML_EXPORT_FOOTER)
                 
             # Success - no popup needed
             
@@ -764,16 +789,11 @@ class LogViewer(qt.QWidget):
             css_class = "child-entry" if indent_level > 0 else "log-entry"
             
             # Add level-specific CSS class
-            if "DEBUG" in level.upper():
-                css_class += " level-debug"
-            elif "INFO" in level.upper():
-                css_class += " level-info" 
-            elif "WARNING" in level.upper() or "WARN" in level.upper():
-                css_class += " level-warning"
-            elif "ERROR" in level.upper():
-                css_class += " level-error"
-            elif "CRITICAL" in level.upper():
-                css_class += " level-critical"
+            level_upper = level.upper()
+            for level_name, css_suffix in LEVEL_CSS_CLASSES.items():
+                if level_name in level_upper:
+                    css_class += f" {css_suffix}"
+                    break
                 
             # Check if this is an exception or traceback line
             python_data = model.data(timestamp_index, qt.Qt.UserRole)
