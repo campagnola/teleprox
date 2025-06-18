@@ -42,6 +42,8 @@ class FilterInputWidget(qt.QWidget):
     """Widget for entering and displaying active filters."""
     
     filters_changed = qt.Signal(list)  # Signal emitted when filters change
+    export_all_requested = qt.Signal()  # Signal emitted when "Export All to HTML" is requested
+    export_filtered_requested = qt.Signal()  # Signal emitted when "Export Filtered to HTML" is requested
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -57,20 +59,29 @@ class FilterInputWidget(qt.QWidget):
         self.filter_input.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Fixed)
         
         self.layout.addWidget(self.filter_input)
+        
+        # Add menu button with 3-line icon
+        self.menu_button = qt.QPushButton()
+        self.menu_button.setText("≡")  # 3-line hamburger menu icon
+        self.menu_button.setFixedSize(30, 30)
+        self.menu_button.setToolTip("Export options")
+        self.menu_button.clicked.connect(self._show_menu)
+        
+        self.layout.addWidget(self.menu_button)
     
     def add_filter(self):
         text = self.filter_input.text().strip()
         if text:
             filter_tag = FilterTagWidget(text)
             filter_tag.textChanged.connect(self._emit_filters_changed)
-            self.layout.insertWidget(self.layout.count() - 1, filter_tag)
+            self.layout.insertWidget(self.layout.count() - 2, filter_tag)  # Insert before input and menu button
             self.filter_input.clear()
             self._emit_filters_changed()
     
     def get_filter_strings(self):
         """Return a list of current filter strings."""
         filters = []
-        for i in range(self.layout.count() - 1):  # Exclude the input widget
+        for i in range(self.layout.count() - 2):  # Exclude the input widget and menu button
             widget = self.layout.itemAt(i).widget()
             if isinstance(widget, FilterTagWidget):
                 filters.append(widget.text())
@@ -79,6 +90,26 @@ class FilterInputWidget(qt.QWidget):
     def _emit_filters_changed(self):
         """Emit the filters_changed signal with current filter strings."""
         self.filters_changed.emit(self.get_filter_strings())
+    
+    def _show_menu(self):
+        """Show the export context menu."""
+        menu = qt.QMenu(self)
+        
+        # Export All action
+        export_all_action = qt.QAction("Export All to HTML", self)
+        export_all_action.setToolTip("Export all log entries to HTML file")
+        export_all_action.triggered.connect(self.export_all_requested.emit)
+        menu.addAction(export_all_action)
+        
+        # Export Filtered action
+        export_filtered_action = qt.QAction("Export Filtered to HTML", self)
+        export_filtered_action.setToolTip("Export currently filtered log entries to HTML file")
+        export_filtered_action.triggered.connect(self.export_filtered_requested.emit)
+        menu.addAction(export_filtered_action)
+        
+        # Show menu at button position
+        button_pos = self.menu_button.mapToGlobal(self.menu_button.rect().bottomLeft())
+        menu.exec_(button_pos)
 
 
 class HighlightDelegate(qt.QStyledItemDelegate):

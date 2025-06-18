@@ -1,6 +1,7 @@
 # ABOUTME: Core LogViewer implementation with Qt integration and log handling
 # ABOUTME: Contains LogViewer widget, QtLogHandler, and main GUI functionality
 
+import html
 import logging
 import time
 import traceback
@@ -120,15 +121,10 @@ class LogModel(qt.QStandardItemModel):
             # Parse stack info into frames
             stack_frames = self._parse_stack_info(record.stack_info)
             for frame_text in stack_frames:
-                # Split stack frame into parts for selective hyperlink formatting
-                frame_parts = self._split_traceback_line(frame_text)
-                stack_row = self._create_child_row("", frame_text, {
-                    'type': 'stack_frame',
-                    'text': frame_text,
-                    'parent_record': record,
-                    'frame_parts': frame_parts
-                }, record)
-                stack_category_item.appendRow(stack_row)
+                # Use centralized frame processing
+                frame_children = self._create_frame_children(frame_text, 'stack_frame', record)
+                for frame_row in frame_children:
+                    stack_category_item.appendRow(frame_row)
             
             # Create properly initialized sibling items for the stack category row
             stack_sibling_items = [qt.QStandardItem("") for _ in range(5)]
@@ -251,16 +247,9 @@ class LogModel(qt.QStandardItemModel):
                 if chain_item['traceback']:
                     tb_lines = traceback.format_tb(chain_item['traceback'])
                     for j, line in enumerate(tb_lines):
-                        # Split traceback line into parts for selective hyperlink formatting
-                        frame_parts = self._split_traceback_line(line.strip())
-                        frame_row = self._create_child_row("", line.strip(), {
-                            'type': 'traceback_frame',
-                            'text': line.strip(),
-                            'frame_number': j + 1,
-                            'parent_record': record,
-                            'frame_parts': frame_parts
-                        }, record)
-                        children.append(frame_row)
+                        # Use centralized frame processing
+                        frame_children = self._create_frame_children(line, 'traceback_frame', record)
+                        children.extend(frame_children)
                 
                 # Add the exception message
                 exc_msg = f"{chain_item['type'].__name__}: {chain_item['value']}"
@@ -302,16 +291,9 @@ class LogModel(qt.QStandardItemModel):
             # Handle exception with traceback
             tb_lines = traceback.format_tb(value.__traceback__)
             for i, line in enumerate(tb_lines):
-                # Split traceback line into parts for selective hyperlink formatting
-                frame_parts = self._split_traceback_line(line.strip())
-                frame_row = self._create_child_row("", line.strip(), {
-                    'type': 'traceback_frame',
-                    'text': line.strip(),
-                    'frame_number': i + 1,
-                    'parent_record': parent_record,
-                    'frame_parts': frame_parts
-                }, parent_record)
-                children.append(frame_row)
+                # Use centralized frame processing
+                frame_children = self._create_frame_children(line, 'traceback_frame', parent_record)
+                children.extend(frame_children)
                 
         # Handle lists, tuples
         elif isinstance(value, (list, tuple)):
@@ -459,6 +441,33 @@ class LogModel(qt.QStandardItemModel):
         # 3. ConnectionError + traceback + message (final exception)
         
         return list(reversed(chain))
+    
+    def _create_frame_children(self, frame_text_or_lines, frame_type, parent_record):
+        """Create child rows for traceback or stack frames, handling multi-line frames."""
+        children = []
+        
+        # Handle both single strings and lists of strings
+        if isinstance(frame_text_or_lines, str):
+            # This is a multi-line frame string, split it
+            frame_lines = frame_text_or_lines.rstrip('\n').split('\n')
+        else:
+            # This is already a list of frame lines
+            frame_lines = frame_text_or_lines
+        
+        for k, frame_line in enumerate(frame_lines):
+            if frame_line.strip():  # Skip empty lines
+                # Split frame line into parts for selective hyperlink formatting
+                frame_parts = self._split_traceback_line(frame_line)
+                frame_row = self._create_child_row("", frame_line, {
+                    'type': frame_type,
+                    'text': frame_line,
+                    'line_number': k + 1,
+                    'parent_record': parent_record,
+                    'frame_parts': frame_parts
+                }, parent_record)
+                children.append(frame_row)
+        
+        return children
     
     def _split_traceback_line(self, text):
         """Split a traceback line into parts to identify the clickable file portion."""
@@ -670,6 +679,8 @@ class LogViewer(qt.QWidget):
         # Add filter input widget
         self.filter_input_widget = FilterInputWidget()
         self.filter_input_widget.filters_changed.connect(self.apply_filters)
+        self.filter_input_widget.export_all_requested.connect(self._export_all_to_html)
+        self.filter_input_widget.export_filtered_requested.connect(self._export_filtered_to_html)
         self.layout.addWidget(self.filter_input_widget, 0, 0)
 
         self.model = LogModel()
@@ -695,8 +706,9 @@ class LogViewer(qt.QWidget):
         self.header.setContextMenuPolicy(qt.Qt.CustomContextMenu)
         self.header.customContextMenuRequested.connect(self._show_header_context_menu)
         
-        # Hide Task column by default
-        self.tree.setColumnHidden(5, True)
+        # Hide Task and Level columns by default
+        self.tree.setColumnHidden(3, True)  # Level column
+        self.tree.setColumnHidden(5, True)  # Task column
         
         # Create custom delegate for efficient highlighting (will be set on models)
         self.highlight_delegate = HighlightDelegate(self)
@@ -1212,6 +1224,228 @@ class LogViewer(qt.QWidget):
             
             if file_path and line_number:
                 self.code_line_clicked.emit(file_path, line_number)
+    
+    def _export_all_to_html(self):
+        """Export all log entries to HTML file."""
+        self._export_to_html(
+            dialog_title="Export All Logs to HTML",
+            default_filename="all_logs.html", 
+            export_title="All Log Entries",
+            use_filtered_model=False
+        )
+    
+    def _export_filtered_to_html(self):
+        """Export currently filtered log entries to HTML file."""
+        self._export_to_html(
+            dialog_title="Export Filtered Logs to HTML",
+            default_filename="filtered_logs.html",
+            export_title="Filtered Log Entries", 
+            use_filtered_model=True
+        )
+    
+    def _export_to_html(self, dialog_title, default_filename, export_title, use_filtered_model):
+        """Common export logic for both all and filtered exports."""
+        filename, _ = qt.QFileDialog.getSaveFileName(
+            self,
+            dialog_title,
+            default_filename,
+            "HTML Files (*.html)"
+        )
+        
+        if filename:
+            # Always expand all content in the source model first
+            self._expand_all_content_for_export(self.model)
+            
+            if use_filtered_model:
+                # Export filtered logs - get filter criteria and use current tree model
+                filter_criteria = self.filter_input_widget.get_filter_strings()
+                model_to_export = self.tree.model()
+            else:
+                # Export all logs - no filter criteria, use source model
+                filter_criteria = None
+                model_to_export = self.model
+            
+            self._export_model_to_html(model_to_export, filename, export_title, filter_criteria)
+    
+    def _expand_all_content_for_export(self, model):
+        """Expand all lazy-loaded content in the model for export."""
+        def expand_recursive(parent_item):
+            # If this item has a loading placeholder, replace it with content
+            if model.has_loading_placeholder(parent_item):
+                model.replace_placeholder_with_content(parent_item)
+            
+            # Recursively expand all children
+            for row in range(parent_item.rowCount()):
+                child_item = parent_item.child(row, 0)
+                if child_item:
+                    expand_recursive(child_item)
+        
+        # Expand all top-level items
+        for row in range(model.rowCount()):
+            top_level_item = model.item(row, 0)
+            if top_level_item:
+                expand_recursive(top_level_item)
+    
+    def _export_model_to_html(self, model, filename, title, filter_criteria=None):
+        """Export the given model data to HTML file."""
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                # Write HTML header
+                f.write(f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{title}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        .log-table {{ border-collapse: collapse; width: 100%; }}
+        .log-table th, .log-table td {{ padding: 8px; text-align: left; }}
+        .log-table th {{ background-color: #f2f2f2; font-weight: bold; }}
+        .log-entry {{ border-bottom: 2px solid #ccc; }}
+        .child-entry {{ background-color: #f9f9f9; font-family: monospace; }}
+        .exception {{ color: #d9534f; font-weight: bold; }}
+        .traceback {{ color: #555; }}
+        .timestamp {{ white-space: nowrap; }}
+        .level-debug {{ color: #6c757d; }}
+        .level-info {{ color: #17a2b8; }}
+        .level-warning {{ color: #ffc107; }}
+        .level-error {{ color: #dc3545; }}
+        .level-critical {{ color: #dc3545; font-weight: bold; }}
+    </style>
+</head>
+<body>
+    <h1>{title}</h1>
+    <p>Generated on {time.strftime('%Y-%m-%d %H:%M:%S')}</p>""")
+                
+                # Add filter criteria summary if this is a filtered export
+                if filter_criteria:
+                    f.write(f"""
+    <div style="background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff;">
+        <h3 style="margin: 0 0 8px 0; color: #495057;">Applied Filters:</h3>""")
+                    
+                    if filter_criteria:
+                        f.write(f"""
+        <ul style="margin: 0; padding-left: 20px;">""")
+                        for filter_expr in filter_criteria:
+                            f.write(f"""
+            <li style="font-family: monospace; margin: 2px 0;">{html.escape(filter_expr)}</li>""")
+                        f.write(f"""
+        </ul>""")
+                    else:
+                        f.write(f"""
+        <p style="margin: 0; font-style: italic; color: #6c757d;">No filters applied</p>""")
+                    
+                    f.write(f"""
+    </div>""")
+                
+                f.write(f"""
+    <table class="log-table">
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>Source</th>
+                <th>Logger</th>
+                <th>Level</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody>
+""")
+                
+                # Write log entries
+                self._write_model_rows_to_html(f, model, qt.QModelIndex())
+                
+                # Write HTML footer
+                f.write("""        </tbody>
+    </table>
+</body>
+</html>""")
+                
+            # Success - no popup needed
+            
+        except Exception as e:
+            # Show error message
+            qt.QMessageBox.critical(
+                self,
+                "Export Error", 
+                f"Failed to export logs:\\n{str(e)}"
+            )
+    
+    def _write_model_rows_to_html(self, file, model, parent_index, indent_level=0):
+        """Recursively write model rows to HTML file."""
+        import html
+        
+        row_count = model.rowCount(parent_index)
+        for row in range(row_count):
+            # Get data from each column
+            timestamp_index = model.index(row, 0, parent_index)
+            source_index = model.index(row, 1, parent_index) 
+            logger_index = model.index(row, 2, parent_index)
+            level_index = model.index(row, 3, parent_index)
+            message_index = model.index(row, 4, parent_index)
+            
+            timestamp = model.data(timestamp_index, qt.Qt.DisplayRole) or ""
+            source = model.data(source_index, qt.Qt.DisplayRole) or ""
+            logger = model.data(logger_index, qt.Qt.DisplayRole) or ""
+            level = model.data(level_index, qt.Qt.DisplayRole) or ""
+            message = model.data(message_index, qt.Qt.DisplayRole) or ""
+            
+            # Determine CSS class based on content and level
+            css_class = "child-entry" if indent_level > 0 else "log-entry"
+            
+            # Add level-specific CSS class
+            if "DEBUG" in level.upper():
+                css_class += " level-debug"
+            elif "INFO" in level.upper():
+                css_class += " level-info" 
+            elif "WARNING" in level.upper() or "WARN" in level.upper():
+                css_class += " level-warning"
+            elif "ERROR" in level.upper():
+                css_class += " level-error"
+            elif "CRITICAL" in level.upper():
+                css_class += " level-critical"
+                
+            # Check if this is an exception or traceback line
+            python_data = model.data(timestamp_index, qt.Qt.UserRole)
+            if python_data and isinstance(python_data, dict):
+                data_type = python_data.get('type', '')
+                if data_type == 'exception':
+                    css_class += " exception"
+                elif data_type in ['traceback_frame', 'stack_frame']:
+                    css_class += " traceback"
+            
+            # Write the row with column span for child entries
+            if indent_level > 0:
+                # Child entries span all columns
+                base_indent = "&nbsp;" * (indent_level * 4)  # Base hierarchy indentation
+                
+                # Use the timestamp column content as the main content for child entries
+                content = timestamp if timestamp.strip() else message
+                
+                # Add extra indentation for code lines (lines that start with 4+ spaces)
+                extra_indent = ""
+                if content.startswith("    ") and not content.strip().startswith("File "):
+                    # This is a code line, add extra indentation
+                    extra_indent = "&nbsp;" * 8
+                
+                file.write(f"""            <tr class="{css_class}">
+                <td colspan="5">{base_indent}{extra_indent}{html.escape(content)}</td>
+            </tr>
+""")
+            else:
+                # Top-level entries use all columns
+                file.write(f"""            <tr class="{css_class}">
+                <td class="timestamp">{html.escape(timestamp)}</td>
+                <td>{html.escape(source)}</td>
+                <td>{html.escape(logger)}</td>
+                <td>{html.escape(level)}</td>
+                <td>{html.escape(message)}</td>
+            </tr>
+""")
+            
+            # Recursively write child rows
+            if model.rowCount(timestamp_index) > 0:
+                self._write_model_rows_to_html(file, model, timestamp_index, indent_level + 1)
 
 
 class QtLogHandlerSignals(qt.QObject):
