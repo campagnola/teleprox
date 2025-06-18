@@ -12,6 +12,41 @@ from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .constants import ItemDataRole
 
 
+class HyperlinkTreeView(qt.QTreeView):
+    """Custom QTreeView that shows pointer cursor over hyperlink portions of traceback lines."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMouseTracking(True)
+    
+    def mouseMoveEvent(self, event):
+        """Override mouse move to change cursor over hyperlinks."""
+        index = self.indexAt(event.pos())
+        cursor = qt.Qt.ArrowCursor  # Default cursor
+        
+        if index.isValid():
+            # Get the item data to check if it's a clickable code line
+            model = self.model()
+            
+            # Map to source model if using proxy
+            source_index = index
+            if hasattr(model, 'mapToSource'):
+                source_index = model.mapToSource(index)
+            
+            # Get the actual item from the source model
+            if hasattr(self.parent(), 'model') and hasattr(self.parent().model, 'itemFromIndex'):
+                item = self.parent().model.itemFromIndex(source_index)
+                if item:
+                    data = item.data(ItemDataRole.PYTHON_DATA)
+                    if (data and isinstance(data, dict) and 
+                        data.get('type') in ['traceback_frame', 'stack_frame'] and
+                        data.get('frame_parts', {}).get('has_file_ref')):
+                        cursor = qt.Qt.PointingHandCursor
+        
+        self.setCursor(cursor)
+        super().mouseMoveEvent(event)
+
+
 class LogModel(qt.QStandardItemModel):
     """Custom model that supports lazy loading of exception details using dummy placeholders."""
     
@@ -85,10 +120,13 @@ class LogModel(qt.QStandardItemModel):
             # Parse stack info into frames
             stack_frames = self._parse_stack_info(record.stack_info)
             for frame_text in stack_frames:
+                # Split stack frame into parts for selective hyperlink formatting
+                frame_parts = self._split_traceback_line(frame_text)
                 stack_row = self._create_child_row("", frame_text, {
                     'type': 'stack_frame',
                     'text': frame_text,
-                    'parent_record': record
+                    'parent_record': record,
+                    'frame_parts': frame_parts
                 }, record)
                 stack_category_item.appendRow(stack_row)
             
@@ -213,11 +251,14 @@ class LogModel(qt.QStandardItemModel):
                 if chain_item['traceback']:
                     tb_lines = traceback.format_tb(chain_item['traceback'])
                     for j, line in enumerate(tb_lines):
+                        # Split traceback line into parts for selective hyperlink formatting
+                        frame_parts = self._split_traceback_line(line.strip())
                         frame_row = self._create_child_row("", line.strip(), {
                             'type': 'traceback_frame',
                             'text': line.strip(),
                             'frame_number': j + 1,
-                            'parent_record': record
+                            'parent_record': record,
+                            'frame_parts': frame_parts
                         }, record)
                         children.append(frame_row)
                 
@@ -261,11 +302,14 @@ class LogModel(qt.QStandardItemModel):
             # Handle exception with traceback
             tb_lines = traceback.format_tb(value.__traceback__)
             for i, line in enumerate(tb_lines):
+                # Split traceback line into parts for selective hyperlink formatting
+                frame_parts = self._split_traceback_line(line.strip())
                 frame_row = self._create_child_row("", line.strip(), {
                     'type': 'traceback_frame',
                     'text': line.strip(),
                     'frame_number': i + 1,
-                    'parent_record': parent_record
+                    'parent_record': parent_record,
+                    'frame_parts': frame_parts
                 }, parent_record)
                 children.append(frame_row)
                 
@@ -416,6 +460,53 @@ class LogModel(qt.QStandardItemModel):
         
         return list(reversed(chain))
     
+    def _split_traceback_line(self, text):
+        """Split a traceback line into parts to identify the clickable file portion."""
+        import re
+        
+        # Pattern to match the file path and line number portion
+        # Example: 'File "/path/to/file.py", line 123, in function_name'
+        # We want to identify: '/path/to/file.py", line 123'
+        file_pattern = r'File "([^"]+)", line (\d+)'
+        match = re.search(file_pattern, text)
+        
+        if match:
+            file_path = match.group(1)
+            line_number = int(match.group(2))
+            # Find the start and end positions of the clickable part
+            start_pos = match.start()
+            end_pos = match.end()
+            
+            return {
+                'has_file_ref': True,
+                'file_path': file_path,
+                'line_number': line_number,
+                'clickable_start': start_pos,
+                'clickable_end': end_pos,
+                'full_text': text
+            }
+        
+        # Also check for simple path:line format like '/path/file.py:123'
+        simple_pattern = r'([^:]+):(\d+)'
+        match = re.search(simple_pattern, text)
+        if match:
+            file_path = match.group(1)
+            line_number = int(match.group(2))
+            
+            return {
+                'has_file_ref': True,
+                'file_path': file_path,
+                'line_number': line_number,
+                'clickable_start': match.start(),
+                'clickable_end': match.end(),
+                'full_text': text
+            }
+        
+        return {
+            'has_file_ref': False,
+            'full_text': text
+        }
+    
     def _create_child_row(self, label, message, data_dict, parent_record):
         """Create a standardized child row for exception details."""
         # For child rows, put all content in the first column since it will span
@@ -452,7 +543,7 @@ class LogModel(qt.QStandardItemModel):
         # Apply styling to the first column item (where content is now)
         # Apply monospace font for code-like content
         if data_dict.get('type') in ['traceback_frame', 'stack_frame']:
-            # These contain code lines and file paths - use monospace
+            # Use monospace font for all code lines
             monospace_font = qt.QFont("Consolas, Monaco, 'Courier New', monospace")
             monospace_font.setStyleHint(qt.QFont.TypeWriter)
             timestamp_item.setFont(monospace_font)
@@ -546,8 +637,11 @@ class LogModel(qt.QStandardItemModel):
 class LogViewer(qt.QWidget):
     """QWidget for displaying and filtering log messages."""
     
-    # Signal emitted when user clicks on a stack frame
-    stack_frame_clicked = qt.Signal(str, int)  # (filename, line_number)
+    # Signal emitted when user clicks on any code line (stack frame, traceback, etc.)
+    code_line_clicked = qt.Signal(str, int)  # (file_path, line_number)
+    
+    # Signal for thread-safe message handling - messages from non-Qt threads are re-emitted here
+    _message_from_thread_signal = qt.Signal(object)  # log record
     
     def __init__(self, logger='', initial_filters=('level: info',), parent=None):
         qt.QWidget.__init__(self, parent=parent)
@@ -564,6 +658,9 @@ class LogViewer(qt.QWidget):
         if isinstance(logger, str):
             logger = logging.getLogger(logger)
         logger.addHandler(self.handler)
+        
+        # Set up thread-safe message handling - queued connection ensures GUI thread execution
+        self._message_from_thread_signal.connect(self._process_record, qt.Qt.QueuedConnection)
         
         # Set up GUI
         self.layout = qt.QGridLayout()
@@ -587,7 +684,8 @@ class LogViewer(qt.QWidget):
             self.proxy_model.setSourceModel(self.model)
             tree_model = self.proxy_model
         
-        self.tree = qt.QTreeView()
+        # Create custom tree view with hyperlink cursor support
+        self.tree = HyperlinkTreeView()
         self.tree.setModel(tree_model)
         self.tree.setAlternatingRowColors(True)
         self.tree.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)  # Make non-editable
@@ -616,6 +714,9 @@ class LogViewer(qt.QWidget):
         # Handle tree expansion to replace loading placeholders
         self.tree.expanded.connect(self._on_item_expanded)
         
+        # Handle clicks on code lines for file/line navigation
+        self.tree.clicked.connect(self._on_item_clicked)
+        
         self.layout.addWidget(self.tree, 1, 0)
         self.resize(1200, 600)
         self.tree.setColumnWidth(0, 200)
@@ -633,6 +734,20 @@ class LogViewer(qt.QWidget):
             self.apply_filters(list(initial_filters))
 
     def new_record(self, rec):
+        # Check if we're running in the Qt main thread
+        current_thread = qt.QThread.currentThread()
+        main_thread = qt.QApplication.instance().thread()
+        
+        if current_thread != main_thread:
+            # Re-emit through queued signal to ensure GUI thread execution
+            self._message_from_thread_signal.emit(rec)
+            return
+        
+        # Process the record in the GUI thread
+        self._process_record(rec)
+    
+    def _process_record(self, rec):
+        """Process a log record in the GUI thread."""
         # Create a new row for the log record
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(rec.created)) + f'{rec.created % 1.0:.3f}'.lstrip('0')
         source = f"{rec.processName}/{rec.threadName}"
@@ -1028,6 +1143,75 @@ class LogViewer(qt.QWidget):
         
         # Set spans for all items
         set_spans_recursive(current_model.index(-1, -1))  # Invalid index = root
+    
+    def _parse_code_line_info(self, text):
+        """Parse file path and line number from traceback or stack frame text."""
+        import re
+        
+        # Pattern to match file paths and line numbers in traceback/stack frames
+        # Examples:
+        #   File "/path/to/file.py", line 123, in function_name
+        #   /path/to/file.py:123
+        patterns = [
+            r'File "([^"]+)", line (\d+)',  # Standard Python traceback format
+            r'([^:]+):(\d+)',               # Simple path:line format
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                file_path = match.group(1)
+                line_number = int(match.group(2))
+                return {'file_path': file_path, 'line_number': line_number}
+        
+        return {'file_path': None, 'line_number': None}
+    
+    def _on_item_clicked(self, index):
+        """Handle clicks on tree items to detect code line clicks."""
+        if not index.isValid():
+            return
+        
+        # Get the item data
+        model = self.tree.model()
+        
+        # Map to source model if using proxy
+        source_index = index
+        if hasattr(model, 'mapToSource'):
+            source_index = model.mapToSource(index)
+        
+        # Get the actual item from our LogModel
+        item = self.model.itemFromIndex(source_index)
+        if not item:
+            return
+        
+        # Check if this is a code line (traceback_frame or stack_frame)
+        data = item.data(ItemDataRole.PYTHON_DATA)
+        if not data or not isinstance(data, dict):
+            return
+        
+        item_type = data.get('type')
+        if item_type not in ['traceback_frame', 'stack_frame']:
+            return
+        
+        # Check if we have pre-parsed frame parts
+        frame_parts = data.get('frame_parts')
+        if frame_parts and frame_parts.get('has_file_ref'):
+            file_path = frame_parts.get('file_path')
+            line_number = frame_parts.get('line_number')
+            
+            if file_path and line_number:
+                # Emit signal with file path and line number
+                self.code_line_clicked.emit(file_path, line_number)
+        else:
+            # Fallback to on-demand parsing for older data
+            text = data.get('text', '')
+            file_info = self._parse_code_line_info(text)
+            
+            file_path = file_info.get('file_path')
+            line_number = file_info.get('line_number')
+            
+            if file_path and line_number:
+                self.code_line_clicked.emit(file_path, line_number)
 
 
 class QtLogHandlerSignals(qt.QObject):

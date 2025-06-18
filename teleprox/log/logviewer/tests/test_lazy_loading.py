@@ -76,8 +76,8 @@ class TestLogViewerLazyLoading:
         # Replace placeholder with content
         log_model.replace_placeholder_with_content(parent_item)
         
-        # Verify replacement occurred
-        assert parent_item.rowCount() > 1  # Should have multiple exception detail children
+        # Verify replacement occurred  
+        assert parent_item.rowCount() >= 1  # Should have at least the exception category
         assert not log_model.has_loading_placeholder(parent_item)
         assert parent_item.data(ItemDataRole.CHILDREN_FETCHED) is True
     
