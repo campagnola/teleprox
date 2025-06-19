@@ -12,6 +12,125 @@ from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .constants import ItemDataRole, LogColumns
 from .log_model import LogModel
 
+
+class ExpansionStateManager:
+    """Manages saving and restoring tree expansion state using LOG_IDs and relative paths."""
+    
+    def __init__(self, tree_view):
+        self.tree_view = tree_view
+    
+    def save_state(self):
+        """Save current expansion state."""
+        expanded_items = {}
+        current_model = self.tree_view.model()
+        
+        if current_model is None:
+            return expanded_items
+        
+        self._collect_expanded_items(current_model.index(-1, -1), None, [], expanded_items)
+        return expanded_items
+    
+    def restore_state(self, expanded_items):
+        """Restore expansion state from saved data."""
+        if not expanded_items:
+            return
+            
+        current_model = self.tree_view.model()
+        if current_model is None:
+            return
+        
+        # Build lookup table for LOG_IDs
+        log_id_to_index = self._build_log_id_lookup(current_model)
+        
+        # Restore expansion for each saved LOG_ID
+        for log_id, child_paths in expanded_items.items():
+            self._restore_log_id_expansion(log_id, child_paths, log_id_to_index, current_model)
+        
+        # Set column spans for all items
+        self._set_spans_recursive(current_model.index(-1, -1), current_model)
+    
+    def _collect_expanded_items(self, parent_index, parent_log_id, relative_path, expanded_items):
+        """Recursively collect expanded items."""
+        current_model = self.tree_view.model()
+        
+        for row in range(current_model.rowCount(parent_index)):
+            index = current_model.index(row, LogColumns.TIMESTAMP, parent_index)
+            current_relative_path = relative_path + [row]
+            
+            if self.tree_view.isExpanded(index):
+                if parent_log_id is None:
+                    # Top-level item - use its LOG_ID
+                    log_id = current_model.data(index, ItemDataRole.LOG_ID)
+                    if log_id is not None:
+                        expanded_items[log_id] = []
+                        self._collect_expanded_items(index, log_id, [], expanded_items)
+                else:
+                    # Child item - save relative path from parent LOG_ID
+                    if parent_log_id not in expanded_items:
+                        expanded_items[parent_log_id] = []
+                    expanded_items[parent_log_id].append(tuple(current_relative_path))
+                    self._collect_expanded_items(index, parent_log_id, current_relative_path, expanded_items)
+    
+    def _build_log_id_lookup(self, current_model):
+        """Build lookup table mapping LOG_IDs to model indices."""
+        log_id_to_index = {}
+        for row in range(current_model.rowCount()):
+            index = current_model.index(row, LogColumns.TIMESTAMP)
+            log_id = current_model.data(index, ItemDataRole.LOG_ID)
+            if log_id is not None:
+                log_id_to_index[log_id] = index
+        return log_id_to_index
+    
+    def _restore_log_id_expansion(self, log_id, child_paths, log_id_to_index, current_model):
+        """Restore expansion for a specific LOG_ID and its children."""
+        parent_index = log_id_to_index.get(log_id)
+        if parent_index is None:
+            return  # LOG_ID not found in current model
+        
+        # Expand the top-level item if it has children
+        if current_model.rowCount(parent_index) > 0:
+            self.tree_view.expand(parent_index)
+            self._set_child_spans_for_item(parent_index)
+        
+        # Restore child expansions using relative paths
+        for child_path in child_paths:
+            child_index = self._navigate_to_child(parent_index, child_path, current_model)
+            if child_index.isValid():
+                self.tree_view.expand(child_index)
+                if current_model.rowCount(child_index) > 0:
+                    self._set_child_spans_for_item(child_index)
+    
+    def _navigate_to_child(self, parent_index, child_path, current_model):
+        """Navigate from parent to child using relative path."""
+        current_index = parent_index
+        
+        for row_num in child_path:
+            if current_index.isValid() and row_num < current_model.rowCount(current_index):
+                current_index = current_model.index(row_num, LogColumns.TIMESTAMP, current_index)
+            else:
+                return qt.QModelIndex()  # Invalid path
+        
+        return current_index
+    
+    def _set_child_spans_for_item(self, index):
+        """Set column spans for children of an item."""
+        current_model = self.tree_view.model()
+        for row in range(current_model.rowCount(index)):
+            self.tree_view.setFirstColumnSpanned(row, index, True)
+    
+    def _set_spans_recursive(self, parent_index, current_model):
+        """Recursively set column spans for all child items."""
+        for row in range(current_model.rowCount(parent_index)):
+            index = current_model.index(row, LogColumns.TIMESTAMP, parent_index)
+            
+            # Set column spans for child items (not top-level)
+            if parent_index.isValid():
+                self.tree_view.setFirstColumnSpanned(row, parent_index, True)
+            
+            # Recursively set spans for grandchildren
+            if current_model.rowCount(index) > 0:
+                self._set_spans_recursive(index, current_model)
+
 # HTML export template constants
 HTML_EXPORT_HEADER = """<!DOCTYPE html>
 <html>
@@ -141,6 +260,9 @@ class LogViewer(qt.QWidget):
         self.tree.setModel(tree_model)
         self.tree.setAlternatingRowColors(True)
         self.tree.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)  # Make non-editable
+        
+        # Initialize expansion state manager now that tree is created
+        self.expansion_manager = ExpansionStateManager(self.tree)
         
         # Set up custom header with context menu
         self.header = self.tree.header()
@@ -302,32 +424,13 @@ class LogViewer(qt.QWidget):
         # This will be called from the LogViewer class
         pass
     
-    def _set_child_spans_for_item(self, parent_index, parent_item):
-        """Set column spans for all children of the expanded item."""
-        current_model = self.tree.model()
-        
-        # Get the number of columns
-        column_count = current_model.columnCount()
-        if column_count <= 1:
-            return
-        
-        # Set spans for all children
-        child_count = current_model.rowCount(parent_index)
-        for child_row in range(child_count):
-            child_index = current_model.index(child_row, LogColumns.TIMESTAMP, parent_index)
-            # Make the first column span all columns
-            self.tree.setFirstColumnSpanned(child_row, parent_index, True)
-            
-            # Also set spans for any grandchildren recursively
-            if current_model.rowCount(child_index) > 0:
-                self._set_child_spans_for_item(child_index, None)
 
     def apply_filters(self, filter_strings):
         """Apply the given filter strings to the proxy model."""
         old_final_model = self.proxy_model.final_model if USE_CHAINED_FILTERING else None
         
         # Save expansion state before changing filters
-        expanded_paths = self._save_expansion_state()
+        expanded_paths = self.expansion_manager.save_state()
         # print(f"Saved expansion state: {expanded_paths}")
         
         self.proxy_model.set_filters(filter_strings)
@@ -359,13 +462,13 @@ class LogViewer(qt.QWidget):
                     self._restore_selection(selected_log_id)
                 
                 # Restore expansion state
-                self._restore_expansion_state(expanded_paths)
+                self.expansion_manager.restore_state(expanded_paths)
         
         # Always restore expansion state after any filter change
         # (in case we're not using chained filtering or model didn't change)
         if filter_strings != self._last_filter_strings:
             # print(f"Restoring expansion state: {expanded_log_ids}")
-            self._restore_expansion_state(expanded_paths)
+            self.expansion_manager.restore_state(expanded_paths)
         
         # Remember the current filter strings
         self._last_filter_strings = filter_strings[:]
@@ -460,7 +563,7 @@ class LogViewer(qt.QWidget):
         
         # Always set column spans for children when an item is expanded
         # This ensures spans are set even for items that don't have placeholders
-        self._set_child_spans_for_item(index, item)
+        self.expansion_manager._set_child_spans_for_item(index)
     
     def _get_selected_item_data(self):
         """Get unique ID from currently selected item for selection preservation."""
@@ -500,102 +603,6 @@ class LogViewer(qt.QWidget):
             except:
                 continue
     
-    def _save_expansion_state(self):
-        """Save expansion state using LOG_IDs for top-level items and relative paths for children."""
-        expanded_items = {}
-        current_model = self.tree.model()
-        
-        if current_model is None:
-            return expanded_items
-        
-        def save_recursive(parent_index, parent_log_id, relative_path):
-            for row in range(current_model.rowCount(parent_index)):
-                index = current_model.index(row, LogColumns.TIMESTAMP, parent_index)
-                current_relative_path = relative_path + [row]
-                
-                if self.tree.isExpanded(index):
-                    if parent_log_id is None:
-                        # This is a top-level item, use its LOG_ID
-                        log_id = current_model.data(index, ItemDataRole.LOG_ID)
-                        if log_id is not None:
-                            expanded_items[log_id] = []
-                            # Recursively save children under this LOG_ID
-                            save_recursive(index, log_id, [])
-                    else:
-                        # This is a child item, save relative path from parent LOG_ID
-                        if parent_log_id not in expanded_items:
-                            expanded_items[parent_log_id] = []
-                        expanded_items[parent_log_id].append(tuple(current_relative_path))
-                        # Recursively save grandchildren
-                        save_recursive(index, parent_log_id, current_relative_path)
-        
-        # Start with top-level items
-        save_recursive(current_model.index(-1, -1), None, [])  # Invalid index = root
-        
-        return expanded_items
-    
-    def _restore_expansion_state(self, expanded_items):
-        """Restore expansion state using LOG_IDs for top-level items and relative paths for children."""
-        if not expanded_items:
-            return
-            
-        current_model = self.tree.model()
-        if current_model is None:
-            return
-        
-        # First, find all top-level items by LOG_ID and expand them
-        log_id_to_index = {}
-        for row in range(current_model.rowCount()):
-            index = current_model.index(row, LogColumns.TIMESTAMP)
-            log_id = current_model.data(index, ItemDataRole.LOG_ID)
-            if log_id is not None:
-                log_id_to_index[log_id] = index
-        
-        # Restore expansion for each LOG_ID
-        for log_id, child_paths in expanded_items.items():
-            parent_index = log_id_to_index.get(log_id)
-            if parent_index is None:
-                continue  # LOG_ID not found in current model
-            
-            # Expand the top-level item itself if it has children
-            if current_model.rowCount(parent_index) > 0:
-                self.tree.expand(parent_index)
-                self._set_child_spans_for_item(parent_index, None)
-            
-            # Restore child expansions using relative paths
-            for child_path in child_paths:
-                # Navigate from parent using relative path
-                current_index = parent_index
-                
-                for row_num in child_path:
-                    if current_index.isValid() and row_num < current_model.rowCount(current_index):
-                        current_index = current_model.index(row_num, LogColumns.TIMESTAMP, current_index)
-                    else:
-                        current_index = qt.QModelIndex()  # Invalid
-                        break
-                
-                # Expand the child if valid (even if it has no children - Qt allows this)
-                if current_index.isValid():
-                    self.tree.expand(current_index)
-                    # Only set spans if it actually has children
-                    if current_model.rowCount(current_index) > 0:
-                        self._set_child_spans_for_item(current_index, None)
-        
-        # Also set column spans for all child items (fixes span loss after filtering)
-        def set_spans_recursive(parent_index):
-            for row in range(current_model.rowCount(parent_index)):
-                index = current_model.index(row, LogColumns.TIMESTAMP, parent_index)
-                
-                # Set column spans for all child items
-                if parent_index.isValid():  # Only for child items, not top-level
-                    self.tree.setFirstColumnSpanned(row, parent_index, True)
-                
-                # Recursively set spans for grandchildren
-                if current_model.rowCount(index) > 0:
-                    set_spans_recursive(index)
-        
-        # Set spans for all items
-        set_spans_recursive(current_model.index(-1, -1))  # Invalid index = root
     
     def _parse_code_line_info(self, text):
         """Parse file path and line number from traceback or stack frame text."""

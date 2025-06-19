@@ -390,7 +390,7 @@ class TestChildFiltering:
         viewer.tree.expand(error_tree_index)
         
         # Test save expansion state
-        expanded_ids = viewer._save_expansion_state()
+        expanded_ids = viewer.expansion_manager.save_state()
         assert len(expanded_ids) > 0, "Should have saved at least one expanded ID"
         
         # Manually collapse and then restore
@@ -398,7 +398,7 @@ class TestChildFiltering:
         assert not viewer.tree.isExpanded(error_tree_index), "Should be collapsed"
         
         # Restore expansion state
-        viewer._restore_expansion_state(expanded_ids)
+        viewer.expansion_manager.restore_state(expanded_ids)
         assert viewer.tree.isExpanded(error_tree_index), "Should be expanded after restore"
     
     def test_child_selection_highlighting(self, app):
