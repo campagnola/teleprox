@@ -23,3 +23,13 @@ class ItemDataRole:
     HAS_CHILDREN = qt.Qt.UserRole + 9       # bool - has unfetched exception data
     CHILDREN_FETCHED = qt.Qt.UserRole + 10  # bool - children already loaded
     IS_LOADING_PLACEHOLDER = qt.Qt.UserRole + 11  # bool - marks dummy "loading..." child
+
+
+class LogColumns:
+    """Constants for log viewer column indices."""
+    TIMESTAMP = 0
+    SOURCE = 1      # Process/Thread info
+    LOGGER = 2      # Logger name
+    LEVEL = 3       # Log level
+    MESSAGE = 4     # Log message
+    TASK = 5        # Task name

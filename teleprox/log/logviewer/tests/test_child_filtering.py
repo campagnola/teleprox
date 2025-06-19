@@ -1,6 +1,6 @@
 import logging
 from teleprox.log.logviewer.viewer import LogViewer
-from teleprox.log.logviewer.constants import ItemDataRole
+from teleprox.log.logviewer.constants import ItemDataRole, LogColumns
 from teleprox import qt
 
 try:
@@ -51,9 +51,9 @@ class TestChildFiltering:
         assert exception_item.rowCount() > 0, "Should have exception children"
         
         # Check that children inherited parent's filter data
-        parent_level = exception_item.child(0, 3).data(ItemDataRole.LEVEL_NUMBER)
-        parent_cipher = exception_item.child(0, 3).data(ItemDataRole.LEVEL_CIPHER)
-        parent_logger = exception_item.child(0, 2).data(ItemDataRole.LOGGER_NAME)
+        parent_level = exception_item.child(0, LogColumns.LEVEL).data(ItemDataRole.LEVEL_NUMBER)
+        parent_cipher = exception_item.child(0, LogColumns.LEVEL).data(ItemDataRole.LEVEL_CIPHER)
+        parent_logger = exception_item.child(0, LogColumns.LOGGER).data(ItemDataRole.LOGGER_NAME)
         
         # Get original record data for comparison
         original_record = exception_item.data(ItemDataRole.PYTHON_DATA)
@@ -103,7 +103,7 @@ class TestChildFiltering:
         def count_all_descendants(item):
             total = item.rowCount()
             for i in range(item.rowCount()):
-                child = item.child(i, 0)
+                child = item.child(i, LogColumns.TIMESTAMP)
                 if child:
                     total += count_all_descendants(child)
             return total
@@ -181,7 +181,7 @@ class TestChildFiltering:
         def count_all_nodes(item):
             count = item.rowCount()
             for i in range(item.rowCount()):
-                child = item.child(i, 0)
+                child = item.child(i, LogColumns.TIMESTAMP)
                 if child:
                     count += count_all_nodes(child)
             return count
@@ -547,14 +547,14 @@ class TestChildFiltering:
         assert child_count >= 1, "Should have at least the exception category"
         
         # Get the exception category (should be first child)
-        exc_category = exception_item.child(0, 0)
+        exc_category = exception_item.child(0, LogColumns.TIMESTAMP)
         assert exc_category is not None, "Should have exception category"
         
         category_child_count = exc_category.rowCount()
         assert category_child_count > 1, "Exception category should have multiple children (traceback + exception)"
         
         # Check that the last child in the category is the exception message
-        last_child = exc_category.child(category_child_count - 1, 0)  # Last row, first column
+        last_child = exc_category.child(category_child_count - 1, LogColumns.TIMESTAMP)  # Last row, first column
         assert last_child is not None, "Should have last child in exception category"
         
         last_message = last_child.text()
@@ -562,7 +562,7 @@ class TestChildFiltering:
         assert "Test exception message" in last_message, "Should contain the exception text"
         
         # Check that earlier children are traceback frames
-        first_child = exc_category.child(0, 0)  # First row, first column
+        first_child = exc_category.child(0, LogColumns.TIMESTAMP)  # First row, first column
         assert first_child is not None, "Should have first child in exception category"
         
         first_message = first_child.text()
@@ -593,7 +593,7 @@ class TestChildFiltering:
         viewer.model.replace_placeholder_with_content(exception_item)
         
         # Get the exception category
-        exc_category = exception_item.child(0, 0)
+        exc_category = exception_item.child(0, LogColumns.TIMESTAMP)
         assert exc_category is not None, "Should have exception category"
         
         # Check that traceback frames have monospace font
@@ -605,7 +605,7 @@ class TestChildFiltering:
         # Verify we have at least one traceback frame (not just the exception message)
         has_traceback = False
         for i in range(category_child_count - 1):  # Exclude last item (exception message)
-            child = exc_category.child(i, 0)  # First column contains the content
+            child = exc_category.child(i, LogColumns.TIMESTAMP)  # First column contains the content
             if child and "File " in child.text():
                 has_traceback = True
                 break

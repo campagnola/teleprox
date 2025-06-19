@@ -1,6 +1,6 @@
 import traceback
 from teleprox import qt
-from .constants import ItemDataRole
+from .constants import ItemDataRole, LogColumns
 
 
 class LogModel(qt.QStandardItemModel):
@@ -39,6 +39,21 @@ class LogModel(qt.QStandardItemModel):
             sibling_item.setData(self._get_level_cipher(record.levelno), ItemDataRole.LEVEL_CIPHER)
             sibling_item.setData(record.getMessage(), ItemDataRole.MESSAGE_TEXT)
         return sibling_items
+
+    def _set_filter_data_on_item(self, item, record):
+        """Set inherited filter data on a single item for Qt-native filtering."""
+        item.setData(record.created, ItemDataRole.NUMERIC_TIMESTAMP)
+        item.setData(record.processName, ItemDataRole.PROCESS_NAME)
+        item.setData(record.threadName, ItemDataRole.THREAD_NAME)
+        item.setData(record.name, ItemDataRole.LOGGER_NAME)
+        item.setData(record.levelno, ItemDataRole.LEVEL_NUMBER)
+        item.setData(self._get_level_cipher(record.levelno), ItemDataRole.LEVEL_CIPHER)
+        item.setData(record.getMessage(), ItemDataRole.MESSAGE_TEXT)
+
+    def _set_filter_data_on_row_items(self, items, record):
+        """Set inherited filter data on a list of row items for Qt-native filtering."""
+        for item in items:
+            self._set_filter_data_on_item(item, record)
 
     def _create_exception_children(self, record):
         """Create child items for exception information (exc_info, exc_text)."""
@@ -172,13 +187,7 @@ class LogModel(qt.QStandardItemModel):
         }, ItemDataRole.PYTHON_DATA)
         
         # Inherit parent's filter data for Qt-native filtering
-        category_item.setData(parent_record.created, ItemDataRole.NUMERIC_TIMESTAMP)
-        category_item.setData(parent_record.processName, ItemDataRole.PROCESS_NAME)
-        category_item.setData(parent_record.threadName, ItemDataRole.THREAD_NAME)
-        category_item.setData(parent_record.name, ItemDataRole.LOGGER_NAME)
-        category_item.setData(parent_record.levelno, ItemDataRole.LEVEL_NUMBER)
-        category_item.setData(self._get_level_cipher(parent_record.levelno), ItemDataRole.LEVEL_CIPHER)
-        category_item.setData(parent_record.getMessage(), ItemDataRole.MESSAGE_TEXT)
+        self._set_filter_data_on_item(category_item, parent_record)
         
         # Note: Sibling items for category rows are now created where the category is used
         
@@ -498,14 +507,7 @@ class LogModel(qt.QStandardItemModel):
         # INHERIT PARENT'S FILTER DATA so Qt native filtering includes children
         # This allows children to pass the same filters as their parents
         # Set the same data on ALL items so filtering works regardless of which column is checked
-        for item in [timestamp_item, source_item, logger_item, level_item, message_item, task_item]:
-            item.setData(parent_record.created, ItemDataRole.NUMERIC_TIMESTAMP)
-            item.setData(parent_record.processName, ItemDataRole.PROCESS_NAME)
-            item.setData(parent_record.threadName, ItemDataRole.THREAD_NAME)
-            item.setData(parent_record.name, ItemDataRole.LOGGER_NAME)
-            item.setData(parent_record.levelno, ItemDataRole.LEVEL_NUMBER)
-            item.setData(self._get_level_cipher(parent_record.levelno), ItemDataRole.LEVEL_CIPHER)
-            item.setData(parent_record.getMessage(), ItemDataRole.MESSAGE_TEXT)  # Parent's message for filtering
+        self._set_filter_data_on_row_items([timestamp_item, source_item, logger_item, level_item, message_item, task_item], parent_record)
         
         # Set colors to differentiate from main log entries
         timestamp_item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
@@ -582,7 +584,7 @@ class LogModel(qt.QStandardItemModel):
     def has_loading_placeholder(self, parent_item):
         """Check if item has a loading placeholder child."""
         if parent_item.rowCount() == 1:
-            child = parent_item.child(0, 0)  # Check timestamp column
+            child = parent_item.child(0, LogColumns.TIMESTAMP)  # Check timestamp column
             return child and child.data(ItemDataRole.IS_LOADING_PLACEHOLDER) is True
         return False
     

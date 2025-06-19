@@ -6,6 +6,7 @@ import threading
 import time
 import pytest
 from teleprox.log.logviewer.viewer import LogViewer
+from teleprox.log.logviewer.constants import LogColumns
 from teleprox import qt
 
 
@@ -35,7 +36,7 @@ class TestLogViewerThreadSafety:
         assert viewer.model.rowCount() == initial_count + 1
         
         # Verify the message
-        message_item = viewer.model.item(initial_count, 4)
+        message_item = viewer.model.item(initial_count, LogColumns.MESSAGE)
         assert message_item.text() == "Main thread message"
     
     def test_background_thread_logging(self, app):
@@ -66,7 +67,7 @@ class TestLogViewerThreadSafety:
         
         # Verify messages are from background thread
         for i in range(2):
-            source_item = viewer.model.item(initial_count + i, 1)
+            source_item = viewer.model.item(initial_count + i, LogColumns.SOURCE)
             source_text = source_item.text()
             # Should not contain "MainThread"
             assert "MainThread" not in source_text
@@ -106,8 +107,8 @@ class TestLogViewerThreadSafety:
         background_messages = []
         
         for i in range(3):
-            source_item = viewer.model.item(initial_count + i, 1)
-            message_item = viewer.model.item(initial_count + i, 4)
+            source_item = viewer.model.item(initial_count + i, LogColumns.SOURCE)
+            message_item = viewer.model.item(initial_count + i, LogColumns.MESSAGE)
             source = source_item.text()
             message = message_item.text()
             

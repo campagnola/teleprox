@@ -9,7 +9,7 @@ from teleprox import qt
 from .utils import level_colors, thread_color, level_to_cipher
 from .widgets import FilterInputWidget, HighlightDelegate, HyperlinkTreeView
 from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
-from .constants import ItemDataRole
+from .constants import ItemDataRole, LogColumns
 from .log_model import LogModel
 
 # HTML export template constants
@@ -148,8 +148,8 @@ class LogViewer(qt.QWidget):
         self.header.customContextMenuRequested.connect(self._show_header_context_menu)
         
         # Hide Task and Level columns by default
-        self.tree.setColumnHidden(3, True)  # Level column
-        self.tree.setColumnHidden(5, True)  # Task column
+        self.tree.setColumnHidden(LogColumns.LEVEL, True)  # Level column
+        self.tree.setColumnHidden(LogColumns.TASK, True)  # Task column
         
         # Create custom delegate for efficient highlighting (will be set on models)
         self.highlight_delegate = HighlightDelegate(self)
@@ -172,9 +172,9 @@ class LogViewer(qt.QWidget):
         
         self.layout.addWidget(self.tree, 1, 0)
         self.resize(1200, 600)
-        self.tree.setColumnWidth(0, 200)
-        self.tree.setColumnWidth(1, 200)
-        self.tree.setColumnWidth(2, 100)
+        self.tree.setColumnWidth(LogColumns.TIMESTAMP, 200)
+        self.tree.setColumnWidth(LogColumns.SOURCE, 200)
+        self.tree.setColumnWidth(LogColumns.LOGGER, 100)
         
         # Apply initial filters if provided
         if initial_filters:
@@ -314,7 +314,7 @@ class LogViewer(qt.QWidget):
         # Set spans for all children
         child_count = current_model.rowCount(parent_index)
         for child_row in range(child_count):
-            child_index = current_model.index(child_row, 0, parent_index)
+            child_index = current_model.index(child_row, LogColumns.TIMESTAMP, parent_index)
             # Make the first column span all columns
             self.tree.setFirstColumnSpanned(child_row, parent_index, True)
             
@@ -380,10 +380,10 @@ class LogViewer(qt.QWidget):
         
         # Apply sorting
         if hasattr(current_model, 'sort'):
-            current_model.sort(0, qt.Qt.AscendingOrder)
+            current_model.sort(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
         
         # Also tell the tree view about the sorting
-        self.tree.sortByColumn(0, qt.Qt.AscendingOrder)
+        self.tree.sortByColumn(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
     
     def _show_header_context_menu(self, position):
         """Show context menu for column visibility when right-clicking on header."""
@@ -421,12 +421,12 @@ class LogViewer(qt.QWidget):
         parent_index = index.parent()
         if parent_index.isValid():
             # This is a child item - use parent's highlighting data
-            source_data = model.data(model.index(parent_index.row(), 1), qt.Qt.DisplayRole)
-            logger_data = model.data(model.index(parent_index.row(), 2), qt.Qt.DisplayRole)
+            source_data = model.data(model.index(parent_index.row(), LogColumns.SOURCE), qt.Qt.DisplayRole)
+            logger_data = model.data(model.index(parent_index.row(), LogColumns.LOGGER), qt.Qt.DisplayRole)
         else:
             # This is a top-level item - use its own data
-            source_data = model.data(model.index(index.row(), 1), qt.Qt.DisplayRole)
-            logger_data = model.data(model.index(index.row(), 2), qt.Qt.DisplayRole)
+            source_data = model.data(model.index(index.row(), LogColumns.SOURCE), qt.Qt.DisplayRole)
+            logger_data = model.data(model.index(index.row(), LogColumns.LOGGER), qt.Qt.DisplayRole)
         
         if not source_data or not logger_data:
             self.highlight_delegate.clear_highlight()
@@ -475,7 +475,7 @@ class LogViewer(qt.QWidget):
         
         # Get the unique log ID from the timestamp column
         try:
-            log_id = model.data(model.index(row, 0), ItemDataRole.LOG_ID)
+            log_id = model.data(model.index(row, LogColumns.TIMESTAMP), ItemDataRole.LOG_ID)
             return log_id
         except:
             return None
@@ -490,10 +490,10 @@ class LogViewer(qt.QWidget):
         # Search through the model to find the row with matching log ID
         for row in range(model.rowCount()):
             try:
-                log_id = model.data(model.index(row, 0), ItemDataRole.LOG_ID)
+                log_id = model.data(model.index(row, LogColumns.TIMESTAMP), ItemDataRole.LOG_ID)
                 if log_id == selected_log_id:
                     # Found matching row, select it
-                    index = model.index(row, 0)
+                    index = model.index(row, LogColumns.TIMESTAMP)
                     self.tree.selectionModel().select(index, qt.QItemSelectionModel.Select | qt.QItemSelectionModel.Rows)
                     self.tree.scrollTo(index)  # Scroll to show the selected item
                     break
@@ -510,7 +510,7 @@ class LogViewer(qt.QWidget):
         
         def save_recursive(parent_index, parent_log_id, relative_path):
             for row in range(current_model.rowCount(parent_index)):
-                index = current_model.index(row, 0, parent_index)
+                index = current_model.index(row, LogColumns.TIMESTAMP, parent_index)
                 current_relative_path = relative_path + [row]
                 
                 if self.tree.isExpanded(index):
@@ -546,7 +546,7 @@ class LogViewer(qt.QWidget):
         # First, find all top-level items by LOG_ID and expand them
         log_id_to_index = {}
         for row in range(current_model.rowCount()):
-            index = current_model.index(row, 0)
+            index = current_model.index(row, LogColumns.TIMESTAMP)
             log_id = current_model.data(index, ItemDataRole.LOG_ID)
             if log_id is not None:
                 log_id_to_index[log_id] = index
@@ -569,7 +569,7 @@ class LogViewer(qt.QWidget):
                 
                 for row_num in child_path:
                     if current_index.isValid() and row_num < current_model.rowCount(current_index):
-                        current_index = current_model.index(row_num, 0, current_index)
+                        current_index = current_model.index(row_num, LogColumns.TIMESTAMP, current_index)
                     else:
                         current_index = qt.QModelIndex()  # Invalid
                         break
@@ -584,7 +584,7 @@ class LogViewer(qt.QWidget):
         # Also set column spans for all child items (fixes span loss after filtering)
         def set_spans_recursive(parent_index):
             for row in range(current_model.rowCount(parent_index)):
-                index = current_model.index(row, 0, parent_index)
+                index = current_model.index(row, LogColumns.TIMESTAMP, parent_index)
                 
                 # Set column spans for all child items
                 if parent_index.isValid():  # Only for child items, not top-level
@@ -773,11 +773,11 @@ class LogViewer(qt.QWidget):
         row_count = model.rowCount(parent_index)
         for row in range(row_count):
             # Get data from each column
-            timestamp_index = model.index(row, 0, parent_index)
-            source_index = model.index(row, 1, parent_index) 
-            logger_index = model.index(row, 2, parent_index)
-            level_index = model.index(row, 3, parent_index)
-            message_index = model.index(row, 4, parent_index)
+            timestamp_index = model.index(row, LogColumns.TIMESTAMP, parent_index)
+            source_index = model.index(row, LogColumns.SOURCE, parent_index) 
+            logger_index = model.index(row, LogColumns.LOGGER, parent_index)
+            level_index = model.index(row, LogColumns.LEVEL, parent_index)
+            message_index = model.index(row, LogColumns.MESSAGE, parent_index)
             
             timestamp = model.data(timestamp_index, qt.Qt.DisplayRole) or ""
             source = model.data(source_index, qt.Qt.DisplayRole) or ""

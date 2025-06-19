@@ -2,7 +2,7 @@
 # ABOUTME: Contains FilterTagWidget, FilterInputWidget, and HighlightDelegate for log viewer GUI
 
 from teleprox import qt
-from .constants import ItemDataRole
+from .constants import ItemDataRole, LogColumns
 
 
 class HyperlinkTreeView(qt.QTreeView):
@@ -211,8 +211,8 @@ class HighlightDelegate(qt.QStyledItemDelegate):
             parent_index = index.parent()
             if parent_index.isValid():
                 # This is a child item - check if parent should be highlighted
-                parent_source = model.data(model.index(parent_index.row(), 1), qt.Qt.DisplayRole)
-                parent_logger = model.data(model.index(parent_index.row(), 2), qt.Qt.DisplayRole)
+                parent_source = model.data(model.index(parent_index.row(), LogColumns.SOURCE), qt.Qt.DisplayRole)
+                parent_logger = model.data(model.index(parent_index.row(), LogColumns.LOGGER), qt.Qt.DisplayRole)
                 
                 highlight_type = self._should_highlight(parent_source, parent_logger)
                 if highlight_type:
@@ -224,8 +224,8 @@ class HighlightDelegate(qt.QStyledItemDelegate):
                 return
             
             # This is a top-level item - check for highlighting
-            current_source = model.data(model.index(row, 1), qt.Qt.DisplayRole)
-            current_logger = model.data(model.index(row, 2), qt.Qt.DisplayRole)
+            current_source = model.data(model.index(row, LogColumns.SOURCE), qt.Qt.DisplayRole)
+            current_logger = model.data(model.index(row, LogColumns.LOGGER), qt.Qt.DisplayRole)
             
             highlight_type = self._should_highlight(current_source, current_logger)
             if highlight_type:
