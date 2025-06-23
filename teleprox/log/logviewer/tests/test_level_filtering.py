@@ -1,6 +1,6 @@
 import logging
 from teleprox.log.logviewer.viewer import LogViewer
-from teleprox.log.logviewer.constants import ItemDataRole
+from teleprox.log.logviewer.constants import ItemDataRole, LogColumns
 from teleprox import qt
 
 try:
@@ -43,7 +43,7 @@ class TestLevelFiltering:
         # Debug=10->k, Info=20->u, Warning=30->E, Error=40->O, Critical=50->Y
         expected_ciphers = ['k', 'u', 'E', 'O', 'Y']  
         for i in range(5):
-            level_item = viewer.model.item(i, 3)  # Level column
+            level_item = viewer.model.item(i, LogColumns.LEVEL)  # Level column
             cipher = level_item.data(ItemDataRole.LEVEL_CIPHER)
             assert cipher == expected_ciphers[i], f"Row {i}: expected cipher '{expected_ciphers[i]}', got '{cipher}'"
     

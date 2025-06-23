@@ -7,12 +7,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Testing
 ```bash
 # IMPORTANT: Use conda environment for all testing
-conda activate teleprox
+# Correct way to activate conda env in bash scripts:
+source /home/luke/miniconda3/bin/activate teleprox
 
 # Run all tests
 pytest
 
-# Run tests with logging enabled
+# Run tests with logging enabled  
 pytest --log=DEBUG
 
 # Run specific test file
@@ -20,6 +21,12 @@ pytest teleprox/tests/test_basics.py
 
 # Run single test
 pytest teleprox/tests/test_basics.py::test_function_name
+
+# Run log viewer tests specifically
+pytest teleprox/log/logviewer/tests/
+
+# Run single log viewer test file
+pytest teleprox/log/logviewer/tests/test_level_filtering.py
 ```
 
 ### Installation and Development

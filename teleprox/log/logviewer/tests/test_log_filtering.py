@@ -29,7 +29,7 @@ from teleprox.log.logviewer.proxies import (
     FieldFilterProxy,
     LevelCipherFilterProxy
 )
-from teleprox.log.logviewer.constants import ItemDataRole
+from teleprox.log.logviewer.constants import ItemDataRole, LogColumns
 from teleprox.log.logviewer.filtering import ChainedLogFilterManager
 
 
@@ -264,9 +264,9 @@ class TestFilterProxies:
         proxy = LevelCipherFilterProxy()
         proxy.setSourceModel(mock_model)
         
-        # Should filter on LEVEL_CIPHER role of column 3
+        # Should filter on LEVEL_CIPHER role of LEVEL column
         assert proxy.filterRole() == ItemDataRole.LEVEL_CIPHER
-        assert proxy.filterKeyColumn() == 3
+        assert proxy.filterKeyColumn() == LogColumns.LEVEL
         
         # Test level filter setting
         proxy.set_level_filter("10")  # Should create regex for level >= 10
@@ -280,7 +280,7 @@ class TestIntegration:
     def full_model(self):
         """Create a full model like the real log viewer would."""
         model = QStandardItemModel()
-        model.setHorizontalHeaderLabels(['Timestamp', 'Source', 'Logger', 'Level', 'Message'])
+        model.setHorizontalHeaderLabels(LogColumns.TITLES)
         
         # Create realistic test data
         test_data = [
@@ -293,24 +293,34 @@ class TestIntegration:
         ]
         
         for timestamp, process, thread, logger, level, message in test_data:
-            timestamp_item = QStandardItem(f"{timestamp:.1f}")
-            timestamp_item.setData(timestamp, ItemDataRole.NUMERIC_TIMESTAMP)
+            # Create row items for all columns using new layout
+            row_items = [QStandardItem("") for _ in range(len(LogColumns.TITLES))]
             
-            source_item = QStandardItem(f"{process}/{thread}")
-            source_item.setData(process, ItemDataRole.PROCESS_NAME)
-            source_item.setData(thread, ItemDataRole.THREAD_NAME)
+            # Populate columns according to new layout
+            row_items[LogColumns.TIMESTAMP].setText(f"{timestamp:.1f}")
+            row_items[LogColumns.TIMESTAMP].setData(timestamp, ItemDataRole.NUMERIC_TIMESTAMP)
             
-            logger_item = QStandardItem(logger)
-            logger_item.setData(logger, ItemDataRole.LOGGER_NAME)
+            row_items[LogColumns.HOST].setText("")  # Empty host
+            row_items[LogColumns.PROCESS].setText(process)
+            row_items[LogColumns.THREAD].setText(thread)
             
-            level_item = QStandardItem(str(level))
-            level_item.setData(level, ItemDataRole.LEVEL_NUMBER)
-            level_item.setData(level_to_cipher(level), ItemDataRole.LEVEL_CIPHER)
+            row_items[LogColumns.SOURCE].setText(f"{process}/{thread}")
+            row_items[LogColumns.SOURCE].setData(process, ItemDataRole.PROCESS_NAME)
+            row_items[LogColumns.SOURCE].setData(thread, ItemDataRole.THREAD_NAME)
             
-            message_item = QStandardItem(message)
-            message_item.setData(message, ItemDataRole.MESSAGE_TEXT)
+            row_items[LogColumns.LOGGER].setText(logger)
+            row_items[LogColumns.LOGGER].setData(logger, ItemDataRole.LOGGER_NAME)
             
-            model.appendRow([timestamp_item, source_item, logger_item, level_item, message_item])
+            row_items[LogColumns.LEVEL].setText(str(level))
+            row_items[LogColumns.LEVEL].setData(level, ItemDataRole.LEVEL_NUMBER)
+            row_items[LogColumns.LEVEL].setData(level_to_cipher(level), ItemDataRole.LEVEL_CIPHER)
+            
+            row_items[LogColumns.MESSAGE].setText(message)
+            row_items[LogColumns.MESSAGE].setData(message, ItemDataRole.MESSAGE_TEXT)
+            
+            row_items[LogColumns.TASK].setText("")  # Empty task
+            
+            model.appendRow(row_items)
         
         return model
     

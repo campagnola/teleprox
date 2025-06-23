@@ -89,12 +89,15 @@ class FilterInputWidget(qt.QWidget):
         self.setLayout(self.layout)
         
         self.filter_input = qt.QLineEdit()
-        self.filter_input.setPlaceholderText("Filter  [level: N|debug|info|warn|error] [source: ...] [logger: ...] [message regex]")
+        self.filter_input.setPlaceholderText("Filter  [level: N|debug|info|warn|error] [host: ...] [process: ...] [thread: ...] [source: ...] [logger: ...] [message regex]")
         self.filter_input.returnPressed.connect(self.add_filter)
         self.filter_input.editingFinished.connect(self.add_filter)
         self.filter_input.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Fixed)
         
         self.layout.addWidget(self.filter_input)
+        
+        # Track invalid filter tags for visual feedback
+        self.invalid_filter_tags = set()
         
         # Add menu button with 3-line icon
         self.menu_button = qt.QPushButton()
@@ -126,6 +129,31 @@ class FilterInputWidget(qt.QWidget):
     def _emit_filters_changed(self):
         """Emit the filters_changed signal with current filter strings."""
         self.filters_changed.emit(self.get_filter_strings())
+    
+    def set_invalid_filters(self, invalid_filter_fields):
+        """Update visual feedback for invalid filter fields.
+        
+        Args:
+            invalid_filter_fields: List of invalid field names (e.g., ['unknown', 'invalid'])
+        """
+        # Clear previous invalid markings
+        self.invalid_filter_tags.clear()
+        
+        # Find filter tags that contain invalid field names
+        for i in range(self.layout.count() - 2):  # Exclude input and menu button
+            widget = self.layout.itemAt(i).widget()
+            if isinstance(widget, FilterTagWidget):
+                filter_text = widget.text().strip()
+                # Check if this filter contains an invalid field
+                if ':' in filter_text:
+                    field = filter_text.split(':', 1)[0].strip().lower()
+                    if field in invalid_filter_fields:
+                        self.invalid_filter_tags.add(widget)
+                        widget.setStyleSheet("QLineEdit { border: 2px solid red; }")
+                    else:
+                        widget.setStyleSheet("")  # Clear any previous styling
+                else:
+                    widget.setStyleSheet("")  # Clear styling for non-field filters
     
     def _show_menu(self):
         """Show the export context menu."""

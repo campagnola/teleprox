@@ -206,7 +206,7 @@ class TestChildFiltering:
             error_index = None
             for i in range(filtered_model.rowCount()):
                 idx = filtered_model.index(i, 0)
-                level_idx = filtered_model.index(i, 3)  # Level data is in column 3
+                level_idx = filtered_model.index(i, LogColumns.LEVEL)  # Level data is in LEVEL column
                 if filtered_model.data(level_idx, ItemDataRole.LEVEL_NUMBER) == 40:  # ERROR level
                     error_index = idx
                     break
@@ -224,7 +224,7 @@ class TestChildFiltering:
         error_found = False
         for i in range(final_model.rowCount()):
             idx = final_model.index(i, 0)
-            level_idx = final_model.index(i, 3)  # Level data is in column 3
+            level_idx = final_model.index(i, LogColumns.LEVEL)  # Level data is in LEVEL column
             if final_model.data(level_idx, ItemDataRole.LEVEL_NUMBER) == 40:  # ERROR level
                 final_count = self.count_all_nodes_in_model(idx, final_model)
                 assert final_count == total_before, f"After clearing filters: Should have {total_before} descendants, got {final_count}"

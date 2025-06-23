@@ -3,7 +3,7 @@
 
 from teleprox import qt
 from .utils import parse_level_value, level_threshold_to_cipher_regex
-from .constants import ItemDataRole
+from .constants import ItemDataRole, LogColumns
 
 
 class FieldFilterProxy(qt.QSortFilterProxyModel):
@@ -17,12 +17,13 @@ class FieldFilterProxy(qt.QSortFilterProxyModel):
         self.setFilterCaseSensitivity(qt.Qt.CaseInsensitive)
         self.filter_pattern = ""
         
-        # Set custom filter role for logger and message fields
-        # Source should use display text for backward compatibility
+        # Set custom filter role for fields that have dedicated data roles
+        # Other fields use display text (default behavior)
         if field_name == 'logger':
             self.setFilterRole(ItemDataRole.LOGGER_NAME)
         elif field_name == 'message':
             self.setFilterRole(ItemDataRole.MESSAGE_TEXT)
+        # host, process, thread, and source use display text (Qt.DisplayRole is default)
     
     def set_filter_pattern(self, pattern):
         """Set the filter pattern for this field."""
@@ -37,7 +38,7 @@ class LevelCipherFilterProxy(FieldFilterProxy):
     """Handles level filtering using cipher data from LEVEL_CIPHER role."""
     
     def __init__(self, parent=None):
-        super().__init__("level", 3, parent)  # Column 3 is level column
+        super().__init__("level", LogColumns.LEVEL, parent)  # Use LogColumns constant
         self.setFilterRole(ItemDataRole.LEVEL_CIPHER)  # Filter on cipher data
         self.setFilterCaseSensitivity(qt.Qt.CaseSensitive)  # Cipher patterns are case-sensitive
     

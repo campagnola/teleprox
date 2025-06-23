@@ -28,8 +28,37 @@ class ItemDataRole:
 class LogColumns:
     """Constants for log viewer column indices."""
     TIMESTAMP = 0
-    SOURCE = 1      # Process/Thread info
-    LOGGER = 2      # Logger name
-    LEVEL = 3       # Log level
-    MESSAGE = 4     # Log message
-    TASK = 5        # Task name
+    HOST = 1        # Host name
+    PROCESS = 2     # Process name
+    THREAD = 3      # Thread name
+    SOURCE = 4      # Process/Thread info
+    LOGGER = 5      # Logger name
+    LEVEL = 6       # Log level
+    MESSAGE = 7     # Log message
+    TASK = 8        # Task name
+    
+    # Column titles for header labels
+    TITLES = [
+        'Timestamp',    # TIMESTAMP
+        'Host',         # HOST
+        'Process',      # PROCESS
+        'Thread',       # THREAD
+        'Source',       # SOURCE
+        'Logger',       # LOGGER
+        'Level',        # LEVEL
+        'Message',      # MESSAGE
+        'Task'          # TASK
+    ]
+    
+    # Default column widths
+    WIDTHS = [
+        200,    # TIMESTAMP
+        150,    # HOST
+        150,    # PROCESS
+        150,    # THREAD
+        200,    # SOURCE
+        100,    # LOGGER
+        100,    # LEVEL
+        400,    # MESSAGE
+        100     # TASK
+    ]

@@ -5,7 +5,7 @@ import re
 from teleprox import qt
 from .utils import parse_level_value, level_threshold_to_cipher_regex
 from .proxies import FieldFilterProxy, LevelCipherFilterProxy
-from .constants import ItemDataRole
+from .constants import ItemDataRole, LogColumns
 
 
 class PythonLogFilterProxyModel(qt.QSortFilterProxyModel):
@@ -16,9 +16,14 @@ class PythonLogFilterProxyModel(qt.QSortFilterProxyModel):
         self.filters = []
         
     def set_filters(self, filter_strings):
-        """Set the filter strings and invalidate the filter."""
+        """Set the filter strings and invalidate the filter.
+        
+        Returns:
+            list: Empty list (Python filtering doesn't validate field names)
+        """
         self.filters = filter_strings
         self.invalidateFilter()
+        return []  # Python filtering doesn't validate field names
         
     def filterAcceptsRow(self, source_row, source_parent):
         """Return True if the row should be included in the filtered model."""
@@ -28,11 +33,11 @@ class PythonLogFilterProxyModel(qt.QSortFilterProxyModel):
         model = self.sourceModel()
         
         # Get all the items for this row
-        timestamp_item = model.item(source_row, 0)
-        source_item = model.item(source_row, 1)
-        logger_item = model.item(source_row, 2)
-        level_item = model.item(source_row, 3)
-        message_item = model.item(source_row, 4)
+        timestamp_item = model.item(source_row, LogColumns.TIMESTAMP)
+        source_item = model.item(source_row, LogColumns.SOURCE)
+        logger_item = model.item(source_row, LogColumns.LOGGER)
+        level_item = model.item(source_row, LogColumns.LEVEL)
+        message_item = model.item(source_row, LogColumns.MESSAGE)
         
         # Extract data for filtering
         timestamp = timestamp_item.data(ItemDataRole.NUMERIC_TIMESTAMP) if timestamp_item else 0
@@ -151,20 +156,28 @@ class ChainedLogFilterManager:
         # Available proxy types mapped to column names where possible
         self.proxy_types = {
             'level': lambda: LevelCipherFilterProxy(),
-            'logger': lambda: FieldFilterProxy('logger', 2),
-            'source': lambda: FieldFilterProxy('source', 1),
-            'message': lambda: FieldFilterProxy('message', 4),
+            'logger': lambda: FieldFilterProxy('logger', LogColumns.LOGGER),
+            'source': lambda: FieldFilterProxy('source', LogColumns.SOURCE),
+            'message': lambda: FieldFilterProxy('message', LogColumns.MESSAGE),
+            'host': lambda: FieldFilterProxy('host', LogColumns.HOST),
+            'process': lambda: FieldFilterProxy('process', LogColumns.PROCESS),
+            'thread': lambda: FieldFilterProxy('thread', LogColumns.THREAD),
         }
     
     def set_filters(self, filter_strings):
-        """Parse filters and build/update proxy chain dynamically."""
+        """Parse filters and build/update proxy chain dynamically.
+        
+        Returns:
+            list: List of invalid filter field names (empty if all valid)
+        """
         if not filter_strings:
             # No filters, use source model directly
             self._rebuild_chain([])
-            return
+            return []
         
         # Parse filters to determine needed proxies
         filter_configs = []
+        invalid_filters = []
         
         for filter_str in filter_strings:
             filter_str = filter_str.strip()
@@ -179,6 +192,8 @@ class ChainedLogFilterManager:
                 value = value.strip()
                 
                 if field not in self.proxy_types:
+                    # Track invalid field filters for user feedback
+                    invalid_filters.append(field)
                     continue
 
                 filter_configs.append((field, value))
@@ -188,6 +203,8 @@ class ChainedLogFilterManager:
         
         # Rebuild chain with filter configs
         self._rebuild_chain(filter_configs)
+        
+        return invalid_filters
     
     def _rebuild_chain(self, filter_configs):
         """Rebuild the proxy chain with the specified filter configs in order."""

@@ -244,7 +244,7 @@ class LogViewer(qt.QWidget):
         self.layout.addWidget(self.filter_input_widget, 0, 0)
 
         self.model = LogModel()
-        self.model.setHorizontalHeaderLabels(['Timestamp', 'Source', 'Logger', 'Level', 'Message', 'Task'])
+        self.model.setHorizontalHeaderLabels(LogColumns.TITLES)
         
         # Create custom proxy model for advanced filtering
         if USE_CHAINED_FILTERING:
@@ -269,9 +269,12 @@ class LogViewer(qt.QWidget):
         self.header.setContextMenuPolicy(qt.Qt.CustomContextMenu)
         self.header.customContextMenuRequested.connect(self._show_header_context_menu)
         
-        # Hide Task and Level columns by default
+        # Hide Task, Level, Host, Process, and Thread columns by default
         self.tree.setColumnHidden(LogColumns.LEVEL, True)  # Level column
-        self.tree.setColumnHidden(LogColumns.TASK, True)  # Task column
+        self.tree.setColumnHidden(LogColumns.TASK, True)   # Task column
+        self.tree.setColumnHidden(LogColumns.HOST, True)   # Host column
+        self.tree.setColumnHidden(LogColumns.PROCESS, True) # Process column
+        self.tree.setColumnHidden(LogColumns.THREAD, True) # Thread column
         
         # Create custom delegate for efficient highlighting (will be set on models)
         self.highlight_delegate = HighlightDelegate(self)
@@ -294,9 +297,10 @@ class LogViewer(qt.QWidget):
         
         self.layout.addWidget(self.tree, 1, 0)
         self.resize(1200, 600)
-        self.tree.setColumnWidth(LogColumns.TIMESTAMP, 200)
-        self.tree.setColumnWidth(LogColumns.SOURCE, 200)
-        self.tree.setColumnWidth(LogColumns.LOGGER, 100)
+        
+        # Set column widths from constants
+        for i, width in enumerate(LogColumns.WIDTHS):
+            self.tree.setColumnWidth(i, width)
         
         # Apply initial filters if provided
         if initial_filters:
@@ -330,38 +334,45 @@ class LogViewer(qt.QWidget):
         level = f"{rec.levelno} - {rec.levelname}"
         message = rec.getMessage()
         
-        # Create items for each column
-        timestamp_item = qt.QStandardItem(timestamp)
-        source_item = qt.QStandardItem(source)
-        logger_item = qt.QStandardItem(logger_name)
-        level_item = qt.QStandardItem(level)
-        message_item = qt.QStandardItem(message)
-        task_item = qt.QStandardItem(getattr(rec, 'taskName', ''))
+        # Create items for each column using LogColumns order
+        row_items = [qt.QStandardItem("") for _ in range(len(LogColumns.TITLES))]
+        
+        # Populate each column according to the new layout
+        row_items[LogColumns.TIMESTAMP].setText(timestamp)
+        host_name = getattr(rec, 'hostName', '') or 'localhost'
+        row_items[LogColumns.HOST].setText(host_name)
+        row_items[LogColumns.PROCESS].setText(rec.processName)
+        row_items[LogColumns.THREAD].setText(rec.threadName)
+        row_items[LogColumns.SOURCE].setText(source)
+        row_items[LogColumns.LOGGER].setText(logger_name)
+        row_items[LogColumns.LEVEL].setText(level)
+        row_items[LogColumns.MESSAGE].setText(message)
+        row_items[LogColumns.TASK].setText(getattr(rec, 'taskName', ''))
         
         # Set colors based on log level
         level_color = level_colors.get(rec.levelno, "#000000")
         source_color = thread_color(source)
-        source_item.setForeground(qt.QColor(source_color))
-        level_item.setForeground(qt.QColor(level_color))
-        message_item.setForeground(qt.QColor(level_color))
+        row_items[LogColumns.SOURCE].setForeground(qt.QColor(source_color))
+        row_items[LogColumns.LEVEL].setForeground(qt.QColor(level_color))
+        row_items[LogColumns.MESSAGE].setForeground(qt.QColor(level_color))
         
         # Assign unique ID to this log entry
         log_id = self._next_log_id
         self._next_log_id += 1
         
         # Store data using named constants
-        timestamp_item.setData(rec, ItemDataRole.PYTHON_DATA)  # Store complete log record
-        timestamp_item.setData(rec.created, ItemDataRole.NUMERIC_TIMESTAMP)  # Store numeric timestamp
-        timestamp_item.setData(log_id, ItemDataRole.LOG_ID)  # Store unique log ID
-        source_item.setData(rec.processName, ItemDataRole.PROCESS_NAME)  # Store process name
-        source_item.setData(rec.threadName, ItemDataRole.THREAD_NAME)  # Store thread name
-        logger_item.setData(rec.name, ItemDataRole.LOGGER_NAME)  # Store logger name
-        level_item.setData(rec.levelno, ItemDataRole.LEVEL_NUMBER)  # Store numeric level
-        level_item.setData(level_to_cipher(rec.levelno), ItemDataRole.LEVEL_CIPHER)  # Store level cipher
-        message_item.setData(rec.getMessage(), ItemDataRole.MESSAGE_TEXT)  # Store message text
+        row_items[LogColumns.TIMESTAMP].setData(rec, ItemDataRole.PYTHON_DATA)  # Store complete log record
+        row_items[LogColumns.TIMESTAMP].setData(rec.created, ItemDataRole.NUMERIC_TIMESTAMP)  # Store numeric timestamp
+        row_items[LogColumns.TIMESTAMP].setData(log_id, ItemDataRole.LOG_ID)  # Store unique log ID
+        row_items[LogColumns.SOURCE].setData(rec.processName, ItemDataRole.PROCESS_NAME)  # Store process name
+        row_items[LogColumns.SOURCE].setData(rec.threadName, ItemDataRole.THREAD_NAME)  # Store thread name
+        row_items[LogColumns.LOGGER].setData(rec.name, ItemDataRole.LOGGER_NAME)  # Store logger name
+        row_items[LogColumns.LEVEL].setData(rec.levelno, ItemDataRole.LEVEL_NUMBER)  # Store numeric level
+        row_items[LogColumns.LEVEL].setData(level_to_cipher(rec.levelno), ItemDataRole.LEVEL_CIPHER)  # Store level cipher
+        row_items[LogColumns.MESSAGE].setData(rec.getMessage(), ItemDataRole.MESSAGE_TEXT)  # Store message text
         
         # Add items to the model
-        self.model.appendRow([timestamp_item, source_item, logger_item, level_item, message_item, task_item])
+        self.model.appendRow(row_items)
         
         # Check if this record has any expandable information for lazy loading
         has_expandable_info = (
@@ -373,7 +384,7 @@ class LogViewer(qt.QWidget):
         
         if has_expandable_info:
             # Add loading placeholder for lazy expansion
-            self.model.add_loading_placeholder(timestamp_item, rec)
+            self.model.add_loading_placeholder(row_items[LogColumns.TIMESTAMP], rec)
         
         # Ensure sorting is maintained when adding new data
         self._ensure_chronological_sorting()
@@ -433,7 +444,11 @@ class LogViewer(qt.QWidget):
         expanded_paths = self.expansion_manager.save_state()
         # print(f"Saved expansion state: {expanded_paths}")
         
-        self.proxy_model.set_filters(filter_strings)
+        invalid_filters = self.proxy_model.set_filters(filter_strings)
+        
+        # Update filter input widget with invalid filter feedback
+        if hasattr(self.filter_input_widget, 'set_invalid_filters'):
+            self.filter_input_widget.set_invalid_filters(invalid_filters)
         
         # Update tree view model if using chained filtering and chain changed
         if USE_CHAINED_FILTERING:
@@ -492,10 +507,8 @@ class LogViewer(qt.QWidget):
         """Show context menu for column visibility when right-clicking on header."""
         menu = qt.QMenu(self)
         
-        # Get column headers
-        headers = ['Timestamp', 'Source', 'Logger', 'Level', 'Message', 'Task']
-        
-        for i, header_text in enumerate(headers):
+        # Use the column titles from LogColumns constants
+        for i, header_text in enumerate(LogColumns.TITLES):
             action = qt.QAction(header_text, self)
             action.setCheckable(True)
             action.setChecked(not self.tree.isColumnHidden(i))

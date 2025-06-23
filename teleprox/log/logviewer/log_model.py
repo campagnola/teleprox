@@ -9,6 +9,10 @@ class LogModel(qt.QStandardItemModel):
     def __init__(self, parent=None):
         super().__init__(parent)
     
+    def _get_column_count(self):
+        """Get the number of columns based on LogColumns TITLES."""
+        return len(LogColumns.TITLES)
+    
     def _create_record_attribute_children(self, record):
         """Create child items for all log record attributes (exc_info, stack_info, extra, etc.)."""
         children = []
@@ -28,8 +32,11 @@ class LogModel(qt.QStandardItemModel):
         return children
 
     def _create_sibling_items_with_filter_data(self, record):
-        """Create sibling items with inherited filter data for Qt-native filtering."""
-        sibling_items = [qt.QStandardItem("") for _ in range(5)]
+        """Create sibling items (columns 1-8) with inherited filter data for Qt-native filtering.
+        
+        Note: Column 0 (Timestamp) is handled by the category item itself.
+        """
+        sibling_items = [qt.QStandardItem("") for _ in range(self._get_column_count() - 1)]
         for sibling_item in sibling_items:
             sibling_item.setData(record.created, ItemDataRole.NUMERIC_TIMESTAMP)
             sibling_item.setData(record.processName, ItemDataRole.PROCESS_NAME)
@@ -38,6 +45,16 @@ class LogModel(qt.QStandardItemModel):
             sibling_item.setData(record.levelno, ItemDataRole.LEVEL_NUMBER)
             sibling_item.setData(self._get_level_cipher(record.levelno), ItemDataRole.LEVEL_CIPHER)
             sibling_item.setData(record.getMessage(), ItemDataRole.MESSAGE_TEXT)
+        
+        # Set display text for new columns so FieldFilterProxy filtering works
+        # Note: sibling_items[0] corresponds to LogColumns.HOST (column 1)
+        #       sibling_items[1] corresponds to LogColumns.PROCESS (column 2)
+        #       sibling_items[2] corresponds to LogColumns.THREAD (column 3)
+        host_name = getattr(record, 'hostName', '') or 'localhost'
+        sibling_items[LogColumns.HOST - 1].setText(host_name)  # -1 because no timestamp column
+        sibling_items[LogColumns.PROCESS - 1].setText(record.processName)
+        sibling_items[LogColumns.THREAD - 1].setText(record.threadName)
+        
         return sibling_items
 
     def _set_filter_data_on_item(self, item, record):
@@ -493,58 +510,61 @@ class LogModel(qt.QStandardItemModel):
     def _create_child_row(self, label, message, data_dict, parent_record):
         """Create a standardized child row for exception details."""
         # For child rows, put all content in the first column since it will span
-        # Create items for each column
-        timestamp_item = qt.QStandardItem(message)  # Put the content in first column
-        source_item = qt.QStandardItem("")     # Empty source for child
-        logger_item = qt.QStandardItem("")     # Empty logger for child  
-        level_item = qt.QStandardItem("")      # Empty level for child
-        message_item = qt.QStandardItem("")   # Empty since content is in first column
-        task_item = qt.QStandardItem("")      # Empty task for child
+        # Create items for each column dynamically
+        row_items = [qt.QStandardItem("") for _ in range(self._get_column_count())]
+        row_items[LogColumns.TIMESTAMP].setText(message)  # Put the content in timestamp column
         
         # Store data in the first item (timestamp column)
-        timestamp_item.setData(data_dict, ItemDataRole.PYTHON_DATA)
+        row_items[LogColumns.TIMESTAMP].setData(data_dict, ItemDataRole.PYTHON_DATA)
         
         # INHERIT PARENT'S FILTER DATA so Qt native filtering includes children
         # This allows children to pass the same filters as their parents
         # Set the same data on ALL items so filtering works regardless of which column is checked
-        self._set_filter_data_on_row_items([timestamp_item, source_item, logger_item, level_item, message_item, task_item], parent_record)
+        self._set_filter_data_on_row_items(row_items, parent_record)
+        
+        # INHERIT PARENT'S DISPLAY TEXT for new columns so FieldFilterProxy filtering works
+        # FieldFilterProxy uses Qt.DisplayRole (display text), not ItemDataRole values
+        host_name = getattr(parent_record, 'hostName', '') or 'localhost'
+        row_items[LogColumns.HOST].setText(host_name)
+        row_items[LogColumns.PROCESS].setText(parent_record.processName)
+        row_items[LogColumns.THREAD].setText(parent_record.threadName)
         
         # Set colors to differentiate from main log entries
-        timestamp_item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
+        row_items[LogColumns.TIMESTAMP].setForeground(qt.QColor("#444444"))  # Dark gray for child text
         
         # Make exception/stack items not selectable
-        for item in [timestamp_item, source_item, logger_item, level_item, message_item, task_item]:
+        for item in row_items:
             item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
         
-        # Apply styling to the first column item (where content is now)
+        # Apply styling to the timestamp column item (where content is now)
         # Apply monospace font for code-like content
         if data_dict.get('type') in ['traceback_frame', 'stack_frame']:
             # Use monospace font for all code lines
             monospace_font = qt.QFont("Consolas, Monaco, 'Courier New', monospace")
             monospace_font.setStyleHint(qt.QFont.TypeWriter)
-            timestamp_item.setFont(monospace_font)
+            row_items[LogColumns.TIMESTAMP].setFont(monospace_font)
         
         # Make exception messages bold
         if data_dict.get('type') == 'exception':
-            bold_font = timestamp_item.font()
+            bold_font = row_items[LogColumns.TIMESTAMP].font()
             bold_font.setBold(True)
-            timestamp_item.setFont(bold_font)
+            row_items[LogColumns.TIMESTAMP].setFont(bold_font)
         
         # Style chain separators
         if data_dict.get('type') == 'chain_separator':
-            italic_font = timestamp_item.font()
+            italic_font = row_items[LogColumns.TIMESTAMP].font()
             italic_font.setItalic(True)
-            timestamp_item.setFont(italic_font)
-            timestamp_item.setForeground(qt.QColor("#888888"))  # Lighter gray for separators
+            row_items[LogColumns.TIMESTAMP].setFont(italic_font)
+            row_items[LogColumns.TIMESTAMP].setForeground(qt.QColor("#888888"))  # Lighter gray for separators
         
         # Style stack separators
         if data_dict.get('type') == 'stack_separator':
-            italic_font = timestamp_item.font()
+            italic_font = row_items[LogColumns.TIMESTAMP].font()
             italic_font.setItalic(True)
-            timestamp_item.setFont(italic_font)
-            timestamp_item.setForeground(qt.QColor("#888888"))  # Lighter gray for separators
+            row_items[LogColumns.TIMESTAMP].setFont(italic_font)
+            row_items[LogColumns.TIMESTAMP].setForeground(qt.QColor("#888888"))  # Lighter gray for separators
         
-        return [timestamp_item, source_item, logger_item, level_item, message_item, task_item]
+        return row_items
     
     def _get_level_cipher(self, level_int):
         """Get level cipher for a given level number."""
@@ -565,21 +585,21 @@ class LogModel(qt.QStandardItemModel):
     
     def _create_loading_placeholder_row(self):
         """Create a dummy 'loading...' row."""
-        timestamp_item = qt.QStandardItem("")
-        source_item = qt.QStandardItem("")
-        logger_item = qt.QStandardItem("")
-        level_item = qt.QStandardItem("⏳ Loading...")
-        message_item = qt.QStandardItem("Click to expand log details")
+        row_items = [qt.QStandardItem("") for _ in range(self._get_column_count())]
+        
+        # Set specific content for loading indication
+        row_items[LogColumns.LEVEL].setText("⏳ Loading...")
+        row_items[LogColumns.MESSAGE].setText("Click to expand log details")
         
         # Mark as loading placeholder
-        timestamp_item.setData(True, ItemDataRole.IS_LOADING_PLACEHOLDER)
+        row_items[LogColumns.TIMESTAMP].setData(True, ItemDataRole.IS_LOADING_PLACEHOLDER)
         
         # Style the placeholder
-        level_item.setForeground(qt.QColor("#888888"))
-        message_item.setForeground(qt.QColor("#888888"))
-        message_item.setFont(qt.QFont("Arial", 8, qt.QFont.StyleItalic))
+        row_items[LogColumns.LEVEL].setForeground(qt.QColor("#888888"))
+        row_items[LogColumns.MESSAGE].setForeground(qt.QColor("#888888"))
+        row_items[LogColumns.MESSAGE].setFont(qt.QFont("Arial", 8, qt.QFont.StyleItalic))
         
-        return [timestamp_item, source_item, logger_item, level_item, message_item]
+        return row_items
     
     def has_loading_placeholder(self, parent_item):
         """Check if item has a loading placeholder child."""
