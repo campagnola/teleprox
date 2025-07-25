@@ -72,7 +72,7 @@ def test_log_server():
         # check that we get log records for the child's stderr
         proc.client._import('sys').stderr.write("message 2\n")
         # check that the child's log messages are propagated to the server
-        proc.client._import('logging').getLogger().info("logged message 3")
+        proc.client._import('logging').getLogger().info("logged message %d", 3)
         # check that log messages are generated for exceptions in the child
         try:
             proc.client._import('fake_module')  # exception should generate a log message
@@ -106,7 +106,7 @@ def test_quick_exit():
         with RemoteLogRecorder('test_quick_exit_logger') as logger:
             proc = teleprox.start_process(name='test_quick_exit_logged', log_addr=logger.address, log_level=logging.INFO)
             cleaner.add(proc)
-            proc.client._import('logging').getLogger().info("quick exit message")
+            proc.client._import('logging').getLogger().info("quick %s message", "exit")
             proc.stop()
 
             assert logger.find_message(r"quick exit message") is not None
@@ -173,7 +173,7 @@ def test_log_server_reconnect(debug=False):
             cleaner.add(child1)
 
             # test logging from daemon
-            child1.client._import('logging').getLogger().info("message 1")
+            child1.client._import('logging').getLogger().info("message %d", 1)
             assert logger.find_message(r"message 1") is not None
 
         # create a new logger and reconnect to the daemon
@@ -191,7 +191,7 @@ def test_log_server_reconnect(debug=False):
             client2._import('teleprox.log').set_logger_address(logger.address)
 
             # test logging from daemon
-            client2._import('logging').getLogger().info("message 2")
+            client2._import('logging').getLogger().info("message %d", 2)
             assert logger.find_message(r"message 2") is not None
 
             # raise an exception using the old client
