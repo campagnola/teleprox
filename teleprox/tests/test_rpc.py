@@ -403,17 +403,23 @@ def test_callbacks():
     proc_no_server.stop()
 
     # Now test with start_local_server=True - this should work
-    proc_with_server = start_process('test_callback_proc_with_server', start_local_server=True)
+    proc_with_server = start_process('test_callback_proc_with_server')  # , start_local_server=True)
+    from teleprox.server import RPCServer
+    local_server = RPCServer()
+    local_server.run_lazy()
 
     # Define a simple class that can accept and invoke callbacks
     class CallbackTester:
+        def __str__(self):
+            return "CallbackTester"
+
         def invoke_callback(self, callback_func, data):
             return callback_func(data)
 
         def delayed_callback(self, callback_func, data, count=3):
             results = []
             for i in range(count):
-                result = callback_func(f"{data}_{i}")
+                result = callback_func(self)
                 results.append(result)
             return results
 
@@ -433,7 +439,7 @@ def test_callbacks():
     callback_result.clear()
     responses = tester_with_server.delayed_callback(my_callback, "multi", 2)
     assert responses == ["callback_response", "callback_response"]
-    assert callback_result == ["callback received: multi_0", "callback received: multi_1"]
+    assert callback_result == ["callback received: CallbackTester", "callback received: CallbackTester"]
 
     # Test lambda callback
     callback_result.clear()
