@@ -138,7 +138,10 @@ def _log_unhandled_exception(exc, val, tb):
 
 
 def _log_unhandled_exc_from_thread(args):
-    _log_unhandled_exception(args.exc_type, args.exc_value, args.exc_traceback)
+    logger = logging.getLogger()
+    tb_lines = traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)
+    tb_str = ''.join(tb_lines)
+    logger.error(f"Unhandled exception: {args.exc_value}\n{tb_str}")
 
 
 def log_exceptions():
