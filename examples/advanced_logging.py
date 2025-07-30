@@ -12,6 +12,7 @@ from PyQt5 import QtWidgets, QtCore
 
 import teleprox
 import teleprox.log
+from teleprox.log.remote import LogServer
 from teleprox.log.logviewer import LogViewer
 
 
@@ -111,6 +112,7 @@ class DaemonController(QtWidgets.QWidget):
         super().__init__()
         self.daemon = None
         self.daemon_address = None
+        self.log_server = None
         self.setup_ui()
         self.setup_logging()
         self.setup_signal_handlers()
@@ -162,7 +164,6 @@ class DaemonController(QtWidgets.QWidget):
     def setup_logging(self):
         """Set up logging for this process"""
         teleprox.log.basic_config(log_level='DEBUG', exceptions=False)
-        self.log_address = teleprox.log.get_logger_address()
         self.log("Controller logging set up")
 
     def setup_signal_handlers(self):
@@ -189,22 +190,57 @@ class DaemonController(QtWidgets.QWidget):
                 self.daemon = None
             except Exception as e:
                 self.log(f"Error cleaning up daemon: {e}")
+        
+        # Also clean up log server
+        self._cleanup_log_server()
 
     def log(self, message):
         """Log message"""
         logging.info(message)
+
+    def _create_new_log_server(self):
+        """Create a new LogServer instance for collecting logs from daemon
+        
+        NOTE: This creates a new log server each time for testing purposes to demonstrate
+        that the daemon can be reconfigured to use different log servers. In normal use,
+        you would typically use the global log server throughout the application lifecycle:
+        
+        # Normal usage (simpler):
+        teleprox.log.start_log_server()  # Create global log server once
+        log_addr = teleprox.log.get_logger_address()  # Get its address
+        # Use log_addr for all daemon processes
+        """
+        # Clean up any existing log server
+        self._cleanup_log_server()
+        
+        # Create new log server attached to the root logger
+        self.log_server = LogServer(logging.getLogger())
+        self.log(f"Created new log server at {self.log_server.address}")
+
+    def _cleanup_log_server(self):
+        """Clean up existing log server if it exists"""
+        if self.log_server is not None:
+            try:
+                self.log_server.stop()
+                self.log_server = None
+                self.log("Cleaned up old log server")
+            except Exception as e:
+                self.log(f"Error cleaning up log server: {e}")
 
     def start_daemon(self):
         """Start the daemon process with GUI capabilities"""
         try:
             self.log("Starting daemon process...")
 
+            # Create a new log server for this connection
+            self._create_new_log_server()
+
             # Start daemon with Qt support and logging directed to this process
             self.daemon = teleprox.start_process(
                 'advanced-logging-daemon',
                 daemon=True,
                 qt=True,  # Enable Qt event loop in daemon
-                log_addr=self.log_address,
+                log_addr=self.log_server.address,
                 log_level=logging.DEBUG
             )
 
@@ -250,13 +286,18 @@ class DaemonController(QtWidgets.QWidget):
             self.log(f"Failed to start daemon: {e}")
 
     def reconnect_daemon(self):
-        """Demonstrate reconnecting to the daemon"""
+        """Demonstrate reconnecting to the daemon with a new log server"""
         if not self.daemon_address:
             self.log("No daemon address available for reconnection")
             return
 
         try:
-            self.log("Simulating reconnection...")
+            self.log("Simulating reconnection with new log server...")
+
+            # Create a new log server for this reconnection
+            old_log_address = self.log_server.address if self.log_server else "none"
+            self._create_new_log_server()
+            self.log(f"Switched from log server {old_log_address} to {self.log_server.address}")
 
             # Close existing connection
             if self.daemon and self.daemon.client:
@@ -272,9 +313,9 @@ class DaemonController(QtWidgets.QWidget):
 
             self.log(f"Reconnected to daemon at {self.daemon_address} (PID {pid})")
 
-            # Re-establish logging connection
-            new_client._import('teleprox.log').set_logger_address(self.log_address)
-            self.log("Re-established logging connection")
+            # Configure daemon to use the new log server
+            new_client._import('teleprox.log').set_logger_address(self.log_server.address)
+            self.log(f"Configured daemon to use new log server at {self.log_server.address}")
 
             # Update our reference
             if self.daemon:
