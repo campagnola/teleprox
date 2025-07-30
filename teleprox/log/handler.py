@@ -133,7 +133,6 @@ def _log_unhandled_exception(exc, val, tb):
     logger.error(
         f"Unhandled exception: {val}",
         exc_info=(exc, val, tb),
-        stack_info=True,
     )
 
 
@@ -141,8 +140,9 @@ def _log_unhandled_exc_from_thread(args):
     logger = logging.getLogger()
     tb_lines = traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)
     tb_str = ''.join(tb_lines)
-    # we can't use logging's builtin exc_info/stack_info here because _this_ thread isn't the one that raised the
-    # exception.
+    # we can't use logger.error(exc_info=...) here because it will ignore that arg if our main
+    # thread is not currently inside an exception (why isn't this in the thread where the exception
+    # is raised?)
     logger.error(f"Unhandled exception: {args.exc_value}\n{tb_str}")
 
 
