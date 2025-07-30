@@ -111,7 +111,6 @@ class DaemonController(QtWidgets.QWidget):
         super().__init__()
         self.daemon = None
         self.daemon_address = None
-        self.log_viewer = None
         self.setup_ui()
         self.setup_logging()
         self.setup_signal_handlers()
@@ -119,7 +118,7 @@ class DaemonController(QtWidgets.QWidget):
     def setup_ui(self):
         """Create the UI controls"""
         self.setWindowTitle("Advanced Logging Example - Controller")
-        self.setGeometry(100, 100, 400, 300)
+        self.setGeometry(100, 100, 1000, 700)
 
         layout = QtWidgets.QVBoxLayout()
 
@@ -142,27 +141,21 @@ class DaemonController(QtWidgets.QWidget):
         daemon_group.setLayout(daemon_layout)
         layout.addWidget(daemon_group)
 
-        # Log controls
-        log_group = QtWidgets.QGroupBox("Logging Controls")
-        log_layout = QtWidgets.QVBoxLayout()
-
-        self.show_logs_btn = QtWidgets.QPushButton("Show Log Viewer")
-        self.show_logs_btn.clicked.connect(self.show_log_viewer)
-        log_layout.addWidget(self.show_logs_btn)
-
+        # Test connection button
         self.test_connection_btn = QtWidgets.QPushButton("Test Connection to Daemon")
         self.test_connection_btn.clicked.connect(self.test_connection)
         self.test_connection_btn.setEnabled(False)
-        log_layout.addWidget(self.test_connection_btn)
+        layout.addWidget(self.test_connection_btn)
+
+        # Embedded log viewer
+        log_group = QtWidgets.QGroupBox("Log Viewer")
+        log_layout = QtWidgets.QVBoxLayout()
+
+        self.log_viewer = LogViewer()
+        log_layout.addWidget(self.log_viewer)
 
         log_group.setLayout(log_layout)
         layout.addWidget(log_group)
-
-        # Output area
-        self.output_text = QtWidgets.QTextEdit()
-        self.output_text.setMaximumHeight(150)
-        layout.addWidget(QtWidgets.QLabel("Output:"))
-        layout.addWidget(self.output_text)
 
         self.setLayout(layout)
 
@@ -174,15 +167,16 @@ class DaemonController(QtWidgets.QWidget):
 
     def setup_signal_handlers(self):
         """Set up signal handlers for proper daemon cleanup"""
+
         def cleanup_and_exit(signum, frame):
             self.log(f"Received signal {signum}, cleaning up...")
             self.cleanup_daemon()
             sys.exit(0)
-        
+
         # Register handlers for common termination signals
         signal.signal(signal.SIGINT, cleanup_and_exit)
         signal.signal(signal.SIGTERM, cleanup_and_exit)
-        
+
         # Also register atexit handler as fallback
         atexit.register(self.cleanup_daemon)
 
@@ -197,8 +191,7 @@ class DaemonController(QtWidgets.QWidget):
                 self.log(f"Error cleaning up daemon: {e}")
 
     def log(self, message):
-        """Add message to output and log it"""
-        self.output_text.append(f"[{time.strftime('%H:%M:%S')}] {message}")
+        """Log message"""
         logging.info(message)
 
     def start_daemon(self):
@@ -303,14 +296,6 @@ class DaemonController(QtWidgets.QWidget):
             self.log(f"Connection test successful - daemon PID: {pid}")
         except Exception as e:
             self.log(f"Connection test failed: {e}")
-
-    def show_log_viewer(self):
-        """Show the log viewer window"""
-        if self.log_viewer is None:
-            self.log_viewer = LogViewer()
-        self.log_viewer.show()
-        self.log_viewer.raise_()
-        self.log_viewer.activateWindow()
 
     def closeEvent(self, event):
         """Handle window close event - clean up daemon process"""
