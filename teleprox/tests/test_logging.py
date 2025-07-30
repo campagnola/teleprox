@@ -260,3 +260,47 @@ def test_log_server_reconnect(debug=False):
         child1.kill()  # can't wait() on a daemon process, so just murder it
         child2.stop()
     time.sleep(1)
+
+
+def test_log_server_by_name():
+    """Test that a LogServer can be retrieved using a logger obtained by name."""
+    with ProcessCleaner() as cleaner:
+        # Create a logger by name
+        logger_name = "meow"
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.DEBUG)
+
+        # Create LogServer using the same logger name
+        log_server = LogServer(logger_name)
+
+        try:
+            # Start a process that will send logs to our LogServer
+            proc = teleprox.start_process(
+                name='test_by_name_proc',
+                log_addr=log_server.address,
+                log_level=logging.DEBUG
+            )
+            cleaner.add(proc)
+
+            # Add a handler to capture log messages
+            handler = Handler()
+            logger.addHandler(handler)
+
+            try:
+                # Generate a log message from the remote process
+                proc.client._import('logging').getLogger().info("test message from %s", "remote")
+
+                # Wait a bit for the message to propagate
+                time.sleep(0.1)
+
+                # Verify the message was received by the logger obtained by name
+                rec = handler.find_message(r"test message from remote")
+                assert rec is not None, "Expected log message not found"
+                assert rec.levelno == logging.INFO
+
+            finally:
+                logger.removeHandler(handler)
+                proc.stop()
+
+        finally:
+            log_server.stop()
