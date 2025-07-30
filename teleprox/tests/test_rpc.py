@@ -403,69 +403,92 @@ def test_callbacks():
     proc_no_server.stop()
 
     # Now test with start_local_server=True - this should work
-    proc_with_server = start_process('test_callback_proc_with_server')  # , start_local_server=True)
-    from teleprox.server import RPCServer
-    local_server = RPCServer()
-    local_server.run_in_thread()
+    proc_with_server = start_process('test_callback_proc_with_server', start_local_server=True)
 
     # Define a simple class that can accept and invoke callbacks
+    threading = proc_with_server.client._import("threading")
+    queue = proc_with_server.client._import("queue")
+    time = proc_with_server.client._import("time")
+
     proc_with_server.client._import("builtins").exec("""
 import __main__
+import threading
+import queue
+import time
+
 class CallbackTester:
+    def __init__(self):
+        self._cb_queue = queue.Queue()
+        self._returns = {}
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
     def __str__(self):
         return "CallbackTester"
 
+    def _run(self):
+        while True:
+            callback_func, data = self._cb_queue.get()
+            if callback_func is None:  # Exit signal
+                break
+            result = callback_func(self)
+            self._returns[callback_func] = result
+
     def invoke_callback(self, callback_func, data):
-        return callback_func(self)
+        self._cb_queue.put((callback_func, data))
+        while callback_func not in self._returns:
+            time.sleep(0.01)
+        return self._returns.pop(callback_func)
 
     def delayed_callback(self, callback_func, data, count=3):
         results = []
         for i in range(count):
-            result = callback_func(self)
+            result = self.invoke_callback(callback_func, data)
             results.append(result)
         return results
+
+    def stop(self):
+        self._cb_queue.put((None, None))
+
 __main__.CallbackTester = CallbackTester
-    """)
+    """, {'queue': queue, 'threading': threading, 'time': time})
     tester_with_server = proc_with_server.client._import("__main__").CallbackTester()
 
-    # Reset callback result
-    callback_result.clear()
+    try:
+        # Reset callback result
+        callback_result.clear()
 
-    # This should work now
-    response = tester_with_server.invoke_callback(local_server.get_proxy(my_callback), "test_data")
-    assert response == "callback_response"
-    assert callback_result == ["callback received: CallbackTester"]
+        # This should work now
+        response = tester_with_server.invoke_callback(my_callback, "test_data")
+        assert response == "callback_response"
+        assert callback_result == ["callback received: CallbackTester"]
 
-    # Test multiple callback invocations
-    callback_result.clear()
-    responses = tester_with_server.delayed_callback(local_server.get_proxy(my_callback), "multi", 2)
-    assert responses == ["callback_response", "callback_response"]
-    assert callback_result == ["callback received: CallbackTester", "callback received: CallbackTester"]
+        # Test multiple callback invocations
+        callback_result.clear()
+        responses = tester_with_server.delayed_callback(my_callback, "multi", 2)
+        assert responses == ["callback_response", "callback_response"]
+        assert callback_result == ["callback received: CallbackTester", "callback received: CallbackTester"]
 
-    # Test lambda callback
-    callback_result.clear()
-    lambda_response = tester_with_server.invoke_callback(
-        lambda x: f"lambda_processed: {x}",
-        "lambda_data"
-    )
-    assert lambda_response == "lambda_processed: CallbackTester"
+        # Test lambda callback
+        callback_result.clear()
+        lambda_response = tester_with_server.invoke_callback(
+            lambda x: f"lambda_processed: {x}",
+            "lambda_data"
+        )
+        assert lambda_response == "lambda_processed: CallbackTester"
 
-    # Test with built-in functions now that we have a local server
-    builtins_with_server = proc_with_server.client._import('builtins')
-    callback_result.clear()
-    result = builtins_with_server.list(builtins_with_server.map(local_server.get_proxy(my_callback), ["builtin1", "builtin2"]))
-    assert result == ["callback_response", "callback_response"]
-    assert callback_result == ["callback received: CallbackTester", "callback received: CallbackTester"]
+        # Test with built-in functions now that we have a local server
+        builtins_with_server = proc_with_server.client._import('builtins')
+        callback_result.clear()
+        result = builtins_with_server.list(builtins_with_server.map(my_callback, ["builtin1", "builtin2"]))
+        assert result == ["callback_response", "callback_response"]
+        assert callback_result == ["callback received: CallbackTester", "callback received: CallbackTester"]
 
-    # Clean up: close the local server that was created by start_local_server=True
-    from teleprox.server import RPCServer
-    local_server = RPCServer.get_server()
-    if local_server is not None:
-        local_server.close()
-
-    proc_with_server.stop()
-
-    logger.info("-- Callback tests completed successfully --")
+    finally:
+        tester_with_server.stop()
+        proc_with_server.stop()
+        if (local_server := RPCServer.get_server()) is not None:
+            local_server.close()
 
 
 if __name__ == '__main__':
