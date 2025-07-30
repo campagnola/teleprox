@@ -4,6 +4,7 @@ ABOUTME: Demonstrates interactive log generation and remote log collection in a 
 """
 import atexit
 import logging
+import signal
 import sys
 import time
 
@@ -113,6 +114,7 @@ class DaemonController(QtWidgets.QWidget):
         self.log_viewer = None
         self.setup_ui()
         self.setup_logging()
+        self.setup_signal_handlers()
 
     def setup_ui(self):
         """Create the UI controls"""
@@ -170,6 +172,30 @@ class DaemonController(QtWidgets.QWidget):
         self.log_address = teleprox.log.get_logger_address()
         self.log("Controller logging set up")
 
+    def setup_signal_handlers(self):
+        """Set up signal handlers for proper daemon cleanup"""
+        def cleanup_and_exit(signum, frame):
+            self.log(f"Received signal {signum}, cleaning up...")
+            self.cleanup_daemon()
+            sys.exit(0)
+        
+        # Register handlers for common termination signals
+        signal.signal(signal.SIGINT, cleanup_and_exit)
+        signal.signal(signal.SIGTERM, cleanup_and_exit)
+        
+        # Also register atexit handler as fallback
+        atexit.register(self.cleanup_daemon)
+
+    def cleanup_daemon(self):
+        """Clean up daemon process if it exists"""
+        if self.daemon is not None:
+            try:
+                self.log(f"Cleaning up daemon process {self.daemon.pid}")
+                self.daemon.kill()
+                self.daemon = None
+            except Exception as e:
+                self.log(f"Error cleaning up daemon: {e}")
+
     def log(self, message):
         """Add message to output and log it"""
         self.output_text.append(f"[{time.strftime('%H:%M:%S')}] {message}")
@@ -188,9 +214,6 @@ class DaemonController(QtWidgets.QWidget):
                 log_addr=self.log_address,
                 log_level=logging.DEBUG
             )
-
-            # Register cleanup
-            atexit.register(self.daemon.kill)
 
             self.daemon_address = self.daemon.client.address
 
@@ -288,6 +311,11 @@ class DaemonController(QtWidgets.QWidget):
         self.log_viewer.show()
         self.log_viewer.raise_()
         self.log_viewer.activateWindow()
+
+    def closeEvent(self, event):
+        """Handle window close event - clean up daemon process"""
+        self.cleanup_daemon()
+        event.accept()
 
 
 def main():
