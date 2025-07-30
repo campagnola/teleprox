@@ -18,7 +18,6 @@ from .server import RPCServer
 from .qt_server import QtRPCServer
 from . import log
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -57,14 +56,12 @@ class RPCClient(object):
         If None, then ``serializer.default_serialize_types`` is used instead. 
         This is also used in the construction of the local RPCServer if start_local_server is True.
 
-    
     Raises ConnectionRefusedError if no server is running at the given address.
-
     """
-    
+
     clients_by_thread = {}  # (thread_id, rpc_addr): client
     clients_by_thread_lock = threading.Lock()
-    
+
     @staticmethod
     def get_client(address):
         """Return the RPC client for this thread and a given server address.
@@ -80,14 +77,14 @@ class RPCClient(object):
         if isinstance(address, str):
             address = address.encode()
         key = (threading.current_thread().ident, address)
-        
+
         # Return an existing client if there is one
         with RPCClient.clients_by_thread_lock:
             if key in RPCClient.clients_by_thread:
                 return RPCClient.clients_by_thread[key]
-        
+
         return RPCClient(address)
-    
+
     @staticmethod
     def forget_client(client):
         """Forget a client that is no longer needed.
@@ -101,8 +98,7 @@ class RPCClient(object):
             address = address.encode()
 
         # pick a unique name: host.pid.tid:rpc_addr
-        self.name = ("%s.%s.%s:%s" % (log.get_host_name(), log.get_process_name(),
-                                      log.get_thread_name(), address.decode())).encode()
+        self.name = f"{log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}:{address.decode()}".encode()
 
         self.serialize_types = serialize_types
 
@@ -120,7 +116,7 @@ class RPCClient(object):
         with RPCClient.clients_by_thread_lock:
             if key in RPCClient.clients_by_thread:
                 raise KeyError("An RPCClient instance already exists for this address."
-                    " Use RPCClient.get_client(address) instead.")
+                               " Use RPCClient.get_client(address) instead.")
             RPCClient.clients_by_thread[key] = self
 
         try:
@@ -159,14 +155,14 @@ class RPCClient(object):
 
             # For unserializing results returned from servers. This cannot be
             # used to send proxies of local objects unless there is also a server
-            # for this thread..
+            # for this thread...
             try:
                 self.serializer = all_serializers[serializer]()
             except KeyError:
                 raise ValueError(f"Unsupported serializer type '{serializer}'")
 
             self.ensure_connection()
-        except:
+        except Exception:
             RPCClient.clients_by_thread.pop(key, None)
             raise
 
@@ -185,7 +181,7 @@ class RPCClient(object):
         parts = re.match(r'^tcp://(.+):(\d+)$', address.decode())
         if parts is None:
             return None
-        
+
         host, port = parts.groups()
         port = int(port)
         return check_tcp_port(host, port, timeout)
@@ -197,7 +193,7 @@ class RPCClient(object):
         # for responses from other servers.
         if not self._reentrant:
             return None
-        
+
         if self._poller is None:
             server = RPCServer.get_server()
             if server is None:
@@ -215,13 +211,13 @@ class RPCClient(object):
         """
         if self._disconnected:
             return True
-        
+
         # check to see if we have received any new messages
         try:
             self._read_and_process_all()
         except zmq.error.ZMQError:
             self._disconnected = True
-        
+
         return self._disconnected
 
     def send(self, action, opts=None, return_type='auto', sync='sync', timeout=10.0):
@@ -280,37 +276,37 @@ class RPCClient(object):
         ======== ======================================= ==========================================
         
         """
-        #if self.disconnected():         # This is nice, but very expensive!
+        # if self.disconnected():         # This is nice, but very expensive!
         if self._disconnected:
             raise RuntimeError("Cannot send request; server has already disconnected.")
-        
+
         if sync == 'off':
             req_id = -1
         else:
             req_id = self.next_request_id
             self.next_request_id += 1
-        logger.info("RPC request '%s' to %s [req_id=%s]", action, 
+        logger.info("RPC request '%s' to %s [req_id=%s]", action,
                     self.address.decode(), req_id)
         logger.debug("    => sync=%s return=%s opts=%s", sync, return_type, opts)
-        
+
         if opts is None:
             opts_str = b''
         else:
-            opts_str = self.serializer.dumps(opts, server=None, serialize_types=self.serialize_types)
+            opts_str = self.serializer.dumps(opts, serialize_types=self.serialize_types)
         ser_type = self.serializer.type.encode()
-        
+
         msg = [str(req_id).encode(), action.encode(), return_type.encode(), ser_type, opts_str]
         self._socket.send_multipart(msg)
-        
+
         if sync == 'off':
             return
-        
+
         fut = Future(self, req_id)
         if action == 'close':
             # for server closure we require a little special handling
             fut.add_done_callback(self._close_request_returned)
         self.futures[req_id] = fut
-        
+
         if sync == 'async':
             return fut
         elif sync == 'sync':
@@ -332,7 +328,7 @@ class RPCClient(object):
         kwds :
             All extra keyword arguments are passed to :func:`send() <RPCClient.send>`.
         """
-        opts = {'obj': obj, 'args': args, 'kwargs': kwargs} 
+        opts = {'obj': obj, 'args': args, 'kwargs': kwargs}
         return self.send('call_obj', opts=opts, **kwds)
 
     def get_obj(self, obj, **kwds):
@@ -472,7 +468,7 @@ class RPCClient(object):
                 itimeout = timeout - dt
                 if itimeout < 0:
                     raise TimeoutError("Timeout waiting for Future result.")
-                
+
             poller = self._get_poller()
             if poller is None:
                 self._read_and_process_one(itimeout)
@@ -491,14 +487,14 @@ class RPCClient(object):
                 socks = [x[0] for x in poller.poll(itimeout)]
                 if self._socket in socks:
                     self._read_and_process_one(timeout=0)
-                elif len(socks) > 0: 
+                elif len(socks) > 0:
                     server = RPCServer.get_server()
                     if server is None:
                         # this can happen after server has unregistered itself 
                         # at exit
                         continue
                     server._read_and_process_one()
-                
+
     def _read_and_process_one(self, timeout):
         """Read a single message from the remote server and process it by
         calling :func:`process_msg()`.
@@ -516,7 +512,7 @@ class RPCClient(object):
             timeout = -1
         else:
             timeout = int(timeout * 1000)
-        
+
         try:
             # NOTE: docs say timeout can only be set before bind, but this
             # seems to work for now.
@@ -525,7 +521,7 @@ class RPCClient(object):
             msg = self.serializer.loads(msg, server=None, proxy_opts=self.default_proxy_options)
         except zmq.error.Again as exc:
             raise TimeoutError("Timeout waiting for Future result.") from None
-        
+
         self.process_msg(msg)
 
     def _read_and_process_all(self):
@@ -542,7 +538,7 @@ class RPCClient(object):
         This takes care of assigning return values or exceptions to existing
         Future instances.
         """
-        logger.debug("RPC recv result from %s [req_id=%s]", self.address.decode(), 
+        logger.debug("RPC recv result from %s [req_id=%s]", self.address.decode(),
                      msg.get('req_id', None))
         logger.debug("    => %s" % msg)
         if msg['action'] == 'return':
@@ -571,7 +567,7 @@ class RPCClient(object):
             if self.disconnected():
                 pass
             raise
-    
+
     def _server_disconnected(self):
         # server has disconnected; inform all pending futures.
         # This method can be called two different ways:
@@ -584,19 +580,19 @@ class RPCClient(object):
         for fut in self.futures.values():
             fut.set_exception(exc)
         self.futures.clear()
-    
+
     def ping(self, sync='sync', **kwds):
         """Ping the server.
         
         This can be used to test connectivity to the server.
         """
-        return self.send('ping', sync=sync, **kwds)        
-    
+        return self.send('ping', sync=sync, **kwds)
+
     def close(self):
         """Close this client's socket (but leave the server running).
         """
         # reference management is disabled for now..
-        #self.send('release_all', return_type=None) 
+        # self.send('release_all', return_type=None) 
         self._socket.close()
         RPCClient.forget_client(self)
 
@@ -638,7 +634,7 @@ class RemoteCallException(Exception):
     def __init__(self, type_str, tb_str):
         self.type_str = type_str
         self.tb_str = tb_str
-        
+
     def __str__(self):
         msg = '\n===> Remote exception was:\n' + ''.join(self.tb_str)
         return msg
@@ -659,11 +655,12 @@ class Future(concurrent.futures.Future):
     
     See `concurrent.futures.Future` in the Python documentation for more information.
     """
+
     def __init__(self, client, call_id):
         concurrent.futures.Future.__init__(self)
         self.client = client
         self.call_id = call_id
-    
+
     def cancel(self):
         return False
 

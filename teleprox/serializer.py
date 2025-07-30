@@ -9,12 +9,14 @@ from .shmem import SharedNDArray
 
 try:
     import numpy as np
+
     HAVE_NUMPY = True
 except ImportError:
     HAVE_NUMPY = False
 
 try:
     import msgpack
+
     HAVE_MSGPACK = True
 except ImportError:
     HAVE_MSGPACK = False
@@ -22,15 +24,12 @@ except ImportError:
 from .proxy import ObjectProxy
 from .shmem import SharedNDArray
 
-
 #: dict containing {name : SerializerSubclass} for all supported serializers
 all_serializers = {}  # type_str: class
-
 
 # Any type that is not supported by json/msgpack must be encoded as a dict.
 # To distinguish these from plain dicts, we include a unique key in them:
 encode_key = '___type_name___'
-
 
 # Object types to be serialized by default. This applies when passing
 # arguments to a remote procedure and when returning results. All other
@@ -39,7 +38,7 @@ encode_key = '___type_name___'
 default_serialize_types = (
     ObjectProxy, type(None), str, bytes, int, float, tuple, list, dict, bool,
     datetime.datetime, datetime.date,
-    multiprocessing.shared_memory.SharedMemory, SharedNDArray, 
+    multiprocessing.shared_memory.SharedMemory, SharedNDArray,
 )
 
 if HAVE_NUMPY:
@@ -47,8 +46,9 @@ if HAVE_NUMPY:
 
 if qt_util.HAVE_QT:
     from . import qt
+
     default_serialize_types += (
-        qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform, 
+        qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform,
         qt.QVector3D, qt.QVector4D, qt.QQuaternion,
         qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
         qt.QPointF, qt.QSizeF, qt.QRectF,
@@ -108,7 +108,7 @@ class Serializer:
         if HAVE_NUMPY and isinstance(obj, np.ndarray):
             if not obj.flags['C_CONTIGUOUS']:
                 obj = np.ascontiguousarray(obj)
-            assert(obj.flags['C_CONTIGUOUS'])
+            assert (obj.flags['C_CONTIGUOUS'])
             return {encode_key: 'ndarray',
                     'data': obj.tobytes(),
                     'dtype': str(obj.dtype),
@@ -165,9 +165,9 @@ class Serializer:
                     raise ImportError("numpy is required to deserialize ndarray.")
                 dt = dct['dtype']
                 if dt.startswith('['):
-                    #small hack to have a list
+                    # small hack to have a list
                     d = {}
-                    exec('dtype='+dt, None, d)
+                    exec('dtype=' + dt, None, d)
                     dt = d['dtype']
                 return np.frombuffer(dct['data'], dtype=dt).reshape(dct['shape'])
             elif type_name == 'pickle':
@@ -228,7 +228,7 @@ class MsgpackSerializer(Serializer):
     Note that tuples are converted to lists in transit. See:
     https://github.com/msgpack/msgpack-python/issues/98
     """
-    
+
     # used to tell server how to unserialize messages
     type = 'msgpack'
     
@@ -253,17 +253,17 @@ class MsgpackSerializer(Serializer):
         self._proxy_opts = proxy_opts
         ## use_list=False because we are more likely to care about transmitting
         ## tuples correctly (because they are used as dict keys).
-        #return msgpack.loads(msg, encoding='utf8', use_list=False, object_hook=self.decode)
+        # return msgpack.loads(msg, encoding='utf8', use_list=False, object_hook=self.decode)
 
-        #Return lists/tuples as lists because json can't be configured otherwise
+        # Return lists/tuples as lists because json can't be configured otherwise
         return msgpack.loads(msg, object_hook=self.decode)
+
 
 if HAVE_MSGPACK:
     all_serializers[MsgpackSerializer.type] = MsgpackSerializer
 
 
 class JsonSerializer(Serializer):
-    
     # used to tell server how to unserialize messages
     type = 'json'
     
@@ -278,6 +278,7 @@ class JsonSerializer(Serializer):
                     return json.JSONEncoder.default(self, obj)
                 else:
                     return obj2
+
         self.EnhancedJSONEncoder = EnhancedJSONEncoder
     
     def dumps(self, obj, server, serialize_types):
@@ -295,7 +296,7 @@ class JsonSerializer(Serializer):
             # JSON doesn't support bytes, so we use base64 encoding instead:
             if not obj.flags['C_CONTIGUOUS']:
                 obj = np.ascontiguousarray(obj)
-            assert(obj.flags['C_CONTIGUOUS'])
+            assert (obj.flags['C_CONTIGUOUS'])
             return {encode_key: 'ndarray',
                     'data': base64.b64encode(obj.data).decode(),
                     'dtype': str(obj.dtype),
@@ -318,8 +319,9 @@ class JsonSerializer(Serializer):
                 return np.frombuffer(data, dct['dtype']).reshape(dct['shape'])
             elif type_name == 'bytes':
                 return base64.b64decode(dct['data'])
-            
+
             return Serializer.decode(self, dct)
         return dct
+
 
 all_serializers[JsonSerializer.type] = JsonSerializer
