@@ -19,9 +19,22 @@ Stylesheet = """
 """
 
 
+class LogTreeWidgetItem(qt.QTreeWidgetItem):
+    """Custom QTreeWidgetItem for displaying log messages."""
+    
+    def __init__(self, rec):
+        # Extract relevant information from the log record
+        timestamp = rec.created
+        source = f"{rec.processName}/{rec.threadName}"
+        level = rec.levelname
+        message = rec.getMessage()
+
+        # Initialize the QTreeWidgetItem with the extracted information
+        super().__init__([str(timestamp), source, level, message])
+
+
 class LogViewer(qt.QWidget):
-    """QWidget for displaying and filtering log messages.
-    """
+    """QWidget for displaying and filtering log messages."""
     def __init__(self, logger='', parent=None):
         qt.QWidget.__init__(self, parent=parent)
         
@@ -36,12 +49,15 @@ class LogViewer(qt.QWidget):
         self.layout = qt.QGridLayout()
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.layout)
-        self.text = qt.QTextBrowser()
-        self.text.document().setDefaultStyleSheet(Stylesheet)
-        self.layout.addWidget(self.text, 0, 0)
+        self.tree = qt.QTreeWidget()
+        self.tree.setColumnCount(4)
+        self.tree.setHeaderLabels(['Timestamp', 'Source', 'Level', 'Message'])
+        self.layout.addWidget(self.tree, 0, 0)
         
     def new_record(self, rec):
-        print("NEW LOG RECORD:", rec)
+        # Create a new LogTreeWidgetItem
+        item = LogTreeWidgetItem(rec)
+        self.tree.addTopLevelItem(item)
         
         
 

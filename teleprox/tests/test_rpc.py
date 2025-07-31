@@ -1,26 +1,11 @@
-# -*- coding: utf-8 -*-
-# Copyright (c) 2016, French National Center for Scientific Research (CNRS)
-# Distributed under the (new) BSD License. See LICENSE for more info.
-
 import threading, time, logging
-from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, ProcessSpawner
+from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, start_process
 from teleprox.log import RPCLogHandler, set_process_name, set_thread_name, start_log_server
 import numpy as np
-from check_qt import requires_qt, qt_available
+from teleprox.tests.check_qt import requires_qt, qt_available
 
 
-# Set up nice logging for tests:
-# remote processes forward logs to this process
-logger = logging.getLogger()
-#logger.level = logging.DEBUG
-start_log_server(logger)
-# local log messages are time-sorted and colored
-handler = RPCLogHandler()
-logger.addHandler(handler)
-# messages originating locally can be easily identified
-set_process_name('main_process')
-set_thread_name('main_thread')
-
+logger = logging.getLogger(__name__)
 
 if qt_available:
     from teleprox import qt
@@ -164,7 +149,7 @@ def test_rpc():
     assert obj2.add(3, 4) == 7
     
     obj2._delete()
-    handler.flush_records()  # log records might have refs to the object
+    # handler.flush_records()  # log records might have refs to the object
     assert class_proxy.count._get_value() == 1
     try:
         obj2.array()
@@ -178,7 +163,7 @@ def test_rpc():
     assert class_proxy.count == 2
     
     del obj2
-    handler.flush_records()  # log records might have refs to the object
+    # handler.flush_records()  # log records might have refs to the object
     assert class_proxy.count._get_value() == 1
 
 
@@ -202,7 +187,6 @@ def test_rpc():
     arr = np.ones(10, dtype='float32')
     arr_prox = client.transfer(arr)
     assert arr_prox.dtype.name == 'float32'
-    print(arr_prox, arr_prox.shape)
     assert arr_prox.shape._get_value() == (10,)
 
 
@@ -244,7 +228,7 @@ def test_rpc():
 
     logger.info("-- Test JSON client --")
     # Start a JSON client in a remote process
-    cli_proc = ProcessSpawner()
+    cli_proc = start_process(name='test_rpc_cli_proc')
     cli = cli_proc.client._import('teleprox').RPCClient(server2.address, serializer='json')
     # Check everything is ok..
     assert cli.serializer.type._get_value() == 'json'
@@ -335,14 +319,16 @@ def test_disconnect():
     #~ logger.level = logging.DEBUG
     
     # Clients receive notification when server disconnects gracefully
-    server_proc = ProcessSpawner()
+    server_proc = start_process('test_disconnect_server_proc')
     
-    client_proc = ProcessSpawner()
+    client_proc = start_process('test_disconnect_client_proc')
     cli = client_proc.client._import('teleprox').RPCClient(server_proc.client.address)
     cli.close_server()
     
     assert cli.disconnected() is True
     
+    # Check that our local client for server_proc knows the server is disconnected, even though
+    # it was client_proc that closed the server.
     assert server_proc.client.disconnected() is True
     try:
         print(server_proc.client.ping())
@@ -350,25 +336,24 @@ def test_disconnect():
     except RuntimeError:
         pass
     
-    # add by Sam: force the end of process
     server_proc.kill()
-    
+    client_proc.kill()
     
     # Clients receive closure messages even if the server exits without closing
-    server_proc = ProcessSpawner()
-    server_proc.client['self']._closed = 'sabotage!'
+    server_proc2 = start_process('test_disconnect_server_proc2')
+    server_proc2.client['self']._closed = 'sabotage!'
     time.sleep(0.1)
-    assert server_proc.client.disconnected() is True
+    assert server_proc2.client.disconnected() is True
     
     # add by Sam: force the end of process
-    server_proc.kill()
+    server_proc2.kill()
     
     # Clients gracefully handle sudden death of server (with timeout)
-    server_proc = ProcessSpawner()
-    server_proc.kill()
+    server_proc3 = start_process('test_disconnect_server_proc3')
+    server_proc3.kill()
     
     try:
-        server_proc.client.ping(timeout=1)
+        server_proc3.client.ping(timeout=1)
         assert False, "Expected TimeoutError"
     except TimeoutError:
         pass
@@ -376,20 +361,20 @@ def test_disconnect():
 
     # server doesn't hang up if clients are not available to receive disconnect
     # message
-    server_proc = ProcessSpawner()
+    server_proc4 = start_process('test_disconnect_server_proc4')
     for i in range(4):
         # create a bunch of dead clients
-        cp = ProcessSpawner()
-        cli = cp.client._import('teleprox').RPCClient(server_proc.client.address)
+        cp = start_process(f'test_disconnect_client_proc{i}')
+        cli = cp.client._import('teleprox').RPCClient(server_proc4.client.address)
         cp.kill()
     
     start = time.time()
-    server_proc.client.close_server()
+    server_proc4.client.close_server()
     assert time.time() - start < 1.0
-    assert server_proc.client.disconnected() == True
+    assert server_proc4.client.disconnected() == True
     
     # add by Sam: force the end of process
-    server_proc.kill()
+    server_proc4.kill()
 
 
 

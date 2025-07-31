@@ -3,17 +3,20 @@ from .server import RPCServer
 from . import log
 
 
+logger = logging.getLogger(__name__)
+
+
 class QtRPCServer(RPCServer):
-    """RPCServer that lives in a Qt GUI thread.
+    """RPCServer that executes actions in the main Qt GUI thread.
 
     This server may be used to create and manage QObjects, QWidgets, etc. It
     uses a separate thread to poll for RPC requests, which are then sent to the
-    Qt event loop using by signal. This allows the RPC actions to be executed
+    Qt event loop by signal. This allows the RPC actions to be executed
     in a Qt GUI thread without using a timer to poll the RPC socket. Responses
     are sent back to the poller thread by a secondary socket.
     
     QtRPCServer may be started in newly spawned processes using
-    :class:`ProcessSpawner`.
+    ``start_process(qt=True)``.
     
     Parameters
     ----------
@@ -31,9 +34,9 @@ class QtRPCServer(RPCServer):
     Spawning in a new process::
         
         # Create new process.
-        proc = ProcessSpawner(qt=True)
+        proc = start_process(qt=True)
         
-        # Display a widget from the new process.
+        # Display a widget in the new process.
         qtwidgets = proc._import('PyQt5.QtWidgets')
         w = qtwidgets.QWidget()
         w.show()
@@ -58,7 +61,7 @@ class QtRPCServer(RPCServer):
     def run_forever(self):
         name = ('%s.%s.%s' % (log.get_host_name(), log.get_process_name(), 
                               log.get_thread_name()))
-        logging.info("RPC start server: %s@%s", name, self.address.decode())
+        logger.info("RPC start server: %s@%s", name, self.address.decode())
         RPCServer.register_server(self)
         self.poll_thread.start()
 

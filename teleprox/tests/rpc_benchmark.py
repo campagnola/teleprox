@@ -30,43 +30,43 @@ def test_async_poingrate(cli, dur=2.0, buffer=500):
 
     
     
+if __name__ == '__main__':
+    # thread, inproc
+    print("=========== inproc to thread ============")
+    server = teleprox.RPCServer('inproc://testserver')
+    thread = threading.Thread(target=server.run_forever, daemon=True)
+    thread.start()
 
-# thread, inproc
-print("=========== inproc to thread ============")
-server = teleprox.RPCServer('inproc://testserver')
-thread = threading.Thread(target=server.run_forever, daemon=True)
-thread.start()
+    cli = teleprox.RPCClient(server.address)
+    test_poingrate(cli)
+    test_async_poingrate(cli)
 
-cli = teleprox.RPCClient(server.address)
-test_poingrate(cli)
-test_async_poingrate(cli)
-
-cli.close_server()
-
-
-# thread, tcp
-print("=========== tcp to thread ============")
-server = teleprox.RPCServer('tcp://127.0.0.1:*')
-thread = threading.Thread(target=server.run_forever, daemon=True)
-thread.start()
-
-cli = teleprox.RPCClient(server.address)
-test_poingrate(cli)
-test_async_poingrate(cli)
-
-cli.close_server()
+    cli.close_server()
 
 
-# process
-print("=========== TCP to spawned process ============")
-proc = teleprox.ProcessSpawner()
-test_poingrate(proc.client)
-test_async_poingrate(proc.client)
+    # thread, tcp
+    print("=========== tcp to thread ============")
+    server = teleprox.RPCServer('tcp://127.0.0.1:*')
+    thread = threading.Thread(target=server.run_forever, daemon=True)
+    thread.start()
+
+    cli = teleprox.RPCClient(server.address)
+    test_poingrate(cli)
+    test_async_poingrate(cli)
+
+    cli.close_server()
 
 
-# process
-print("=========== TCP to spawned Qt process ============")
-proc = teleprox.ProcessSpawner(qt=True)
-test_poingrate(proc.client)
-test_async_poingrate(proc.client)
+    # process
+    print("=========== TCP to spawned process ============")
+    proc = teleprox.start_process()
+    test_poingrate(proc.client)
+    test_async_poingrate(proc.client)
+
+
+    # process
+    print("=========== TCP to spawned Qt process ============")
+    proc = teleprox.start_process(qt=True)
+    test_poingrate(proc.client)
+    test_async_poingrate(proc.client)
 

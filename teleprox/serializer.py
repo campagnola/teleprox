@@ -1,17 +1,17 @@
-# -*- coding: utf-8 -*-
-# Copyright (c) 2016, French National Center for Scientific Research (CNRS)
-# Distributed under the (new) BSD License. See LICENSE for more info.
-
-import numpy as np
 import datetime
 import base64
 import json
 import pickle
-import numpy as np
 import multiprocessing.shared_memory
 
-from . import qt
+from . import qt_util
 from .shmem import SharedNDArray
+
+try:
+    import numpy as np
+    HAVE_NUMPY = True
+except ImportError:
+    HAVE_NUMPY = False
 
 try:
     import msgpack
@@ -39,14 +39,20 @@ encode_key = '___type_name___'
 default_serialize_types = (
     ObjectProxy, type(None), str, bytes, int, float, tuple, list, dict, bool,
     datetime.datetime, datetime.date,
-    np.ndarray, np.number, np.bool_, np.dtype, 
     multiprocessing.shared_memory.SharedMemory, SharedNDArray, 
-
-    qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform, 
-    qt.QVector3D, qt.QVector4D, qt.QQuaternion,
-    qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
-    qt.QPointF, qt.QSizeF, qt.QRectF,
 )
+
+if HAVE_NUMPY:
+    default_serialize_types += (np.number, np.bool_, np.dtype, np.ndarray)
+
+if qt_util.HAVE_QT:
+    from . import qt
+    default_serialize_types += (
+        qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform, 
+        qt.QVector3D, qt.QVector4D, qt.QQuaternion,
+        qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
+        qt.QPointF, qt.QSizeF, qt.QRectF,
+    )
 
 
 class Serializer:
@@ -60,9 +66,6 @@ class Serializer:
     to an object proxy that can be used to access methods / attributes of the object
     remotely (this requires that the object be known to an RPC server).
     
-    TODO: check this!
-    Note that tuples are converted to lists in transit. See:
-    https://github.com/msgpack/msgpack-python/issues/98
     """
     def __init__(self):
         self._server = None
@@ -102,7 +105,7 @@ class Serializer:
                 raise TypeError("Cannot make proxy to %r without proxy server." % obj)
             obj = self.server.get_proxy(obj)
 
-        if isinstance(obj, np.ndarray):
+        if HAVE_NUMPY and isinstance(obj, np.ndarray):
             if not obj.flags['C_CONTIGUOUS']:
                 obj = np.ascontiguousarray(obj)
             assert(obj.flags['C_CONTIGUOUS'])
@@ -124,7 +127,7 @@ class Serializer:
             return {encode_key: 'tuple', 'data': list(obj)}
         elif obj is None:
             return {encode_key: 'none'}
-        elif isinstance(obj, (np.number, np.bool_)):
+        elif HAVE_NUMPY and isinstance(obj, (np.number, np.bool_)):
             if isinstance(obj, np.bool_):
                 val = bool(obj)
             elif isinstance(obj, np.integer):
@@ -158,6 +161,8 @@ class Serializer:
             if type_name is None:
                 return dct
             if type_name == 'ndarray':
+                if not HAVE_NUMPY:
+                    raise ImportError("numpy is required to deserialize ndarray.")
                 dt = dct['dtype']
                 if dt.startswith('['):
                     #small hack to have a list
@@ -286,7 +291,7 @@ class JsonSerializer(Serializer):
         return json.loads(msg.decode(), object_hook=self.decode)
 
     def encode(self, obj):
-        if isinstance(obj, np.ndarray):
+        if HAVE_NUMPY and isinstance(obj, np.ndarray):
             # JSON doesn't support bytes, so we use base64 encoding instead:
             if not obj.flags['C_CONTIGUOUS']:
                 obj = np.ascontiguousarray(obj)
@@ -307,6 +312,8 @@ class JsonSerializer(Serializer):
         if isinstance(dct, dict):
             type_name = dct.get(encode_key, None)
             if type_name == 'ndarray':
+                if not HAVE_NUMPY:
+                    raise ImportError("numpy is required to deserialize ndarray.")
                 data = base64.b64decode(dct['data'])
                 return np.frombuffer(data, dct['dtype']).reshape(dct['shape'])
             elif type_name == 'bytes':
@@ -316,5 +323,3 @@ class JsonSerializer(Serializer):
         return dct
 
 all_serializers[JsonSerializer.type] = JsonSerializer
-
-

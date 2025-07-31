@@ -1,5 +1,5 @@
 import logging
-from teleprox import ProcessSpawner
+from teleprox import start_process
 from teleprox.log import set_process_name, set_thread_name, start_log_server
 from teleprox.log.handler import RPCLogHandler
 
@@ -14,7 +14,7 @@ handler = RPCLogHandler()
 logger.addHandler(handler)
 
 # Start a server that will receive log messages from other processes
-start_log_server(logger)
+start_log_server()
 
 # Set the name of this process and thread for logging
 set_process_name('main_process')
@@ -22,11 +22,13 @@ set_thread_name('main_thread')
 
 # import pyqtgraph as pg
 # pg.mkQApp()
-# lv = LogViewer()
-# lv.show()
+from PyQt5 import QtWidgets
+app = QtWidgets.QApplication([])
+lv = LogViewer()
+lv.show()
 
 
-proc = ProcessSpawner(name='child_process')
+proc = start_process(name='child_process')
 
 r_os = proc.client._import('os')
 print("Child process PID is:", r_os.getpid())

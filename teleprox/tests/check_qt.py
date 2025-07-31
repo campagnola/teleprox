@@ -1,3 +1,4 @@
+import time
 import pytest
 import teleprox
 
@@ -6,9 +7,8 @@ qt_available = True
 qt_reason = ""
 p_started = False
 
-try:    
-    p = teleprox.ProcessSpawner('tests.check_qt')
-    p_started = True
+p = teleprox.start_process('check_qt_process')
+try:
     qt = p.client._import('teleprox.qt')
     try:
         app = qt.QApplication([], _timeout=1)
@@ -24,6 +24,15 @@ except ImportError as exc:
 finally:
     if p_started:
         p.stop()
-
+    p.client.close_server()
+    for _ in range(10):
+        if p.poll() is not None:
+            break
+        time.sleep(0.1)
+    if p.poll() is None:
+        # indicates presence of deadlock; see failure_modes.py exit_deadlock_qt6
+        qt_available = False
+        qt_reason = "Known exit deadlock in Qt would break tests"
+        p.kill()
 
 requires_qt = pytest.mark.skipif(not qt_available, reason=qt_reason)

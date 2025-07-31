@@ -61,7 +61,7 @@ class RPCLogHandler(logging.StreamHandler):
         self.delay = 0.2
         self.record_lock = threading.Lock()
         self.records = []
-        self.thread = threading.Thread(target=self.poll_records, daemon=True)
+        self.thread = threading.Thread(target=self.poll_records, daemon=True, name='teleprox_RPCLogHandler')
         self.thread.start()
         atexit.register(self.flush_records)
 
@@ -103,9 +103,9 @@ class RPCLogHandler(logging.StreamHandler):
         return f'{header} {message}'
 
     def get_thread_header(self, record):
-        hid = getattr(record, 'hostname', get_host_name())
-        pid = getattr(record, 'process_name', get_process_name())
-        tid = getattr(record, 'thread_name', get_thread_name(record.thread))
+        hid = getattr(record, 'hostName', get_host_name())
+        pid = getattr(record, 'processName', get_process_name())
+        tid = getattr(record, 'threadName', get_thread_name(record.thread))
         key = (hid, pid, tid)
         header = self.thread_headers.get(key)
         if header is None:
@@ -116,22 +116,6 @@ class RPCLogHandler(logging.StreamHandler):
             self.thread_headers[key] = header
         return header
 
-    def colorize(self, message, record):
-        if not HAVE_COLORAMA:
-            return message
-        
-        try:
-            tid = threading.current_thread().ident
-            color = RPCLogHandler.thread_colors.get(tid, None)
-            if color is None:
-                ind = len(RPCLogHandler.thread_colors) % len(_thread_color_list)
-                ind = ind//10*10  # decrease to multiple of 10
-                color = _thread_color_list[ind]
-                RPCLogHandler.thread_colors[tid] = color
-            return (color + message + colorama.Style.RESET_ALL)
-        except KeyError:
-            return message
-
     def flush_records(self):
         with self.record_lock:
             recs = self.records[:]
@@ -141,22 +125,27 @@ class RPCLogHandler(logging.StreamHandler):
 
 
 _sys_excepthook = None
+_threading_excepthook = None
 
 
 def _log_unhandled_exception(exc, val, tb):
-    global _sys_excepthook
     exc_str = traceback.format_stack()
     exc_str += [" < exception caught here >\n"]
     exc_str += traceback.format_exception(exc, val, tb)[1:]
-    exc_str = ''.join([f'    {line}' for line in exc_str])
-    logging.getLogger().warning(f"Unhandled exception:\n{exc_str}")
+    exc_str = ''.join(['    ' + line for line in exc_str])
+    logging.getLogger().warning("Unhandled exception:\n%s", exc_str)
+
+def _log_unhandled_exc_from_thread(args):
+    _log_unhandled_exception(args.exc_type, args.exc_value, args.exc_traceback)
 
 
 def log_exceptions():
     """Install a hook that creates log messages from unhandled exceptions.
     """
-    global _sys_excepthook
-    if sys.excepthook is _log_unhandled_exception:
-        return
-    _sys_excepthook = sys.excepthook
-    sys.excepthook = _log_unhandled_exception
+    global _sys_excepthook, _threading_excepthook
+    if sys.excepthook is not _log_unhandled_exception:
+        _sys_excepthook = sys.excepthook
+        sys.excepthook = _log_unhandled_exception
+    if threading.excepthook is not _log_unhandled_exc_from_thread:
+        _threading_excepthook = threading.excepthook
+        threading.excepthook = _log_unhandled_exc_from_thread

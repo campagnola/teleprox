@@ -109,6 +109,7 @@ class ObjectProxy(object):
                 'defer_getattr': True,   ## True, False
                 'no_proxy_types': [type(None), str, int, float, tuple, list, dict, ObjectProxy],
                 'auto_delete': False,
+                'safe_print': True,
             }
         ))
 
@@ -214,6 +215,12 @@ class ObjectProxy(object):
         auto_delete : bool
             If True, then the proxy will automatically call
             `self._delete()` when it is collected by Python.
+        safe_print : bool
+            If True, then the proxy will return a safe string representation
+            (that does not require contacting the remote process)
+            when str(obj) or repr(obj) are called. If False, then str(obj)
+            is unchanged from the server, and repr(obj) will indicate that
+            the object is a proxy.
         """
         for k in kwds:
             if k not in self._proxy_options:
@@ -232,7 +239,10 @@ class ObjectProxy(object):
             return self._client().get_obj(self, return_type='value')
         
     def __repr__(self):
-        orep = '.'.join((self._type_str,) + self._attributes)
+        if self._proxy_options['safe_print'] is True:
+            orep = '.'.join((self._type_str,) + self._attributes)
+        else:
+            orep = self._deferred_attr('__repr__')(_return_type='value')
         rep = '<ObjectProxy for %s[%d] %s >' % (self._rpc_addr.decode(), self._obj_id, orep)
         return rep
 
@@ -350,15 +360,16 @@ class ObjectProxy(object):
         return self._deferred_attr('__getitem__')(*args)
     
     def __setitem__(self, *args):
-        return self._deferred_attr('__setitem__')(*args, _sync='off')
+        return self._deferred_attr('__setitem__')(*args)
         
     def __setattr__(self, *args):
-        return self._deferred_attr('__setattr__')(*args, _sync='off')
+        return self._deferred_attr('__setattr__')(*args)
         
     def __str__(self, *args):
-        # for safe printing
-        return repr(self)
-        #return self._deferred_attr('__str__')(*args, _return_type='value')
+        if self._proxy_options['safe_print'] is True:
+            return repr(self)
+        else:
+            return self._deferred_attr('__str__')(*args, _return_type='value')
         
     def __len__(self, *args):
         return self._deferred_attr('__len__')(*args)
@@ -385,25 +396,25 @@ class ObjectProxy(object):
         return self._deferred_attr('__pow__')(*args)
         
     def __iadd__(self, *args):
-        return self._deferred_attr('__iadd__')(*args, _sync='off')
+        return self._deferred_attr('__iadd__')(*args)
     
     def __isub__(self, *args):
-        return self._deferred_attr('__isub__')(*args, _sync='off')
+        return self._deferred_attr('__isub__')(*args)
         
     def __idiv__(self, *args):
-        return self._deferred_attr('__idiv__')(*args, _sync='off')
+        return self._deferred_attr('__idiv__')(*args)
         
     def __itruediv__(self, *args):
-        return self._deferred_attr('__itruediv__')(*args, _sync='off')
+        return self._deferred_attr('__itruediv__')(*args)
         
     def __ifloordiv__(self, *args):
-        return self._deferred_attr('__ifloordiv__')(*args, _sync='off')
+        return self._deferred_attr('__ifloordiv__')(*args)
         
     def __imul__(self, *args):
-        return self._deferred_attr('__imul__')(*args, _sync='off')
+        return self._deferred_attr('__imul__')(*args)
         
     def __ipow__(self, *args):
-        return self._deferred_attr('__ipow__')(*args, _sync='off')
+        return self._deferred_attr('__ipow__')(*args)
         
     def __rshift__(self, *args):
         return self._deferred_attr('__rshift__')(*args)
@@ -412,10 +423,10 @@ class ObjectProxy(object):
         return self._deferred_attr('__lshift__')(*args)
         
     def __irshift__(self, *args):
-        return self._deferred_attr('__irshift__')(*args, _sync='off')
+        return self._deferred_attr('__irshift__')(*args)
         
     def __ilshift__(self, *args):
-        return self._deferred_attr('__ilshift__')(*args, _sync='off')
+        return self._deferred_attr('__ilshift__')(*args)
         
     def __eq__(self, *args):
         # If checking equality between two proxies to the same object, then
@@ -451,13 +462,13 @@ class ObjectProxy(object):
         return self._deferred_attr('__xor__')(*args)
         
     def __iand__(self, *args):
-        return self._deferred_attr('__iand__')(*args, _sync='off')
+        return self._deferred_attr('__iand__')(*args)
         
     def __ior__(self, *args):
-        return self._deferred_attr('__ior__')(*args, _sync='off')
+        return self._deferred_attr('__ior__')(*args)
         
     def __ixor__(self, *args):
-        return self._deferred_attr('__ixor__')(*args, _sync='off')
+        return self._deferred_attr('__ixor__')(*args)
         
     def __mod__(self, *args):
         return self._deferred_attr('__mod__')(*args)

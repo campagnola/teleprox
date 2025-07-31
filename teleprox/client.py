@@ -2,14 +2,16 @@
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
+import re
+import socket
 import sys
 import time
 import weakref
 import concurrent.futures
 import threading
+from teleprox.util import check_tcp_port
 import zmq
 import logging
-import numpy as np
 
 from .serializer import all_serializers
 from .server import RPCServer
@@ -25,7 +27,7 @@ class RPCClient(object):
     
     Each RPCClient connects to only one server, and may be used from only one
     thread. RPCClient instances are created automatically either through
-    :class:`ProcessSpawner` or by requesting attributes from an :class:`ObjectProxy`.
+    :class:`start_process` or by requesting attributes from an :class:`ObjectProxy`.
     In general, it is not necessary for the user to interact directly with
     RPCClient.
     
@@ -39,10 +41,12 @@ class RPCClient(object):
         for a response. This is necessary to avoid deadlocks in case of 
         reentrant RPC requests (eg, server A calls server B, which then calls
         server A again). Default is True.
-    start_server : bool
+    start_local_server : bool
         If True, start an RPCServer in this thread (or reuse an existing server) and 
         call run_lazy() so that it can receive requests whenever this client is waiting
-        on a result. Default is False.
+        on a result. This would be needed, for example, if you send a callback function
+        to the remote server--in order to invoke your callback, there must also be a local
+        server to carry out that callback. Default is False.
     serializer : str
         Type of serializer to use when communicating with the remote server. 
         Default is 'msgpack'.
@@ -51,7 +55,10 @@ class RPCClient(object):
         If a local server is running, then types not in this list will be sent by proxy. 
         Otherwise, a TypeError is raised.
         If None, then ``serializer.default_serialize_types`` is used instead. 
-        This is also used in the construction of the local RPCServer if start_server is True.
+        This is also used in the construction of the local RPCServer if start_local_server is True.
+
+    
+    Raises ConnectionRefusedError if no server is running at the given address.
 
     """
     
@@ -81,7 +88,18 @@ class RPCClient(object):
         
         return RPCClient(address)
     
+    @staticmethod
+    def forget_client(client):
+        """Forget a client that is no longer needed.
+        """
+        key = (threading.current_thread().ident, client.address)
+        with RPCClient.clients_by_thread_lock:
+            RPCClient.clients_by_thread.pop(key, None)
+    
     def __init__(self, address, reentrant=True, start_local_server=False, serializer='msgpack', serialize_types=None):
+        if isinstance(address, str):
+            address = address.encode()
+
         # pick a unique name: host.pid.tid:rpc_addr
         self.name = ("%s.%s.%s:%s" % (log.get_host_name(), log.get_process_name(),
                                       log.get_thread_name(), address.decode())).encode()
@@ -89,7 +107,7 @@ class RPCClient(object):
         self.serialize_types = serialize_types
 
         if sys.platform == 'win32' and '0.0.0.0' in str(address):
-            logger.warning("RPC server address is likely to cause trouble on windows: %r" % address)
+            logger.warning(f"RPC server address {address} is likely to cause trouble on windows")
         self.address = address
 
         if start_local_server and RPCServer.get_server() is None:
@@ -106,6 +124,11 @@ class RPCClient(object):
             RPCClient.clients_by_thread[key] = self
 
         try:
+            # Make sure we can reach this address and there is an open socket
+            port_status = self.check_address(address)
+            if port_status == "closed":
+                raise ConnectionRefusedError(f"Connection refused to {address.decode()}")
+
             # DEALER is fully asynchronous--we can send or receive at any time, and
             # unlike ROUTER, it only connects to a single endpoint.
             self._socket = zmq.Context.instance().socket(zmq.DEALER)
@@ -144,8 +167,28 @@ class RPCClient(object):
             
             self.ensure_connection()
         except:
-            RPCClient.clients_by_thread[key] = None
+            RPCClient.clients_by_thread.pop(key, None)
             raise
+
+    @staticmethod
+    def check_address(address, timeout=1.0):
+        """
+        Test if a socket can connect to the given host and port.
+        Only TCP addresses are supported.
+
+        Returns:
+            "open" - if the socket connects successfully
+            "closed" - if the connection is refused
+            "timeout" - if the connection times out
+            None - non-tcp ports or invalid addresses
+        """
+        parts = re.match(r'^tcp://(.+):(\d+)$', address.decode())
+        if parts is None:
+            return None
+        
+        host, port = parts.groups()
+        port = int(port)
+        return check_tcp_port(host, port, timeout)
 
     def _get_poller(self):
         # Return the poller that should be used to listen for incoming messages
@@ -174,7 +217,11 @@ class RPCClient(object):
             return True
         
         # check to see if we have received any new messages
-        self._read_and_process_all()
+        try:
+            self._read_and_process_all()
+        except zmq.error.ZMQError:
+            self._disconnected = True
+        
         return self._disconnected
 
     def send(self, action, opts=None, return_type='auto', sync='sync', timeout=10.0):
@@ -394,7 +441,7 @@ class RPCClient(object):
                     return
                 except TimeoutError:
                     continue
-            raise TimeoutError("Could not establish connection with RPC server.")
+            raise TimeoutError(f"Could not establish connection with RPC server at {self.address.decode()}")
         finally:
             self.establishing_connect = False
 
@@ -459,7 +506,8 @@ class RPCClient(object):
         Parameters
         ----------
         timeout : float
-            Maximum time (seconds) to wait for a message.
+            Maximum time (seconds) to wait for a message. Use timeout=None to
+            block indefinitely.
         
         """
         # timeout is in seconds; convert to ms
@@ -475,8 +523,8 @@ class RPCClient(object):
             self._socket.setsockopt(zmq.RCVTIMEO, timeout)
             msg = self._socket.recv()
             msg = self.serializer.loads(msg, server=None, proxy_opts=self.default_proxy_options)
-        except zmq.error.Again:
-            raise TimeoutError("Timeout waiting for Future result.")
+        except zmq.error.Again as exc:
+            raise TimeoutError("Timeout waiting for Future result.") from None
         
         self.process_msg(msg)
 
@@ -550,6 +598,7 @@ class RPCClient(object):
         # reference management is disabled for now..
         #self.send('release_all', return_type=None) 
         self._socket.close()
+        RPCClient.forget_client(self)
 
     def close_server(self, sync='sync', timeout=1.0, **kwds):
         """Ask the server to close.
@@ -573,12 +622,12 @@ class RPCClient(object):
         for i in range(10):
             ltimes.append(time.perf_counter())
             rtimes.append(rcounter())
-        ltimes = np.array(ltimes)
-        rtimes = np.array(rtimes[:-1])
-        dif = rtimes - ((ltimes[1:] + ltimes[:-1]) * 0.5)
+        rtimes = rtimes[:-1]
+        dif = [rt - ((lt1 + lt2) * 0.5) for rt, lt1, lt2 in zip(rtimes, ltimes[1:], ltimes[:-1])]
+        avg = sum(dif) / len(dif)
         # we can probably constrain this estimate a bit more by looking at
         # min/max times and excluding outliers.
-        return dif.mean()
+        return avg
 
     def __del__(self):
         if hasattr(self, 'socket'):

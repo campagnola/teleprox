@@ -1,5 +1,7 @@
-Teleprox: simple python object proxies over TCP
-===============================================
+# Teleprox: simple python object proxies over TCP
+
+[![Tests](https://github.com/campagnola/teleprox/actions/workflows/test.yml/badge.svg)](https://github.com/campagnola/teleprox/actions)
+[![PyPI version](https://badge.fury.io/py/teleprox.svg)](https://badge.fury.io/py/teleprox)
 
 No declarations required; just access remote objects as if they are local.
 
@@ -9,17 +11,17 @@ Requires
 - python 3
 - pyzmq
 - msgpack
-
+- numpy (optional; required only for SharedNDArray)
 
 
 Examples
 --------
 
 ```python
-from teleprox import ProcessSpawner
+from teleprox import start_process
 
 # start a new process
-proc = ProcessSpawner()
+proc = start_process()
 
 # import os in the remote process
 remote_os = proc.client._import('os')
