@@ -71,7 +71,7 @@ class Serializer:
         self._server = None
         self._serialize_types = default_serialize_types
         self._proxy_opts = None
-    
+
     @property
     def server(self):
         if self._server is None:

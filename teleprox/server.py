@@ -183,7 +183,7 @@ class RPCServer(object):
         atexit.register(self._atexit)
 
     def __repr__(self):
-        return "<RPCServer %s>" % self.address.decode()
+        return f"<RPCServer {self.address.decode()}>"
 
     @property
     def serialize_types(self):
@@ -218,9 +218,9 @@ class RPCServer(object):
         try:
             oid = proxy._obj_id
             obj = self._proxy_refs[oid][0]
-        except KeyError:
-            raise KeyError("Invalid proxy object ID %r. The object may have "
-                           "been released already." % proxy.obj_id)
+        except KeyError as e:
+            raise KeyError(f"Invalid proxy object ID {proxy.obj_id!r}."
+                           " The object may have been released already.") from e
         for attr in proxy._attributes:
             obj = getattr(obj, attr)
         # logger.debug("server %s unwrap proxy %d: %s", self.address, oid, obj)

@@ -90,7 +90,7 @@ try:
     server_class = getattr(teleprox, conf['class_name'])
     server = server_class(conf['listen_addr'])
     status = {'address': server.address.decode(), 'pid': os.getpid()}
-except:
+except Exception:
     logger.error("Error starting {class_name} with args: {args}:".format(**conf))
     status = {'error': traceback.format_exception(*sys.exc_info()), 'pid': os.getpid()}
     
