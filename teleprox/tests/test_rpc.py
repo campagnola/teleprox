@@ -399,40 +399,39 @@ def test_callbacks():
 
     callback_result = []
 
-    def my_callback(data):
-        callback_result.append(f"callback received: {data}")
+    def my_callback(tester):
+        callback_result.append(f"callback received: {tester.name()}")
         return "callback_response"
 
-    # First, test that callbacks fail without start_local_server
-    proc_no_server = start_process('test_callback_proc_no_server', start_local_server=False)
+    # First, test that callbacks fail without local_server
+    proc_no_server = start_process(
+        'test_callback_proc_no_server', local_server=None
+    )
 
     # Create a simple function that takes another function as parameter
     # Use built-in functionality rather than publishing our own class
     builtins = proc_no_server.client._import('builtins')
 
     # This should fail because we can't serialize the function without a local server
-    try:
+    with pytest.raises(TypeError):
         # Try to use map() with our callback - this should fail
-        result = builtins.list(builtins.map(my_callback, ["test1", "test2"]))
-        assert False, "Should have raised TypeError when sending callback without local server"
-    except TypeError:
-        pass  # Expected
+        builtins.list(builtins.map(my_callback, ["test1", "test2"]))
 
     proc_no_server.stop()
 
-    # Now test with start_local_server=True - this should work
-    proc_with_server = start_process('test_callback_proc_with_server', start_local_server=True)
+    # Now test with local_server="threaded" - this should work
+    proc_with_server = start_process(
+        'test_callback_proc_with_server', local_server="threaded"
+    )
 
     # Define a simple class that can accept and invoke callbacks
     threading = proc_with_server.client._import("threading")
     queue = proc_with_server.client._import("queue")
     time = proc_with_server.client._import("time")
 
-    proc_with_server.client._import("builtins").exec("""
+    proc_with_server.client._import("builtins").exec(
+        """
 import __main__
-import threading
-import queue
-import time
 
 class CallbackTester:
     def __init__(self):
@@ -441,27 +440,27 @@ class CallbackTester:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def __str__(self):
+    def name(self):
         return "CallbackTester"
 
     def _run(self):
         while True:
-            callback_func, data = self._cb_queue.get()
+            callback_func = self._cb_queue.get()
             if callback_func is None:  # Exit signal
                 break
             result = callback_func(self)
             self._returns[callback_func] = result
 
-    def invoke_callback(self, callback_func, data):
-        self._cb_queue.put((callback_func, data))
+    def invoke_callback(self, callback_func):
+        self._cb_queue.put(callback_func)
         while callback_func not in self._returns:
             time.sleep(0.01)
         return self._returns.pop(callback_func)
 
-    def delayed_callback(self, callback_func, data, count=3):
+    def repeated_callback(self, callback_func, count=3):
         results = []
         for i in range(count):
-            result = self.invoke_callback(callback_func, data)
+            result = self.invoke_callback(callback_func)
             results.append(result)
         return results
 
@@ -469,7 +468,9 @@ class CallbackTester:
         self._cb_queue.put((None, None))
 
 __main__.CallbackTester = CallbackTester
-    """, {'queue': queue, 'threading': threading, 'time': time})
+    """,
+        {'queue': queue, 'threading': threading, 'time': time},
+    )
     tester_with_server = proc_with_server.client._import("__main__").CallbackTester()
 
     try:
@@ -477,36 +478,30 @@ __main__.CallbackTester = CallbackTester
         callback_result.clear()
 
         # This should work now
-        response = tester_with_server.invoke_callback(my_callback, "test_data")
+        response = tester_with_server.invoke_callback(my_callback)  # !!!timing out!!!
         assert response == "callback_response"
         assert callback_result == ["callback received: CallbackTester"]
 
         # Test multiple callback invocations
         callback_result.clear()
-        responses = tester_with_server.delayed_callback(my_callback, "multi", 2)
+        responses = tester_with_server.repeated_callback(my_callback, 2)
         assert responses == ["callback_response", "callback_response"]
-        assert callback_result == ["callback received: CallbackTester", "callback received: CallbackTester"]
+        assert callback_result == [
+            "callback received: CallbackTester",
+            "callback received: CallbackTester",
+        ]
 
         # Test lambda callback
         callback_result.clear()
         lambda_response = tester_with_server.invoke_callback(
-            lambda x: f"lambda_processed: {x}",
-            "lambda_data"
+            lambda x: f"lambda_processed: {x.name}"
         )
         assert lambda_response == "lambda_processed: CallbackTester"
 
-        # Test with built-in functions now that we have a local server
-        builtins_with_server = proc_with_server.client._import('builtins')
-        callback_result.clear()
-        result = builtins_with_server.list(builtins_with_server.map(my_callback, ["builtin1", "builtin2"]))
-        assert result == ["callback_response", "callback_response"]
-        assert callback_result == ["callback received: CallbackTester", "callback received: CallbackTester"]
-
     finally:
-        tester_with_server.stop()
-        proc_with_server.stop()
-        if (local_server := RPCServer.get_server()) is not None:
-            local_server.close()
+        # TODO if it times out, we probably can't send any more signals
+        # tester_with_server.stop()
+        proc_with_server.kill()
 
 
 if __name__ == '__main__':

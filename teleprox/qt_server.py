@@ -1,7 +1,8 @@
-import logging, time
-from .server import RPCServer
-from . import log
+import logging
+import time
 
+from . import log
+from .server import RPCServer
 
 logger = logging.getLogger(__name__)
 

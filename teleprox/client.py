@@ -35,27 +35,22 @@ class RPCClient(object):
     ----------
     address : URL
         Address of RPC server to connect to.
-    reentrant : bool
-        If True, then this client will allow the server running in the same
-        thread (if any) to process requests whenever the client is waiting
-        for a response. This is necessary to avoid deadlocks in case of
-        reentrant RPC requests (eg, server A calls server B, which then calls
-        server A again). Default is True.
-    start_local_server : bool
-        If True, start an RPCServer in this thread (or reuse an existing server) and
-        call run_lazy() so that it can receive requests whenever this client is waiting
-        on a result. This would be needed, for example, if you send a callback function
-        to the remote server--in order to invoke your callback, there must also be a local
-        server to carry out that callback. Default is False.
+    local_server : "threaded" | "lazy" | RPCServer | None
+        If "threaded", start a dedicated server in a thread to handle proxying data sent to the
+        remote server. If "lazy", then make a dedicated local server that isn't actively
+        processing and will only be handling requests while this client is actively
+        communicating. If an RPCServer, then use it. If None, then no proxying is done and this
+        client will only be able to send fully serializable objects to the remote server.
+        Defaults to "threaded".
     serializer : str
         Type of serializer to use when communicating with the remote server.
         Default is 'msgpack'.
     serialize_types : tuple | None
-        A typle of types that may be serialized when sending request arguments to the remote server.
+        A tuple of types that may be serialized when sending request arguments to the remote server.
         If a local server is running, then types not in this list will be sent by proxy.
         Otherwise, a TypeError is raised.
         If None, then ``serializer.default_serialize_types`` is used instead.
-        This is also used in the construction of the local RPCServer if start_local_server is True.
+        This is also used in the construction of the local RPCServer if local_server is dedicated.
 
     Raises ConnectionRefusedError if no server is running at the given address.
     """
@@ -64,7 +59,7 @@ class RPCClient(object):
     clients_by_thread_lock = threading.Lock()
 
     @staticmethod
-    def get_client(address):
+    def get_client(address, *args, **kwargs):
         """Return the RPC client for this thread and a given server address.
 
         If no client exists already, then a new one will be created. If the
@@ -84,7 +79,7 @@ class RPCClient(object):
             if key in RPCClient.clients_by_thread:
                 return RPCClient.clients_by_thread[key]
 
-        return RPCClient(address)
+        return RPCClient(address, *args, **kwargs)
 
     @staticmethod
     def forget_client(client):
@@ -92,8 +87,14 @@ class RPCClient(object):
         key = (threading.current_thread().ident, client.address)
         with RPCClient.clients_by_thread_lock:
             RPCClient.clients_by_thread.pop(key, None)
-    
-    def __init__(self, address, reentrant=True, start_local_server=False, serializer='msgpack', serialize_types=None):
+
+    def __init__(
+        self,
+        address,
+        local_server="threaded",
+        serializer='msgpack',
+        serialize_types=None,
+    ):
         if isinstance(address, str):
             address = address.encode()
 
@@ -108,11 +109,12 @@ class RPCClient(object):
             )
         self.address = address
 
-        if start_local_server and RPCServer.get_server() is None:
+        if local_server in ("threaded", "lazy"):
             self._local_server = RPCServer(serialize_types=serialize_types)
-            self._local_server.run_lazy()
+            if local_server == "threaded":
+                self._local_server.run_in_thread()
         else:
-            self._local_server = None
+            self._local_server = local_server
 
         key = (threading.current_thread().ident, address)
         with RPCClient.clients_by_thread_lock:
@@ -140,11 +142,6 @@ class RPCClient(object):
             # it has closed. (default is -1, which can cause processes to hang
             # on exit)
             self._socket.linger = 1000
-
-            # If this thread is running a server, then we need to allow the
-            # server to process requests when the client is blocking.
-            assert reentrant in (True, False)
-            self._reentrant = reentrant
             self._poller = None
 
             logger.info("RPC connect to %s", address.decode())
@@ -163,9 +160,9 @@ class RPCClient(object):
             # used to send proxies of local objects unless there is also a server
             # for this thread...
             try:
-                self.serializer = all_serializers[serializer]()
-            except KeyError:
-                raise ValueError(f"Unsupported serializer type '{serializer}'")
+                self.serializer = all_serializers[serializer](self._local_server)
+            except KeyError as e:
+                raise ValueError(f"Unsupported serializer type '{serializer}'") from e
 
             self.ensure_connection()
         except Exception:
@@ -197,19 +194,15 @@ class RPCClient(object):
         # This poller is responsible for ensuring that the RPC server in this
         # thread is able to process requests while we are blocked waiting
         # for responses from other servers.
-        if not self._reentrant:
-            return None
-
         if self._poller is None:
-            server = RPCServer.get_server()
-            if server is None:
+            if self._local_server is None:
                 return None
-            if isinstance(server, QtRPCServer):
+            if isinstance(self._local_server, QtRPCServer):
                 self._poller = 'qt'
             else:
                 self._poller = zmq.Poller()
                 self._poller.register(self._socket, zmq.POLLIN)
-                self._poller.register(server._socket, zmq.POLLIN)
+                self._poller.register(self._local_server._socket, zmq.POLLIN)
         return self._poller
 
     def disconnected(self):
@@ -225,7 +218,14 @@ class RPCClient(object):
 
         return self._disconnected
 
-    def send(self, action, opts=None, return_type='auto', sync='sync', timeout=10.0):
+    def send(
+        self,
+        action,
+        opts=None,
+        return_type='auto',
+        sync='sync',
+        timeout=10.0,
+    ):
         """Send a request to the remote process.
 
         It is not necessary to call this method directly; instead use
@@ -324,7 +324,7 @@ class RPCClient(object):
         elif sync == 'sync':
             return fut.result(timeout=timeout)
         else:
-            raise ValueError('Invalid sync value: %s' % sync)
+            raise ValueError(f'Invalid sync value: {sync}')
 
     def call_obj(self, obj, args=None, kwargs=None, **kwds):
         """Invoke a remote callable object.
@@ -502,12 +502,7 @@ class RPCClient(object):
                 if self._socket in socks:
                     self._read_and_process_one(timeout=0)
                 elif len(socks) > 0:
-                    server = RPCServer.get_server()
-                    if server is None:
-                        # this can happen after server has unregistered itself
-                        # at exit
-                        continue
-                    server._read_and_process_one()
+                    self._local_server._read_and_process_one()
 
     def _read_and_process_one(self, timeout):
         """Read a single message from the remote server and process it by
@@ -532,7 +527,7 @@ class RPCClient(object):
             # seems to work for now.
             self._socket.setsockopt(zmq.RCVTIMEO, timeout)
             msg = self._socket.recv()
-            msg = self.serializer.loads(msg, server=None, proxy_opts=self.default_proxy_options)
+            msg = self.serializer.loads(msg, proxy_opts=self.default_proxy_options)
         except zmq.error.Again as exc:
             raise TimeoutError("Timeout waiting for Future result.") from None
 

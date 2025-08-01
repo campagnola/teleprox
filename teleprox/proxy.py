@@ -15,7 +15,7 @@ class ObjectProxy(object):
       so long as the object's thread has an RPCServer and the proxy's thread has
       an associated RPCClient.
     * Attribute lookups and method calls can be slower because the request and
-      response must traverse a socket. These can also be performed asynchronously
+      response must traverse that distance. These can also be performed asynchronously
       to avoid blocking the client thread.
     * Function argument and return types must be serializable or proxyable.
       Most basic types can be serialized, including numpy arrays. All other
@@ -25,7 +25,6 @@ class ObjectProxy(object):
       safe debugging.
     * :func:`__hash__` is overridden to ensure that remote hash values are not
       used locally.
-
 
     For the most part, object proxies can be used exactly as if they are
     local objects::
@@ -48,7 +47,7 @@ class ObjectProxy(object):
 
         # asynchronous call
         request = ros.getpid(_sync='async')
-        while not request.hasResult():
+        while request.running():
             time.sleep(0.01)
         pid = request.result()
 
@@ -79,38 +78,51 @@ class ObjectProxy(object):
         remote_object.set_callback(proxy(callback))
     """
 
-    def __init__(self, rpc_addr, obj_id, ref_id, type_str='', attributes=(), **kwds):
+    def __init__(
+        self, rpc_addr, obj_id, ref_id, local_server, type_str='', attributes=(), **kwds
+    ):
         object.__init__(self)
 
         ## can't set attributes directly because setattr is overridden.
 
-        self._init_state(rpc_addr, obj_id, ref_id, type_str, attributes)
+        self._init_state(rpc_addr, obj_id, ref_id, local_server, type_str, attributes)
         self._set_proxy_options(**kwds)
 
-    def _init_state(self, rpc_addr, obj_id, ref_id, type_str, attributes):
+    def _init_state(self, rpc_addr, obj_id, ref_id, local_server, type_str, attributes):
         if isinstance(rpc_addr, str):
             rpc_addr = rpc_addr.encode()
-        self.__dict__.update(dict(
-            _rpc_addr=rpc_addr,
-            _obj_id=obj_id,
-            _ref_id=ref_id,
-            _type_str=type_str,
-            _attributes=attributes,
-            _parent_proxy=None,
-            _hash=None,
-            _client_=None,
-            _server_=None,
-            _proxy_options={
-                'sync': 'sync',  ## 'sync', 'async', 'off'
-                'timeout': 10,  ## float
-                'return_type': 'auto',  ## 'proxy', 'value', 'auto'
-                # 'auto_proxy_args': False, ## bool
-                'defer_getattr': True,  ## True, False
-                'no_proxy_types': [type(None), str, int, float, tuple, list, dict, ObjectProxy],
-                'auto_delete': False,
-                'safe_print': True,
-            }
-        ))
+        self.__dict__.update(
+            dict(
+                _rpc_addr=rpc_addr,
+                _obj_id=obj_id,
+                _ref_id=ref_id,
+                _type_str=type_str,
+                _attributes=attributes,
+                _parent_proxy=None,
+                _hash=None,
+                _client_=None,
+                _local_server=local_server,
+                _proxy_options={
+                    'sync': 'sync',  ## 'sync', 'async', 'off'
+                    'timeout': 10,  ## float
+                    'return_type': 'auto',  ## 'proxy', 'value', 'auto'
+                    # 'auto_proxy_args': False, ## bool
+                    'defer_getattr': True,  ## True, False
+                    'no_proxy_types': [
+                        type(None),
+                        str,
+                        int,
+                        float,
+                        tuple,
+                        list,
+                        dict,
+                        ObjectProxy,
+                    ],
+                    'auto_delete': False,
+                    'safe_print': True,
+                },
+            )
+        )
 
     def __setstate__(self, state):
         """Restore proxy from serialized state."""
@@ -121,7 +133,7 @@ class ObjectProxy(object):
         addr = self._rpc_addr
         if isinstance(addr, bytes):
             addr = addr.decode()
-        state = {
+        return {
             'rpc_addr': addr,
             'obj_id': self._obj_id,
             'ref_id': self._ref_id,
@@ -131,35 +143,15 @@ class ObjectProxy(object):
         # TODO: opts DO need to be sent in some cases, like when sending
         # callbacks.
         # state.update(self._proxy_options)
-        return state
-
-    def _copy(self):
-        # Return a copy of this proxy.
-        # This is used for transferring proxies across threads (because an
-        # ObjectProxy should only be used in one thread.
-        prox = ObjectProxy(
-            self._rpc_addr,
-            self._obj_id,
-            self._ref_id,
-            self._type_str,
-            self._attributes,
-            **self._proxy_options,
-        )
-        if self._parent_proxy is not None:
-            prox._parent_proxy = self._parent_proxy.copy()
-        return prox
 
     def _client(self):
         if self._client_ is None:
             from .client import RPCClient
-            self.__dict__['_client_'] = RPCClient.get_client(self._rpc_addr)
-        return self._client_
 
-    def _server(self):
-        if self._server_ is None:
-            from .server import RPCServer
-            self.__dict__['_server_'] = RPCServer.get_server()
-        return self._server_
+            self.__dict__['_client_'] = RPCClient.get_client(
+                self._rpc_addr, local_server=self._local_server
+            )
+        return self._client_
 
     def _set_proxy_options(self, **kwds):
         """
@@ -237,7 +229,7 @@ class ObjectProxy(object):
         If the object is not serializable, then raise an exception.
         """
         if self._client() is None:
-            return self._server().unwrap_proxy(self)
+            return self._local_server.unwrap_proxy(self)
         else:
             return self._client().get_obj(self, return_type='value')
 
@@ -297,6 +289,7 @@ class ObjectProxy(object):
             self._rpc_addr,
             self._obj_id,
             self._ref_id,
+            self._local_server,
             self._type_str,
             self._attributes + (attr,),
             **opts,
