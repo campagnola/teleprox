@@ -56,7 +56,7 @@ class ObjectProxy(object):
         rsys.stdout.write('hello', _sync='off')
 
     Additionally, values returned from a remote function call are automatically
-    returned either by value (must be picklable) or by proxy. 
+    returned either by value (must be picklable) or by proxy.
     This behavior can be forced::
 
         rnp = proc._import('numpy')
@@ -64,8 +64,8 @@ class ObjectProxy(object):
         arrValue = rnp.array([1,2,3,4], _return_type='value')
 
     The default sync and return_type behaviors (as well as others) can be set
-    for each proxy individually using ObjectProxy._set_proxy_options() or globally using 
-    proc.set_proxy_options(). 
+    for each proxy individually using ObjectProxy._set_proxy_options() or globally using
+    proc.set_proxy_options().
 
     It is also possible to send arguments by proxy if an RPCServer is running
     in the caller's thread (this can be used, for example, to connect Qt
@@ -113,13 +113,11 @@ class ObjectProxy(object):
         ))
 
     def __setstate__(self, state):
-        """Restore proxy from serialized state.
-        """
+        """Restore proxy from serialized state."""
         self._init_state(**state)
 
     def __getstate__(self):
-        """Convert this proxy to a serializable structure.
-        """
+        """Convert this proxy to a serializable structure."""
         addr = self._rpc_addr
         if isinstance(addr, bytes):
             addr = addr.decode()
@@ -136,11 +134,17 @@ class ObjectProxy(object):
         return state
 
     def _copy(self):
-        # Return a copy of this proxy. 
+        # Return a copy of this proxy.
         # This is used for transferring proxies across threads (because an
         # ObjectProxy should only be used in one thread.
-        prox = ObjectProxy(self._rpc_addr, self._obj_id, self._ref_id, self._type_str,
-                           self._attributes, **self._proxy_options)
+        prox = ObjectProxy(
+            self._rpc_addr,
+            self._obj_id,
+            self._ref_id,
+            self._type_str,
+            self._attributes,
+            **self._proxy_options,
+        )
         if self._parent_proxy is not None:
             prox._parent_proxy = self._parent_proxy.copy()
         return prox
@@ -162,18 +166,18 @@ class ObjectProxy(object):
         Change the behavior of this proxy. For all options, a value of None
         will cause the proxy to instead use the default behavior defined
         by its parent Process.
-        
+
         Parameters
         ----------
         sync : 'sync', 'async', 'off', or None
             If 'async', then calling methods will return a :class:`Future` object
-            that can be used to inquire later about the result of the 
+            that can be used to inquire later about the result of the
             method call.
             If 'sync', then calling a method
             will block until the remote process has returned its result
             or the timeout has elapsed (in this case, a Request object
             is returned instead).
-            If 'off', then the remote process is instructed *not* to 
+            If 'off', then the remote process is instructed *not* to
             reply and the method call will return None immediately.
             This option can be overridden by supplying a ``_sync`` keyword
             argument when calling the method (see :func:`__call__`).
@@ -187,23 +191,23 @@ class ObjectProxy(object):
             This option can be overridden by supplying a ``_return_type`` keyword
             argument when calling the method (see :func:`__call__`).
         auto_proxy : bool or None
-            If True, arguments to __call__ are 
-            automatically converted to proxy unless their type is 
+            If True, arguments to __call__ are
+            automatically converted to proxy unless their type is
             listed in no_proxy_types (see below). If False, arguments
             are left untouched. Use proxy(obj) to manually convert
-            arguments before sending. 
+            arguments before sending.
         timeout : float or None
-            Length of time to wait during synchronous 
+            Length of time to wait during synchronous
             requests before returning a Request object instead.
             This option can be overridden by supplying a ``_timeout`` keyword
             argument when calling a method (see :func:`__call__`).
         defer_getattr : True, False, or None
-            If False, all attribute requests will be sent to the remote 
+            If False, all attribute requests will be sent to the remote
             process immediately and will block until a response is
             received (or timeout has elapsed).
             If True, requesting an attribute from the proxy returns a
             new proxy immediately. The remote process is *not* contacted
-            to make this request. This is faster, but it is possible to 
+            to make this request. This is faster, but it is possible to
             request an attribute that does not exist on the proxied
             object. In this case, AttributeError will not be raised
             until an attempt is made to look up the attribute on the
@@ -223,13 +227,13 @@ class ObjectProxy(object):
         """
         for k in kwds:
             if k not in self._proxy_options:
-                raise KeyError("Unrecognized proxy option '%s'" % k)
+                raise KeyError(f"Unrecognized proxy option '{k}'")
         self._proxy_options.update(kwds)
 
     def _get_value(self):
         """
         Return the value of the proxied object.
-        
+
         If the object is not serializable, then raise an exception.
         """
         if self._client() is None:
@@ -242,12 +246,10 @@ class ObjectProxy(object):
             orep = '.'.join((self._type_str,) + self._attributes)
         else:
             orep = self._deferred_attr('__repr__')(_return_type='value')
-        rep = '<ObjectProxy for %s[%d] %s >' % (self._rpc_addr.decode(), self._obj_id, orep)
-        return rep
+        return f'<ObjectProxy for {self._rpc_addr.decode()}[{self._obj_id:d}] {orep} >'
 
     def _undefer(self, sync='sync', return_type='auto', **kwds):
-        """Process any deferred attribute lookups and return the result.
-        """
+        """Process any deferred attribute lookups and return the result."""
         if len(self._attributes) == 0:
             return self
         # Transfer sends this object to the remote process and returns a new proxy.
@@ -256,7 +258,7 @@ class ObjectProxy(object):
 
     def _delete(self, sync='sync', **kwds):
         """Ask the RPC server to release the reference held by this proxy.
-        
+
         Note: this does not guarantee the remote object will be deleted; only
         that its reference count will be reduced. Any copies of this proxy will
         no longer be usable.
@@ -272,7 +274,7 @@ class ObjectProxy(object):
         Calls __getattr__ on the remote object and returns the attribute
         by value or by proxy depending on the options set (see
         ObjectProxy._set_proxy_options and RemoteEventHandler.set_proxy_options)
-        
+
         If the option 'defer_getattr' is True for this proxy, then a new proxy object
         is returned _without_ asking the remote object whether the named attribute exists.
         This can save time when making multiple chained attribute requests,
@@ -291,8 +293,14 @@ class ObjectProxy(object):
         """
         opts = self._proxy_options.copy()
         opts.update(kwds)
-        proxy = ObjectProxy(self._rpc_addr, self._obj_id, self._ref_id,
-                            self._type_str, self._attributes + (attr,), **opts)
+        proxy = ObjectProxy(
+            self._rpc_addr,
+            self._obj_id,
+            self._ref_id,
+            self._type_str,
+            self._attributes + (attr,),
+            **opts,
+        )
         # Keep a reference to the parent proxy so that the remote object cannot be
         # released as long as this proxy is alive.
         proxy.__dict__['_parent_proxy'] = self
@@ -300,23 +308,23 @@ class ObjectProxy(object):
 
     def __call__(self, *args, **kwargs):
         """Call the proxied object from the remote process.
-        
+
         All positional and keyword arguments (except those listed below) are
-        sent to the remote procedure call. 
-        
+        sent to the remote procedure call.
+
         In synchronous mode (see parameters below), this method blocks until
         the remote return value has been received, and then returns that value.
         In asynchronous mode, this method returns a :class:`Future` instance
         immediately, which may be used to retrieve the return value later. If
         return is disabled, then the method immediately returns None.
-        
+
         If the remote call raises an exception on the remote process, then this
         method will raise RemoteCallException if in synchronous mode, or calling
         :func:`Future.result()` will raise RemoteCallException if in
         asynchronous mode. If return is disabled, then remote exceptions will
         be ignored.
-        
-        
+
+
         Parameters
         ----------
         _sync:    'off', 'sync', or 'async'
@@ -325,16 +333,16 @@ class ObjectProxy(object):
         _return_type:  'value', 'proxy', or 'auto'
             Set the return type for this call. The default value is determined by
             the 'return_type' argument to :func:`_set_proxy_options()`.
-        _timeout: float 
+        _timeout: float
             Set the timeout for this call. The default value is determined by
             the 'timeout' argument to :func:`_set_proxy_options()`.
-        
+
         See also
         --------
-        
+
         RPCClient.call_obj()
         Future
-        
+
         """
         opts = {
             'sync': self._proxy_options['sync'],
@@ -342,7 +350,7 @@ class ObjectProxy(object):
             'timeout': self._proxy_options['timeout'],
         }
         for k in opts:
-            opts[k] = kwargs.pop('_' + k, opts[k])
+            opts[k] = kwargs.pop(f'_{k}', opts[k])
         return self._client().call_obj(obj=self, args=args, kwargs=kwargs, **opts)
 
     def __hash__(self):
@@ -350,7 +358,9 @@ class ObjectProxy(object):
         hashes.
         """
         if self._hash is None:
-            self.__dict__['_hash'] = hash((self._rpc_addr, self._obj_id, self._attributes))
+            self.__dict__['_hash'] = hash(
+                (self._rpc_addr, self._obj_id, self._attributes)
+            )
         return self._hash
 
     # Explicitly proxy special methods. Is there a better way to do this??
@@ -430,9 +440,11 @@ class ObjectProxy(object):
     def __eq__(self, *args):
         # If checking equality between two proxies to the same object, then
         # we can immediately return True.
-        if (isinstance(args[0], ObjectProxy) and
-                args[0]._rpc_addr == self._rpc_addr and
-                args[0]._obj_id == self._obj_id):
+        if (
+            isinstance(args[0], ObjectProxy)
+            and args[0]._rpc_addr == self._rpc_addr
+            and args[0]._obj_id == self._obj_id
+        ):
             return True
         return self._deferred_attr('__eq__')(*args)
 

@@ -2,21 +2,22 @@
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
+import concurrent.futures
+import contextlib
+import logging
 import re
-import socket
 import sys
+import threading
 import time
 import weakref
-import concurrent.futures
-import threading
-from teleprox.util import check_tcp_port
-import zmq
-import logging
 
+import zmq
+
+from teleprox.util import check_tcp_port
+from . import log
+from .qt_server import QtRPCServer
 from .serializer import all_serializers
 from .server import RPCServer
-from .qt_server import QtRPCServer
-from . import log
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +88,7 @@ class RPCClient(object):
 
     @staticmethod
     def forget_client(client):
-        """Forget a client that is no longer needed.
-        """
+        """Forget a client that is no longer needed."""
         key = (threading.current_thread().ident, client.address)
         with RPCClient.clients_by_thread_lock:
             RPCClient.clients_by_thread.pop(key, None)
@@ -493,10 +493,8 @@ class RPCClient(object):
                 from .qt import QApplication
 
                 QApplication.processEvents()
-                try:
+                with contextlib.suppress(TimeoutError):
                     self._read_and_process_one(timeout=0.05)
-                except TimeoutError:
-                    pass
             else:
                 # Poll for input on both the client's socket and the server's
                 # socket. This is necessary to avoid deadlocks.

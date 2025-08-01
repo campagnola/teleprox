@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class RPCServer(object):
     """Remote procedure call server for invoking requests on proxied objects.
-    
+
     RPCServer instances are automatically created when using :class:`start_process`.
     It is rarely necessary for the user to interact directly with RPCServer.
     
@@ -41,47 +41,47 @@ class RPCServer(object):
     ----------
     address : URL
         Address for RPC server to bind to. Default is ``'tcp://127.0.0.1:*'``.
-        
+
         **Note:** binding RPCServer to a public IP address is a potential
         security hazard.
 
     Notes
     -----
-    
+
     **RPCServer is not a secure server.** It is intended to be used only on trusted
     networks; anyone with tcp access to the server can execute arbitrary code
     on the server.
-        
-    RPCServer is not a thread-safe class. Only use :class:`RPCClient` to communicate
-    with RPCServer from other threads.
-    
+
+    RPCServer is not a thread-safe class. Possibly use a :class:`RPCClient` to
+    communicate with RPCServer from other threads.
+
 
     Examples
     --------
 
     ::
-    
+
         # In host/process/thread 1:
         server = RPCServer()
         rpc_addr = server.address
 
         # Publish an object for others to access easily
         server['object_name'] = MyClass()
-        
-        
+
+
         # In host/process/thread 2: (you must communicate rpc_addr manually)
         client = RPCClient(rpc_addr)
-        
+
         # Get a proxy to published object; use this (almost) exactly as you
         # would a local object:
         remote_obj = client['object_name']
         remote_obj.method(...)
-        
+
         # Or, you can remotely import and operate a module:
         remote_module = client._import("my.module.name")
         remote_obj = remote_module.MyClass()
         remote_obj.method(...)
-        
+
         # See ObjectProxy for more information on interacting with remote
         # objects, including (a)synchronous communication.
 
@@ -191,7 +191,7 @@ class RPCServer(object):
 
     def get_proxy(self, obj, **kwds):
         """Return an ObjectProxy referring to a local object.
-        
+
         This proxy can be sent via RPC to any other node.
         """
         rid = self._next_ref_id
@@ -213,14 +213,15 @@ class RPCServer(object):
         return oid
 
     def unwrap_proxy(self, proxy):
-        """Return the local python object referenced by *proxy*.
-        """
+        """Return the local python object referenced by *proxy*."""
         try:
             oid = proxy._obj_id
             obj = self._proxy_refs[oid][0]
         except KeyError as e:
-            raise KeyError(f"Invalid proxy object ID {proxy.obj_id!r}."
-                           " The object may have been released already.") from e
+            raise KeyError(
+                f"Invalid proxy object ID {proxy.obj_id!r}."
+                " The object may have been released already."
+            ) from e
         for attr in proxy._attributes:
             obj = getattr(obj, attr)
         # logger.debug("server %s unwrap proxy %d: %s", self.address, oid, obj)
@@ -230,8 +231,7 @@ class RPCServer(object):
         return self._namespace[key]
 
     def __setitem__(self, key, value):
-        """Define an object that may be retrieved by name from the client.
-        """
+        """Define an object that may be retrieved by name from the client."""
         self._namespace[key] = value
 
     @staticmethod
@@ -261,7 +261,7 @@ class RPCServer(object):
     def _process_one(self, caller, msg):
         """
         Invoke the requested action.
-        
+
         This method sends back to the client either the return value or an
         error message.
         """
@@ -321,16 +321,19 @@ class RPCServer(object):
             self._final_close()
 
     def _send_error(self, caller, req_id, exc):
-        exc_str = ["Error while processing request %s [%d]: " % (caller.decode(), req_id)]
+        exc_str = [
+            "Error while processing request %s [%d]: " % (caller.decode(), req_id)
+        ]
         exc_str += traceback.format_stack()
         exc_str += [" < exception caught here >\n"]
         exc_str += traceback.format_exception(*exc)
         self._send_result(caller, req_id, error=(exc[0].__name__, exc_str))
 
     def _send_result(self, caller, req_id, rval=None, error=None):
-        result = {'action': 'return', 'req_id': req_id,
-                  'rval': rval, 'error': error}
-        logger.info("RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id'])
+        result = {'action': 'return', 'req_id': req_id, 'rval': rval, 'error': error}
+        logger.info(
+            "RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id']
+        )
         logger.debug("    => %s", result)
 
         # Select the correct serializer for this client
@@ -341,8 +344,7 @@ class RPCServer(object):
         self._socket.send_multipart([caller, data])
 
     def process_action(self, action, opts, return_type, caller):
-        """Invoke a single action and return the result.
-        """
+        """Invoke a single action and return the result."""
         if action == 'call_obj':
             obj = opts['obj']
             fnargs = opts.get('args', ())
@@ -352,7 +354,9 @@ class RPCServer(object):
                 try:
                     result = obj(*fnargs)
                 except:
-                    logger.warning("Failed to call object %s: %d, %s", obj, len(fnargs), fnargs[1:])
+                    logger.warning(
+                        "Failed to call object %s: %d, %s", obj, len(fnargs), fnargs[1:]
+                    )
                     raise
             else:
                 result = obj(*fnargs, **fnkwds)
@@ -420,10 +424,11 @@ class RPCServer(object):
 
     def close(self):
         """Ask the server to close.
-        
+
         This method is thread-safe.
         """
         from .client import RPCClient
+
         cli = RPCClient.get_client(self.address)
         if cli is None:
             self.process_action('close', None, None, None)
@@ -435,8 +440,7 @@ class RPCServer(object):
         self._socket.close()
 
     def running(self):
-        """Boolean indicating whether the server is still running.
-        """
+        """Boolean indicating whether the server is still running."""
         return self._closed is False
 
     def run_forever(self):
@@ -451,8 +455,7 @@ class RPCServer(object):
             self._process_one(name, msg)
 
     def run_in_thread(self):
-        """Call run_forever in a new thread.
-        """
+        """Call run_forever in a new thread."""
         self._run_thread = threading.Thread(target=self.run_forever, daemon=True)
         self._run_thread.start()
 
@@ -474,7 +477,7 @@ class RPCServer(object):
         RPCServer.register_server(self)
 
     def auto_proxy(self, obj, no_proxy_types):
-        # Return object wrapped in LocalObjectProxy _unless_ its type is in noProxyTypes.
+        # Return object wrapped in ObjectProxy _unless_ its type is in no_proxy_types.
         for typ in no_proxy_types:
             if isinstance(obj, typ):
                 return obj
@@ -482,7 +485,7 @@ class RPCServer(object):
 
     def start_timer(self, callback, interval, **kwds):
         """Start a timer that invokes *callback* at regular intervals.
-        
+
         Parameters
         ----------
         callback : Callable

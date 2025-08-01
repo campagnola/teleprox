@@ -3,8 +3,16 @@ import threading
 import time
 
 import numpy as np
+import pytest
 
-from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, start_process
+from teleprox import (
+    RPCClient,
+    RemoteCallException,
+    RPCServer,
+    QtRPCServer,
+    ObjectProxy,
+    start_process,
+)
 from teleprox.tests.check_qt import requires_qt, qt_available
 
 logger = logging.getLogger(__name__)
@@ -46,9 +54,16 @@ def test_rpc():
             return self.name, obj.name, obj.add(5, 7), obj.array(), obj.get_list()
 
         def types(self):
-            return {'int': 7, 'float': 0.5, 'str': 'xxx', 'bytes': bytes('xxx', 'utf8'),
-                    'ndarray': np.arange(10), 'dict': {}, 'list': [],
-                    'ObjectProxy': self}
+            return {
+                'int': 7,
+                'float': 0.5,
+                'str': 'xxx',
+                'bytes': bytes('xxx', 'utf8'),
+                'ndarray': np.arange(10),
+                'dict': {},
+                'list': [],
+                'ObjectProxy': self,
+            }
 
         def type(self, x):
             return type(x).__name__
@@ -95,7 +110,7 @@ def test_rpc():
         if k != 'ObjectProxy':
             assert obj.type(v) == k
 
-    # NOTE: msgpack converts list to tuple. 
+    # NOTE: msgpack converts list to tuple.
     # See: https://github.com/msgpack/msgpack-python/issues/98
     assert obj.get_list() == [0, 'x', 7]
 
@@ -192,6 +207,7 @@ def test_rpc():
 
     logger.info("-- Test import --")
     import os.path as osp
+
     rosp = client._import('os.path')
     assert osp.abspath(osp.dirname(__file__)) == rosp.abspath(rosp.dirname(__file__))
 
@@ -228,7 +244,9 @@ def test_rpc():
     logger.info("-- Test JSON client --")
     # Start a JSON client in a remote process
     cli_proc = start_process(name='test_rpc_cli_proc')
-    cli = cli_proc.client._import('teleprox').RPCClient(server2.address, serializer='json')
+    cli = cli_proc.client._import('teleprox').RPCClient(
+        server2.address, serializer='json'
+    )
     # Check everything is ok..
     assert cli.serializer.type._get_value() == 'json'
     assert cli['test_class']('json-tester').add(3, 4) == 7
@@ -275,7 +293,7 @@ def test_qt_rpc():
     server = QtRPCServer(quit_on_close=False)
     server.run_forever()
 
-    # Start a thread that will remotely request a widget to be created in the 
+    # Start a thread that will remotely request a widget to be created in the
     # GUI thread.
     class TestThread(threading.Thread):
         def __init__(self, addr):
