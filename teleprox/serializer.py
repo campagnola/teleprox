@@ -70,6 +70,8 @@ class Serializer:
     
     """
 
+    type = None
+
     def __init__(self, server=None):
         self.server = server
         self._serialize_types = default_serialize_types

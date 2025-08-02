@@ -16,7 +16,7 @@ import zmq
 from teleprox.util import check_tcp_port
 from . import log
 from .qt_server import QtRPCServer
-from .serializer import all_serializers
+from .serializer import all_serializers, Serializer
 from .server import RPCServer
 
 logger = logging.getLogger(__name__)
@@ -160,7 +160,7 @@ class RPCClient(object):
             # used to send proxies of local objects unless there is also a server
             # for this thread...
             try:
-                self.serializer = all_serializers[serializer](self._local_server)
+                self.serializer: Serializer = all_serializers[serializer](self._local_server)
             except KeyError as e:
                 raise ValueError(f"Unsupported serializer type '{serializer}'") from e
 
@@ -197,8 +197,10 @@ class RPCClient(object):
         if self._poller is None:
             if self._local_server is None:
                 return None
-            if isinstance(self._local_server, QtRPCServer):
+            elif isinstance(self._local_server, QtRPCServer):
                 self._poller = 'qt'
+            elif not self._local_server.lazy:
+                return None
             else:
                 self._poller = zmq.Poller()
                 self._poller.register(self._socket, zmq.POLLIN)
@@ -497,11 +499,11 @@ class RPCClient(object):
                     self._read_and_process_one(timeout=0.05)
             else:
                 # Poll for input on both the client's socket and the server's
-                # socket. This is necessary to avoid deadlocks.
+                # socket. This is for lazy local servers.
                 socks = [x[0] for x in poller.poll(itimeout)]
                 if self._socket in socks:
                     self._read_and_process_one(timeout=0)
-                elif len(socks) > 0:
+                if self._local_server._socket in socks:
                     self._local_server._read_and_process_one()
 
     def _read_and_process_one(self, timeout):
@@ -552,7 +554,7 @@ class RPCClient(object):
             self.address.decode(),
             msg.get('req_id', None),
         )
-        logger.debug("    => %s" % msg)
+        logger.debug(f"    => {msg}")
         if msg['action'] == 'return':
             req_id = msg['req_id']
             fut = self.futures.pop(req_id, None)
@@ -566,7 +568,7 @@ class RPCClient(object):
         elif msg['action'] == 'disconnect':
             self._server_disconnected()
         else:
-            raise ValueError("Invalid action '%s'" % msg['action'])
+            raise ValueError(f"Invalid action '{msg['action']}'")
 
     def _close_request_returned(self, fut):
         try:

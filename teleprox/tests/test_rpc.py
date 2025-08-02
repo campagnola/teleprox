@@ -414,7 +414,7 @@ def test_callbacks():
 
     # This should fail because we can't serialize the function without a local server
     with pytest.raises(TypeError):
-        # Try to use map() with our callback - this should fail
+        # Use remote map() with our callback so as to execute in the remote process
         builtins.list(builtins.map(my_callback, ["test1", "test2"]))
 
     proc_no_server.stop()
@@ -494,7 +494,7 @@ __main__.CallbackTester = CallbackTester
         # Test lambda callback
         callback_result.clear()
         lambda_response = tester_with_server.invoke_callback(
-            lambda x: f"lambda_processed: {x.name}"
+            lambda x: f"lambda_processed: {x.name()}"
         )
         assert lambda_response == "lambda_processed: CallbackTester"
 

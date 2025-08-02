@@ -60,10 +60,9 @@ class QtRPCServer(RPCServer):
         self.poll_thread = QtPollThread(self)
         
     def run_forever(self):
-        name = ('%s.%s.%s' % (log.get_host_name(), log.get_process_name(), 
-                              log.get_thread_name()))
+        name = f'{log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}'
         logger.info("RPC start server: %s@%s", name, self.address.decode())
-        RPCServer.register_server(self)
+        self.lazy = False
         self.poll_thread.start()
 
     def process_action(self, action, opts, return_type, caller):
@@ -74,13 +73,13 @@ class QtRPCServer(RPCServer):
                 from teleprox import qt
                 qt.QApplication.instance().quit()
             # can't stop poller thread here--that would prevent the return 
-            # message being sent. In general it should be safe to leave this thread
+            # message being sent. In general, it should be safe to leave this thread
             # running anyway.
-            #self.poll_thread.stop()
+            # self.poll_thread.stop()
         return RPCServer.process_action(self, action, opts, return_type, caller)
 
     def _final_close(self):
         # Block for a moment to allow the poller thread to flush any pending
         # messages. Ideally, we could let the poller thread keep the process
-        # alive until it is done, but then we can end up with zombie processes..
+        # alive until it is done, but then we can end up with zombie processes...
         time.sleep(0.1)

@@ -114,6 +114,7 @@ class RPCServer(object):
         # when the server exits.
         self._clients = {}  # {socket_id: serializer_type}
 
+        self.lazy = True
         self._run_thread = None
 
         # Objects that may be retrieved by name using client['obj_name']
@@ -192,6 +193,11 @@ class RPCServer(object):
     @staticmethod
     def _read_one(socket):
         parts = socket.recv_multipart()
+        if len(parts) < 6:
+            raise ValueError(
+                "Invalid RPC message received: "
+                f"expected at least 6 parts, got {len(parts)}: {parts}"
+            )
         name, req_id, action, return_type, ser_type, opts = parts
 
         msg = {
@@ -261,7 +267,7 @@ class RPCServer(object):
 
                 try:
                     self._send_result(caller, req_id, rval=result)
-                except:
+                except Exception:
                     logger.warning("    => Failed to send result for %d", req_id)
                     exc = sys.exc_info()
                     self._send_error(caller, req_id, exc)
@@ -405,6 +411,7 @@ class RPCServer(object):
 
     def run_forever(self):
         """Read and process RPC requests until the server is asked to close."""
+        self.lazy = False
         logger.info(
             f"RPC start server loop: {log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}"
             f"@{self.address.decode()}"
