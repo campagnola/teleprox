@@ -62,7 +62,6 @@ class QtRPCServer(RPCServer):
     def run_forever(self):
         name = f'{log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}'
         logger.info("RPC start server: %s@%s", name, self.address.decode())
-        self.lazy = False
         self.poll_thread.start()
 
     def process_action(self, action, opts, return_type, caller):

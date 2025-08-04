@@ -33,7 +33,7 @@ class RPCServer(object):
         separate thread. This allows the server to run in the background while the
         main thread continues to do other work.
     * **Lazy**: pass a plain RPCServer around to e.g. an RPCClient, which can use it to
-      check for requests (this allows reentrant function calls). You can also manually
+      check for requests (which allows reentrant function calls). You can also manually
       handle requests with `_read_and_process_one()` in this mode.
     * **Qt event loop**: use :class:`QtRPCServer`. In this mode, messages are polled in
       a separate thread, but then sent to the Qt event loop by signal and processed
@@ -114,7 +114,6 @@ class RPCServer(object):
         # when the server exits.
         self._clients = {}  # {socket_id: serializer_type}
 
-        self.lazy = True
         self._run_thread = None
 
         # Objects that may be retrieved by name using client['obj_name']
@@ -412,7 +411,6 @@ class RPCServer(object):
 
     def run_forever(self):
         """Read and process RPC requests until the server is asked to close."""
-        self.lazy = False
         logger.info(
             f"RPC start server loop: {log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}"
             f"@{self.address.decode()}"
@@ -425,6 +423,13 @@ class RPCServer(object):
         """Call run_forever in a new thread."""
         self._run_thread = threading.Thread(target=self.run_forever, daemon=True)
         self._run_thread.start()
+
+    def client_should_handle_requests(self):
+        """For servers that don't run a thread, or for handling the back-and-forth of e.g. callbacks, clients should
+        call this method to check if the client can take over the server's request handling."""
+        if self._run_thread is None and self.running():
+            return True
+        return threading.current_thread().ident == self._run_thread.ident
 
     def auto_proxy(self, obj, no_proxy_types):
         # Return object wrapped in ObjectProxy _unless_ its type is in no_proxy_types.

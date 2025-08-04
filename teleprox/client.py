@@ -199,12 +199,12 @@ class RPCClient(object):
                 return None
             elif isinstance(self._local_server, QtRPCServer):
                 self._poller = 'qt'
-            elif not self._local_server.lazy:
-                return None
-            else:
+            elif self._local_server.client_should_handle_requests():
                 self._poller = zmq.Poller()
                 self._poller.register(self._socket, zmq.POLLIN)
                 self._poller.register(self._local_server._socket, zmq.POLLIN)
+            else:
+                return None
         return self._poller
 
     def disconnected(self):

@@ -288,8 +288,6 @@ def test_rpc():
 def test_qt_rpc():
     previous_level = logger.level
     # logger.level = logging.DEBUG
-    if QtRPCServer.get_server() is not None:
-        QtRPCServer.get_server().close()
     server = QtRPCServer(quit_on_close=False)
     server.run_forever()
 
