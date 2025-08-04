@@ -154,7 +154,9 @@ class RPCServer(object):
         self._next_ref_id += 1
         oid = self._get_object_id(obj)
         type_str = str(type(obj))
-        proxy = ObjectProxy(self.address, oid, rid, self, type_str, attributes=(), **kwds)
+        proxy = ObjectProxy(
+            self.address, oid, rid, self, type_str, attributes=(), **kwds
+        )
         proxy_ref = self._proxy_refs.setdefault(oid, [obj, set()])
         proxy_ref[1].add(rid)
         # logger.debug("server %s add proxy %d: %s", self.address, oid, obj)
@@ -193,10 +195,9 @@ class RPCServer(object):
     @staticmethod
     def _read_one(socket):
         parts = socket.recv_multipart()
-        if len(parts) < 6:
+        if len(parts) != 6:
             raise ValueError(
-                "Invalid RPC message received: "
-                f"expected at least 6 parts, got {len(parts)}: {parts}"
+                f"Invalid RPC message: expected 6 parts, got {len(parts)}: {parts}"
             )
         name, req_id, action, return_type, ser_type, opts = parts
 
