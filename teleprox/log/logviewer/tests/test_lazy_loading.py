@@ -16,13 +16,7 @@ except ImportError:
 class TestLogViewerLazyLoading:
     """Test cases for lazy loading functionality using dummy placeholders."""
     
-    @pytest.fixture
-    def app(self):
-        """Create QApplication for tests."""
-        app = qt.QApplication.instance()
-        if app is None:
-            app = qt.QApplication([])
-        return app
+    # QApplication fixture provided by conftest.py
     
     @pytest.fixture
     def log_model(self):
@@ -81,7 +75,7 @@ class TestLogViewerLazyLoading:
         assert not log_model.has_loading_placeholder(parent_item)
         assert parent_item.data(ItemDataRole.CHILDREN_FETCHED) is True
     
-    def test_logviewer_integration(self, app):
+    def test_logviewer_integration(self, qapp):
         """Test that LogViewer properly integrates with lazy loading."""
         # Create LogViewer
         viewer = LogViewer()
@@ -120,7 +114,7 @@ class TestLogViewerLazyLoading:
         assert not viewer.model.has_loading_placeholder(log_item)
         assert log_item.rowCount() > 1
     
-    def test_no_placeholder_without_exception(self, app):
+    def test_no_placeholder_without_exception(self, qapp):
         """Test that no placeholder is added for records without exceptions."""
         viewer = LogViewer(logger='test.no.exception')  # Pass logger name to constructor
         logger = logging.getLogger('test.no.exception')
@@ -138,7 +132,7 @@ class TestLogViewerLazyLoading:
 
 def run_manual_tests():
     """Run basic tests without pytest."""
-    app = qt.QApplication([])
+    # QApplication created by conftest.py fixture
     
     # Test 1: Basic placeholder functionality
     print("Test 1: Basic placeholder functionality...")

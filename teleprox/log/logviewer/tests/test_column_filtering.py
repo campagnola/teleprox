@@ -16,15 +16,9 @@ except ImportError:
 class TestNewColumnFiltering:
     """Test cases for new column filtering (host, process, thread) with children preservation."""
     
-    @pytest.fixture
-    def app(self):
-        """Create QApplication for tests."""
-        app = qt.QApplication.instance()
-        if app is None:
-            app = qt.QApplication([])
-        return app
+    # QApplication fixture provided by conftest.py
     
-    def test_new_column_filters_preserve_children(self, app):
+    def test_new_column_filters_preserve_children(self, qapp):
         """Test that new column filters (host, process, thread) don't cause children to disappear."""
         viewer = LogViewer(logger='test.new.columns.children')
         logger = logging.getLogger('test.new.columns.children')
@@ -36,7 +30,7 @@ class TestNewColumnFiltering:
         except Exception:
             logger.error("Error with exception details", exc_info=True)
         
-        app.processEvents()
+        qapp.processEvents()
         
         # Find and expand the exception
         exception_item = None
@@ -63,7 +57,7 @@ class TestNewColumnFiltering:
         for filter_expr in test_filters:
             # Apply filter
             viewer.apply_filters([filter_expr])
-            app.processEvents()
+            qapp.processEvents()
             
             # Check that parent is still visible
             filtered_model = viewer.tree.model()
@@ -88,9 +82,9 @@ class TestNewColumnFiltering:
             
             # Clear filter for next test
             viewer.apply_filters([])
-            app.processEvents()
+            qapp.processEvents()
     
-    def test_new_column_child_inheritance(self, app):
+    def test_new_column_child_inheritance(self, qapp):
         """Test that children properly inherit parent's data for new columns."""
         viewer = LogViewer(logger='test.inherit.new.columns')
         logger = logging.getLogger('test.inherit.new.columns')
@@ -102,7 +96,7 @@ class TestNewColumnFiltering:
         except Exception:
             logger.error("Error for inheritance testing", exc_info=True)
         
-        app.processEvents()
+        qapp.processEvents()
         
         # Find and expand exception
         exception_item = None
@@ -137,7 +131,7 @@ class TestNewColumnFiltering:
         assert process_text == 'MainProcess', f"Child should inherit process 'MainProcess', got '{process_text}'"
         assert thread_text == 'MainThread', f"Child should inherit thread 'MainThread', got '{thread_text}'"
     
-    def test_empty_host_gets_default_value(self, app):
+    def test_empty_host_gets_default_value(self, qapp):
         """Test that empty hostName gets default value of 'localhost'."""
         viewer = LogViewer(logger='test.default.host')
         logger = logging.getLogger('test.default.host')
@@ -145,7 +139,7 @@ class TestNewColumnFiltering:
         
         # Add a regular log message (hostName will be empty by default)
         logger.info("Test message for default host")
-        app.processEvents()
+        qapp.processEvents()
         
         assert viewer.model.rowCount() > 0, "Should have log entries"
         
@@ -156,7 +150,7 @@ class TestNewColumnFiltering:
         host_text = host_item.text()
         assert host_text == 'localhost', f"Empty hostName should default to 'localhost', got '{host_text}'"
     
-    def test_new_column_filters_with_expansion_state(self, app):
+    def test_new_column_filters_with_expansion_state(self, qapp):
         """Test that expansion state is preserved when using new column filters."""
         viewer = LogViewer(logger='test.expansion.new.columns')
         logger = logging.getLogger('test.expansion.new.columns')
@@ -168,7 +162,7 @@ class TestNewColumnFiltering:
         except Exception:
             logger.error("Error for expansion testing", exc_info=True)
         
-        app.processEvents()
+        qapp.processEvents()
         
         # Find and expand exception
         exception_item = None
@@ -194,7 +188,7 @@ class TestNewColumnFiltering:
         
         # Apply new column filter
         viewer.apply_filters(['host: localhost'])
-        app.processEvents()
+        qapp.processEvents()
         
         # Check that item is still expanded and children are visible
         filtered_model = viewer.tree.model()
@@ -207,23 +201,26 @@ class TestNewColumnFiltering:
 
 def run_manual_tests():
     """Run basic tests without pytest."""
-    app = qt.QApplication([])
+    # Create QApplication for manual testing (conftest.py only works in pytest)
+    qapp = qt.QApplication.instance()
+    if qapp is None:
+        qapp = qt.QApplication([])
     
     print("Test 1: New column filters preserve children...")
     test = TestNewColumnFiltering()
-    test.test_new_column_filters_preserve_children(app)
+    test.test_new_column_filters_preserve_children(qapp)
     print("✅ Test 1 passed!")
     
     print("Test 2: New column child inheritance...")
-    test.test_new_column_child_inheritance(app)
+    test.test_new_column_child_inheritance(qapp)
     print("✅ Test 2 passed!")
     
     print("Test 3: Empty host gets default value...")
-    test.test_empty_host_gets_default_value(app)
+    test.test_empty_host_gets_default_value(qapp)
     print("✅ Test 3 passed!")
     
     print("Test 4: New column filters with expansion state...")
-    test.test_new_column_filters_with_expansion_state(app)
+    test.test_new_column_filters_with_expansion_state(qapp)
     print("✅ Test 4 passed!")
     
     print("All new column filtering tests completed successfully!")
