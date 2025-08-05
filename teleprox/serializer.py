@@ -102,7 +102,7 @@ class Serializer:
         if not isinstance(obj, self._serialize_types):
             # If this object type is not in server.no_proxy_types, then send by proxy.
             if self.server is None:
-                raise TypeError("Cannot make proxy to %r without proxy server." % obj)
+                raise TypeError(f"Cannot make proxy to {obj!r} without proxy server.")
             obj = self.server.get_proxy(obj)
 
         if HAVE_NUMPY and isinstance(obj, np.ndarray):

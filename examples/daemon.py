@@ -3,12 +3,15 @@ Create a daemon process -- one that is completely disconnected from this termina
 
 Show that we can reconnect to the process and catch logging output from it.
 """
-import time, atexit, logging
+import time, atexit, signal, sys, logging
 import teleprox.log
 
 
 # start a daemon process
 daemon = teleprox.start_process('example-daemon', daemon=True)
+
+# just for this example, make sure the daemon is cleaned up when we exit
+# (normally you would not do this, as the daemon is meant to run indefinitely)
 atexit.register(daemon.kill)
 
 address = daemon.client.address
