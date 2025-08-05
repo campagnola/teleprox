@@ -345,11 +345,8 @@ def test_disconnect():
     # Check that our local client for server_proc knows the server is disconnected, even though
     # it was client_proc that closed the server.
     assert server_proc.client.disconnected() is True
-    try:
-        print(server_proc.client.ping())
-        assert False, "Expected RuntimeError"
-    except RuntimeError:
-        pass
+    with pytest.raises(RuntimeError):
+        server_proc.client.ping()
 
     server_proc.kill()
     client_proc.kill()
@@ -367,11 +364,8 @@ def test_disconnect():
     server_proc3 = start_process('test_disconnect_server_proc3')
     server_proc3.kill()
 
-    try:
+    with pytest.raises(TimeoutError):
         server_proc3.client.ping(timeout=1)
-        assert False, "Expected TimeoutError"
-    except TimeoutError:
-        pass
 
     # server doesn't hang up if clients are not available to receive disconnect
     # message
