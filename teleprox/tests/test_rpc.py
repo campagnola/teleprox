@@ -1,42 +1,47 @@
-import threading, time, logging
-from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, start_process
-from teleprox.log import RPCLogHandler, set_process_name, set_thread_name, start_log_server
-import numpy as np
-from teleprox.tests.check_qt import requires_qt, qt_available
+import logging
+import threading
+import time
 
+import numpy as np
+
+from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, start_process
+from teleprox.tests.check_qt import requires_qt, qt_available
 
 logger = logging.getLogger(__name__)
 
 if qt_available:
     from teleprox import qt
+
     qapp = qt.make_qapp()
 
 
 def test_rpc():
     previous_level = logger.level
-    #logger.level = logging.DEBUG
-    
+
+    # logger.level = logging.DEBUG
+
     class TestClass(object):
         count = 0
+
         def __init__(self, name):
             self.name = name
             TestClass.count += 1
 
         def __del__(self):
             TestClass.count -= 1
-        
+
         def add(self, x, y):
             return x + y
-        
+
         def array(self):
             return np.arange(20).astype('int64')
-   
+
         def sleep(self, t):
             time.sleep(t)
-            
+
         def get_list(self):
             return [0, 'x', 7]
-        
+
         def test(self, obj):
             return self.name, obj.name, obj.add(5, 7), obj.array(), obj.get_list()
 
@@ -44,19 +49,18 @@ def test_rpc():
             return {'int': 7, 'float': 0.5, 'str': 'xxx', 'bytes': bytes('xxx', 'utf8'),
                     'ndarray': np.arange(10), 'dict': {}, 'list': [],
                     'ObjectProxy': self}
-    
+
         def type(self, x):
             return type(x).__name__
-    
-    
+
     server1 = RPCServer()
     server1['test_class'] = TestClass
     server1['my_object'] = TestClass('obj1')
     serve_thread = threading.Thread(target=server1.run_forever, daemon=True)
     serve_thread.start()
-    
+
     client = RPCClient.get_client(server1.address)
-    
+
     # test clients are cached
     assert client == RPCClient.get_client(server1.address)
     try:
@@ -65,21 +69,21 @@ def test_rpc():
         assert False, "Should have raised KeyError."
     except KeyError:
         pass
-    
+
     # get proxy to TestClass instance
     obj = client['my_object']
     assert isinstance(obj, ObjectProxy)
-    
+
     # check equality with duplicate proxy
     obj2 = client['my_object']
     assert obj == obj2
     assert obj._obj_id == obj2._obj_id
-    assert obj._ref_id != obj2._ref_id    
+    assert obj._ref_id != obj2._ref_id
 
     # check hashability
     assert obj in {obj2: None}
     assert obj in set([obj2])
-    
+
     logger.info("-- Test call with sync return --")
     add = obj.add
     assert isinstance(add, ObjectProxy)
@@ -114,7 +118,6 @@ def test_rpc():
     srv = client['self']
     assert srv.address == server1.address
 
-
     logger.info("-- Test remote exception raising --")
     try:
         obj.add(7, 'x')
@@ -147,7 +150,7 @@ def test_rpc():
     obj2 = class_proxy('obj2')
     assert class_proxy.count == 2
     assert obj2.add(3, 4) == 7
-    
+
     obj2._delete()
     # handler.flush_records()  # log records might have refs to the object
     assert class_proxy.count._get_value() == 1
@@ -161,11 +164,10 @@ def test_rpc():
     obj2 = class_proxy('obj2')
     obj2._set_proxy_options(auto_delete=True)
     assert class_proxy.count == 2
-    
+
     del obj2
     # handler.flush_records()  # log records might have refs to the object
     assert class_proxy.count._get_value() == 1
-
 
     logger.info("-- Test timeouts --")
     try:
@@ -182,19 +184,16 @@ def test_rpc():
     assert b.result() == 7
     assert a.result() == 3
 
-    
     logger.info("-- Test transfer --")
     arr = np.ones(10, dtype='float32')
     arr_prox = client.transfer(arr)
     assert arr_prox.dtype.name == 'float32'
     assert arr_prox.shape._get_value() == (10,)
 
-
     logger.info("-- Test import --")
     import os.path as osp
     rosp = client._import('os.path')
     assert osp.abspath(osp.dirname(__file__)) == rosp.abspath(rosp.dirname(__file__))
-
 
     logger.info("-- Test proxy sharing between servers --")
     obj._set_proxy_options(defer_getattr=True)
@@ -203,14 +202,14 @@ def test_rpc():
     server2['test_class'] = TestClass
     serve_thread2 = threading.Thread(target=server2.run_forever, daemon=True)
     serve_thread2.start()
-    
+
     client2 = RPCClient(server2.address)
     client2.default_proxy_options['defer_getattr'] = True
     obj3 = client2['test_class']('obj3')
     # send proxy from server1 to server2
     r2 = obj3.test(obj)
     # check that we have a new client between the two servers
-    assert (serve_thread2.ident, server1.address) in RPCClient.clients_by_thread 
+    assert (serve_thread2.ident, server1.address) in RPCClient.clients_by_thread
     # check all communication worked correctly
     assert r1[0] == 'obj1'
     assert r2[0] == 'obj3'
@@ -218,7 +217,7 @@ def test_rpc():
     assert r1[2] == r2[2] == 12
     assert np.all(r1[3] == r2[3])
     assert r1[4] == r2[4]
-    
+
     logger.info("-- Test publishing objects --")
     arr = np.arange(5, 10)
     client['arr'] = arr  # publish to server1
@@ -235,15 +234,16 @@ def test_rpc():
     assert cli['test_class']('json-tester').add(3, 4) == 7
     cli_proc.kill()
 
-    
     logger.info("-- Setup reentrant communication test.. --")
+
     class PingPong(object):
         def set_other(self, o):
             self.other = o
+
         def pingpong(self, depth=0):
             if depth > 6:
                 return "reentrant!"
-            return self.other.pingpong(depth+1)
+            return self.other.pingpong(depth + 1)
 
     server1['pp1'] = PingPong()
     server2['pp2'] = PingPong()
@@ -251,32 +251,30 @@ def test_rpc():
     pp2 = client2['pp2']
     pp1.set_other(pp2)
     pp2.set_other(pp1)
-    
+
     logger.info("-- Test reentrant communication --")
     assert pp1.pingpong() == 'reentrant!'
 
-    
     logger.info("-- Shut down servers --")
     client2.close_server()
     serve_thread2.join()
-    
-    
+
     client.close_server()
     client.close()
     serve_thread.join()
-    
+
     logger.level = previous_level
 
 
 @requires_qt
 def test_qt_rpc():
     previous_level = logger.level
-    #logger.level = logging.DEBUG
+    # logger.level = logging.DEBUG
     if QtRPCServer.get_server() is not None:
         QtRPCServer.get_server().close()
     server = QtRPCServer(quit_on_close=False)
     server.run_forever()
-    
+
     # Start a thread that will remotely request a widget to be created in the 
     # GUI thread.
     class TestThread(threading.Thread):
@@ -285,7 +283,7 @@ def test_qt_rpc():
             self.addr = addr
             self.done = False
             self.lock = threading.Lock()
-        
+
         def run(self):
             client = RPCClient(self.addr)
             qt = client._import('teleprox.qt')
@@ -297,10 +295,10 @@ def test_qt_rpc():
             self.l.hide()
             with self.lock:
                 self.done = True
-    
+
     thread = TestThread(server.address)
     thread.start()
-    
+
     start = time.time()
     while True:
         with thread.lock:
@@ -315,18 +313,19 @@ def test_qt_rpc():
 
     logger.level = previous_level
 
+
 def test_disconnect():
-    #~ logger.level = logging.DEBUG
-    
+    # ~ logger.level = logging.DEBUG
+
     # Clients receive notification when server disconnects gracefully
     server_proc = start_process('test_disconnect_server_proc')
-    
+
     client_proc = start_process('test_disconnect_client_proc')
     cli = client_proc.client._import('teleprox').RPCClient(server_proc.client.address)
     cli.close_server()
-    
+
     assert cli.disconnected() is True
-    
+
     # Check that our local client for server_proc knows the server is disconnected, even though
     # it was client_proc that closed the server.
     assert server_proc.client.disconnected() is True
@@ -335,29 +334,28 @@ def test_disconnect():
         assert False, "Expected RuntimeError"
     except RuntimeError:
         pass
-    
+
     server_proc.kill()
     client_proc.kill()
-    
+
     # Clients receive closure messages even if the server exits without closing
     server_proc2 = start_process('test_disconnect_server_proc2')
     server_proc2.client['self']._closed = 'sabotage!'
     time.sleep(0.1)
     assert server_proc2.client.disconnected() is True
-    
+
     # add by Sam: force the end of process
     server_proc2.kill()
-    
+
     # Clients gracefully handle sudden death of server (with timeout)
     server_proc3 = start_process('test_disconnect_server_proc3')
     server_proc3.kill()
-    
+
     try:
         server_proc3.client.ping(timeout=1)
         assert False, "Expected TimeoutError"
     except TimeoutError:
         pass
-
 
     # server doesn't hang up if clients are not available to receive disconnect
     # message
@@ -367,19 +365,65 @@ def test_disconnect():
         cp = start_process(f'test_disconnect_client_proc{i}')
         cli = cp.client._import('teleprox').RPCClient(server_proc4.client.address)
         cp.kill()
-    
+
     start = time.time()
     server_proc4.client.close_server()
     assert time.time() - start < 1.0
     assert server_proc4.client.disconnected() == True
-    
+
     # add by Sam: force the end of process
     server_proc4.kill()
 
 
+def test_callbacks():
+    """Test proper way to pass callbacks into remote processes."""
+    callback_result = []
+
+    def my_callback(data):
+        callback_result.append(f"callback received: {data}")
+        return "callback_response"
+
+    # First, test that callbacks fail without start_local_server
+    proc_no_server = start_process('test_callback_proc_no_server', start_local_server=False)
+
+    # Create a simple function that takes another function as parameter
+    # Use built-in functionality rather than publishing our own class
+    builtins = proc_no_server.client._import('builtins')
+
+    # This should fail because we can't serialize the function without a local server
+    try:
+        # Try to use map() with our callback - this should fail
+        result = builtins.list(builtins.map(my_callback, ["test1", "test2"]))
+        assert False, "Should have raised TypeError when sending callback without local server"
+    except TypeError:
+        pass  # Expected
+
+    proc_no_server.stop()
+
+    # Now test with start_local_server=True - this should work
+    proc_with_server = start_process('test_callback_proc_with_server')  # , start_local_server=True)
+    from teleprox.server import RPCServer
+    local_server = RPCServer()
+    local_server.run_in_thread()
+
+    # Test with built-in functions now that we have a local server
+    builtins_with_server = proc_with_server.client._import('builtins')
+    callback_result.clear()
+    result = builtins_with_server.list(builtins_with_server.map(local_server.get_proxy(my_callback), ["builtin1", "builtin2"]))
+    assert result == ["callback_response", "callback_response"]
+    assert callback_result == ["callback received: builtin1", "callback received: builtin2"]
+
+    # Clean up: close the local server that was created by start_local_server=True
+    from teleprox.server import RPCServer
+    local_server = RPCServer.get_server()
+    if local_server is not None:
+        local_server.close()
+
+    proc_with_server.stop()
+
 
 if __name__ == '__main__':
-    #~ test_rpc()
+    # ~ test_rpc()
     test_qt_rpc()
-    #~ test_disconnect()
-    
+    # ~ test_disconnect()
+    # ~ test_callbacks()
