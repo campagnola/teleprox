@@ -9,6 +9,7 @@ import re
 import sys
 import threading
 import time
+import traceback
 import weakref
 
 import zmq
