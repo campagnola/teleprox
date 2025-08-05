@@ -45,7 +45,7 @@ class TestLogViewerLazyLoading:
         
         return MockRecord()
     
-    def test_loading_placeholder_creation(self, app, log_model, mock_record_with_exc_text):
+    def test_loading_placeholder_creation(self, qapp, log_model, mock_record_with_exc_text):
         """Test that loading placeholders are created correctly."""
         # Create parent item
         parent_item = qt.QStandardItem("Test Log Entry")
@@ -61,7 +61,7 @@ class TestLogViewerLazyLoading:
         assert parent_item.data(ItemDataRole.PYTHON_DATA) == mock_record_with_exc_text
         assert parent_item.data(ItemDataRole.HAS_CHILDREN) is True
     
-    def test_placeholder_replacement(self, app, log_model, mock_record_with_exc_text):
+    def test_placeholder_replacement(self, qapp, log_model, mock_record_with_exc_text):
         """Test that placeholders are replaced with actual content."""
         # Create parent item with placeholder
         parent_item = qt.QStandardItem("Test Log Entry")
@@ -132,7 +132,10 @@ class TestLogViewerLazyLoading:
 
 def run_manual_tests():
     """Run basic tests without pytest."""
-    # QApplication created by conftest.py fixture
+    # Create QApplication for manual testing (conftest.py only works in pytest)
+    qapp = qt.QApplication.instance()
+    if qapp is None:
+        qapp = qt.QApplication([])
     
     # Test 1: Basic placeholder functionality
     print("Test 1: Basic placeholder functionality...")
