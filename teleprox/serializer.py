@@ -105,7 +105,7 @@ class Serializer:
         Provides support for ndarray, datetime, date, and None. Other types
         are converted to proxies.
         """
-        if not isinstance(obj, self._serialize_types):
+        if type(obj) not in self._serialize_types:
             # If this object type is not in server.no_proxy_types, then send by proxy.
             if self.server is None:
                 raise TypeError(f"Cannot make proxy to {obj!r} without proxy server.")
