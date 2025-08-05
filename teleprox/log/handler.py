@@ -129,11 +129,17 @@ _threading_excepthook = None
 
 
 def _log_unhandled_exception(exc, val, tb):
-    exc_str = traceback.format_stack()
-    exc_str += [" < exception caught here >\n"]
-    exc_str += traceback.format_exception(exc, val, tb)[1:]
-    exc_str = ''.join(['    ' + line for line in exc_str])
-    logging.getLogger().warning("Unhandled exception:\n%s", exc_str)
+    # exc_str = traceback.format_stack()
+    # exc_str += [" < exception caught here >\n"]
+    # exc_str += traceback.format_exception(exc, val, tb)[1:]
+    # exc_str = ''.join(['    ' + line for line in exc_str])
+    
+    logger = logging.getLogger()
+    logger.warning(
+        f"Unhandled exception: {str(val)}", 
+        exc_info=(exc, val, tb), 
+        stack_info=True,
+    )
 
 def _log_unhandled_exc_from_thread(args):
     _log_unhandled_exception(args.exc_type, args.exc_value, args.exc_traceback)

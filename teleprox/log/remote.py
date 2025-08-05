@@ -10,6 +10,8 @@ import zmq
 import logging
 import atexit
 import json
+import traceback
+import types
 
 logger = logging.getLogger(__name__)
 
@@ -172,15 +174,76 @@ class LogSender(logging.Handler):
         global host_name, process_name, thread_names
         if self.socket is None:
             return
-        rec = record.__dict__.copy()
-        args = rec.pop('args')
-        if len(args) > 0:
-            rec['msg'] = rec['msg'] % args
-        if process_name is not None:
-            rec['processName'] = process_name
-        rec['threadName'] = thread_names.get(rec['thread'], rec['threadName'])
-        rec['hostName'] = host_name
-        self.socket.send(json.dumps(rec).encode('utf-8'))
+        try:
+            rec = record.__dict__.copy()
+            args = rec.pop('args')
+            if len(args) > 0:
+                rec['msg'] = rec['msg'] % args
+            if process_name is not None:
+                rec['processName'] = process_name
+            rec['threadName'] = thread_names.get(rec['thread'], rec['threadName'])
+            rec['hostName'] = host_name
+            
+            # Serialize non-JSON-serializable attributes
+            rec = self._serialize_record(record, rec)
+            
+            self.socket.send(json.dumps(rec).encode('utf-8'))
+        except Exception as e:
+            # send manually-formatted json error record for safety
+            self.socket.send(f'{{"msg": "Error sending log record: {str(e)}", "levelname": "ERROR", "levelno": {logging.ERROR}}}'.encode('utf-8'))
+    
+    def _serialize_record(self, record, rec):
+        """Serialize a log record dictionary for JSON transmission.
+        
+        Converts non-serializable objects to serializable forms:
+        - exc_info -> exc_text using handler's formatter
+        - Exception objects -> traceback.format_exception() output
+        - StackSummary objects -> traceback.format_exception() output
+        - Traceback objects -> traceback.format_exception() output
+        - Other objects -> string representation as fallback
+        """
+        serialized = {}
+        
+        for key, value in rec.items():
+            if key == 'exc_info' and value is not None:
+                # Use handler's formatter to convert exc_info to exc_text
+                try:
+                    formatter = self.formatter or logging.Formatter()
+                    serialized['exc_text'] = formatter.formatException(value)
+                    # Don't include exc_info in serialized record
+                    continue
+                except (TypeError, ValueError):
+                    # If exc_info is malformed, fall back to string representation
+                    serialized[key] = str(value)
+                    continue
+            
+            # Try to serialize the value
+            try:
+                json.dumps(value)  # Test if it's JSON serializable
+                serialized[key] = value
+            except (TypeError, ValueError):
+                # Handle specific non-serializable types
+                try:
+                    if isinstance(value, Exception):
+                        # For Exception objects, format with traceback.format_exception
+                        exc_type = type(value)
+                        exc_value = value
+                        exc_tb = getattr(value, '__traceback__', None)
+                        serialized[key] = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+                    elif isinstance(value, types.TracebackType):  # Traceback objects
+                        # For Traceback objects, format with traceback.format_tb
+                        serialized[key] = ''.join(traceback.format_tb(value))
+                    elif isinstance(value, traceback.StackSummary):  # StackSummary objects
+                        # For StackSummary objects, use the format method directly
+                        serialized[key] = ''.join(value.format())
+                    else:
+                        # Fallback to string representation for other types
+                        serialized[key] = str(value)
+                except:
+                    # Final fallback to string representation for any formatting errors
+                    serialized[key] = str(value)
+        
+        return serialized
         
     def connect(self, addr):
         """Set the address of the LogServer to which log messages should be

@@ -36,4 +36,3 @@ print("Child process PID is:", r_os.getpid())
 
 r_sys = proc.client._import('sys')
 r_sys.stdout.write("Hello from child process!\n")
-
