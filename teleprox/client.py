@@ -675,6 +675,7 @@ class Future(concurrent.futures.Future):
         concurrent.futures.Future.__init__(self)
         self.client = client
         self.call_id = call_id
+        self.invocation_stack = traceback.extract_stack()
 
     def cancel(self):
         return False
@@ -685,5 +686,13 @@ class Future(concurrent.futures.Future):
         If the result is not yet available, then this call will block until
         the result has arrived or the timeout elapses.
         """
-        self.client.process_until_future(self, timeout=timeout)
-        return concurrent.futures.Future.result(self)
+        try:
+            self.client.process_until_future(self, timeout=timeout)
+            return super().result()
+        except Exception as e:
+            e.add_note(
+                f"This exception was caused by a remote call to {self.client.address.decode()} with ID"
+                f" {self.call_id}. The call was made from the following stack:\n"
+                "".join(traceback.format_list(self.invocation_stack))
+            )
+            raise e
