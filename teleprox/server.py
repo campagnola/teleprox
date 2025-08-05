@@ -464,13 +464,7 @@ class RPCServer(object):
         not actually begin processing requests.
         
         RPCClients in the same thread will allow the server to process requests
-        while they are waiting for responses. This can prevent deadlocks that
-        occur when 
-        
-        This can also be used to allow the user to manually process requests. If
-        the communication model includes callbacks, this server will not handle
-        those callbacks until the user calls `_read_and_process_one()`, and the
-        remote client may time out while attempting to invoke a callback.
+        while they are waiting for responses.
         """
         name = ('%s.%s.%s' % (log.get_host_name(), log.get_process_name(), 
                               log.get_thread_name()))

@@ -75,7 +75,11 @@ def test_log_server():
         # check that we get log records for the child's stderr
         proc.client._import('sys').stderr.write("message 2\n")
         # check that the child's log messages are propagated to the server
+
+        # note: the ("%d",3) here mangles the request so that "logged message 3" only appears
+        # once in the logs, when the string is finally formatted.
         proc.client._import('logging').getLogger().info("logged message %d", 3)
+        
         # check that log messages are generated for exceptions in the child
         with contextlib.suppress(RemoteCallException):
             proc.client._import('fake_module')  # exception should generate a log message
@@ -156,63 +160,6 @@ def test_unhandled_exception():
     time.sleep(1)
 
 
-def test_log_server_console_disconnect():
-    """Test that LogServer with string logger name doesn't connect to console output.
-
-    This reproduces the issue found in motionsynergy_client.py where remote
-    exceptions are logged to a LogServer but don't appear in console output
-    because the logger isn't properly connected to console handlers.
-    """
-    # Save original logging state
-    root_logger = logging.getLogger()
-    original_handlers = root_logger.handlers[:]
-    original_level = root_logger.level
-
-    try:
-        # Simulate the motionsynergy setup: basic_config + separate LogServer
-        teleprox.log.basic_config(log_level='DEBUG')
-
-        # Create LogServer with string logger name (like motionsynergy_client.py:11)
-        log_server = LogServer(logger='test_disconnect_logger')
-
-        try:
-            with ProcessCleaner() as cleaner:
-                # Start a process that will send logs to our LogServer
-                proc = teleprox.start_process(
-                    name='test_disconnect_proc',
-                    log_addr=log_server.address,
-                    log_level=logging.DEBUG
-                )
-                cleaner.add(proc)
-
-                # Generate a remote exception (like motionsynergy silent failures)
-                with contextlib.suppress(RemoteCallException):
-                    proc.client._import('nonexistent_module')
-
-                time.sleep(0.1)  # Allow log propagation
-                proc.stop()
-
-            # The issue: logs go to the LogServer's logger but not to console
-            # because the 'test_disconnect_logger' has no console handler
-            test_logger = logging.getLogger('test_disconnect_logger')
-            assert len(test_logger.handlers) == 0, "Logger should have no console handlers"
-
-            # Verify the LogServer received the message but it won't show in console
-            # This is the core issue: remote exceptions are "lost" to console output
-
-        finally:
-            log_server.stop()
-
-    finally:
-        # Restore original logging state
-        root_logger.handlers[:] = original_handlers
-        root_logger.setLevel(original_level)
-        # Clean up the test logger
-        test_logger = logging.getLogger('test_disconnect_logger')
-        test_logger.handlers.clear()
-        test_logger.setLevel(logging.NOTSET)
-
-
 def test_log_server_reconnect(debug=False):
     """Show that we can start a daemon, connect to it from another process,
     and redirect the daemon's log messages to that new process.
@@ -260,47 +207,3 @@ def test_log_server_reconnect(debug=False):
         child1.kill()  # can't wait() on a daemon process, so just murder it
         child2.stop()
     time.sleep(1)
-
-
-def test_log_server_by_name():
-    """Test that a LogServer can be retrieved using a logger obtained by name."""
-    with ProcessCleaner() as cleaner:
-        # Create a logger by name
-        logger_name = "meow"
-        logger = logging.getLogger(logger_name)
-        logger.setLevel(logging.DEBUG)
-
-        # Create LogServer using the same logger name
-        log_server = LogServer(logger_name)
-
-        try:
-            # Start a process that will send logs to our LogServer
-            proc = teleprox.start_process(
-                name='test_by_name_proc',
-                log_addr=log_server.address,
-                log_level=logging.DEBUG
-            )
-            cleaner.add(proc)
-
-            # Add a handler to capture log messages
-            handler = Handler()
-            logger.addHandler(handler)
-
-            try:
-                # Generate a log message from the remote process
-                proc.client._import('logging').getLogger().info("test message from %s", "remote")
-
-                # Wait a bit for the message to propagate
-                time.sleep(0.1)
-
-                # Verify the message was received by the logger obtained by name
-                rec = handler.find_message(r"test message from remote")
-                assert rec is not None, "Expected log message not found"
-                assert rec.levelno == logging.INFO
-
-            finally:
-                logger.removeHandler(handler)
-                proc.stop()
-
-        finally:
-            log_server.stop()

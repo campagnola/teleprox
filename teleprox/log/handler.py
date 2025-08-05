@@ -130,7 +130,7 @@ _threading_excepthook = None
 
 def _log_unhandled_exception(exc, val, tb):
     logger = logging.getLogger()
-    logger.error(
+    logger.warning(
         f"Unhandled exception: {val}",
         exc_info=(exc, val, tb),
     )
@@ -143,7 +143,7 @@ def _log_unhandled_exc_from_thread(args):
     # we can't use logger.error(exc_info=...) here because it will ignore that arg if our main
     # thread is not currently inside an exception (why isn't this in the thread where the exception
     # is raised?)
-    logger.error(f"Unhandled exception: {args.exc_value}\n{tb_str}")
+    logger.warning(f"Unhandled exception: {args.exc_value}\n{tb_str}")
 
 
 def log_exceptions():

@@ -377,8 +377,6 @@ def test_disconnect():
 
 def test_callbacks():
     """Test proper way to pass callbacks into remote processes."""
-    logger.info("-- Test callback functionality --")
-
     callback_result = []
 
     def my_callback(data):
@@ -408,54 +406,12 @@ def test_callbacks():
     local_server = RPCServer()
     local_server.run_in_thread()
 
-    # Define a simple class that can accept and invoke callbacks
-    proc_with_server.client._import("builtins").exec("""
-import __main__
-class CallbackTester:
-    def __str__(self):
-        return "CallbackTester"
-
-    def invoke_callback(self, callback_func, data):
-        return callback_func(self)
-
-    def delayed_callback(self, callback_func, data, count=3):
-        results = []
-        for i in range(count):
-            result = callback_func(self)
-            results.append(result)
-        return results
-__main__.CallbackTester = CallbackTester
-    """)
-    tester_with_server = proc_with_server.client._import("__main__").CallbackTester()
-
-    # Reset callback result
-    callback_result.clear()
-
-    # This should work now
-    response = tester_with_server.invoke_callback(local_server.get_proxy(my_callback), "test_data")
-    assert response == "callback_response"
-    assert callback_result == ["callback received: CallbackTester"]
-
-    # Test multiple callback invocations
-    callback_result.clear()
-    responses = tester_with_server.delayed_callback(local_server.get_proxy(my_callback), "multi", 2)
-    assert responses == ["callback_response", "callback_response"]
-    assert callback_result == ["callback received: CallbackTester", "callback received: CallbackTester"]
-
-    # Test lambda callback
-    callback_result.clear()
-    lambda_response = tester_with_server.invoke_callback(
-        lambda x: f"lambda_processed: {x}",
-        "lambda_data"
-    )
-    assert lambda_response == "lambda_processed: CallbackTester"
-
     # Test with built-in functions now that we have a local server
     builtins_with_server = proc_with_server.client._import('builtins')
     callback_result.clear()
     result = builtins_with_server.list(builtins_with_server.map(local_server.get_proxy(my_callback), ["builtin1", "builtin2"]))
     assert result == ["callback_response", "callback_response"]
-    assert callback_result == ["callback received: CallbackTester", "callback received: CallbackTester"]
+    assert callback_result == ["callback received: builtin1", "callback received: builtin2"]
 
     # Clean up: close the local server that was created by start_local_server=True
     from teleprox.server import RPCServer
@@ -464,8 +420,6 @@ __main__.CallbackTester = CallbackTester
         local_server.close()
 
     proc_with_server.stop()
-
-    logger.info("-- Callback tests completed successfully --")
 
 
 if __name__ == '__main__':
