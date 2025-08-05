@@ -94,22 +94,22 @@ class RPCLogHandler(logging.StreamHandler):
 
     def format(self, record):
         header = self.get_thread_header(record)
-        
+
         message = logging.StreamHandler.format(self, record)
         if HAVE_COLORAMA:
             ind = record.levelno // 10 * 10  # decrease to multiple of 10
             message = _level_color_map[ind] + message + colorama.Style.RESET_ALL
-            
-        return header + ' ' + message
+
+        return f'{header} {message}'
 
     def get_thread_header(self, record):
         hid = getattr(record, 'hostName', get_host_name())
         pid = getattr(record, 'processName', get_process_name())
         tid = getattr(record, 'threadName', get_thread_name(record.thread))
         key = (hid, pid, tid)
-        header = self.thread_headers.get(key, None)
+        header = self.thread_headers.get(key)
         if header is None:
-            header = '[%s:%s:%s]' % (hid, pid, tid)
+            header = f'[{hid}:{pid}:{tid}]'
             if HAVE_COLORAMA:
                 color = _thread_color_list[len(self.thread_headers) % len(_thread_color_list)]
                 header = color + header + colorama.Style.RESET_ALL
@@ -151,7 +151,7 @@ def log_exceptions():
     global _sys_excepthook, _threading_excepthook
     if sys.excepthook is not _log_unhandled_exception:
         _sys_excepthook = sys.excepthook
-        sys.excepthook = _log_unhandled_exception    
+        sys.excepthook = _log_unhandled_exception
     if threading.excepthook is not _log_unhandled_exc_from_thread:
         _threading_excepthook = threading.excepthook
         threading.excepthook = _log_unhandled_exc_from_thread
