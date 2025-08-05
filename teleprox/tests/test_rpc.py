@@ -393,8 +393,6 @@ def test_disconnect():
 
 def test_callbacks():
     """Test proper way to pass callbacks into remote processes."""
-    logger.info("-- Test callback functionality --")
-
     callback_result = []
 
     def my_callback(tester):

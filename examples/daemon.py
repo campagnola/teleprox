@@ -10,24 +10,9 @@ import teleprox.log
 # start a daemon process
 daemon = teleprox.start_process('example-daemon', daemon=True)
 
-# Set up proper cleanup handlers
-def cleanup_daemon():
-    if daemon is not None:
-        try:
-            print(f"Cleaning up daemon process {daemon.pid}")
-            daemon.kill()
-        except Exception as e:
-            print(f"Error cleaning up daemon: {e}")
-
-def signal_handler(signum, frame):
-    print(f"Received signal {signum}, cleaning up...")
-    cleanup_daemon()
-    sys.exit(0)
-
-# Register cleanup handlers
-atexit.register(cleanup_daemon)
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+# just for this example, make sure the daemon is cleaned up when we exit
+# (normally you would not do this, as the daemon is meant to run indefinitely)
+atexit.register(daemon.kill)
 
 address = daemon.client.address
 print(f"Started daemon process {daemon.pid} with address {address}")

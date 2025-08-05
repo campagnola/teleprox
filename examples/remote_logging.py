@@ -1,11 +1,10 @@
 import logging
-
-from PyQt5 import QtWidgets
-
+import sys
 from teleprox import start_process
 from teleprox.log import set_process_name, set_thread_name, start_log_server
 from teleprox.log.handler import RPCLogHandler
 from teleprox.log.logviewer import LogViewer
+import teleprox.qt
 
 # Get the python root logger and set its level to DEBUG
 logger = logging.getLogger()
@@ -23,9 +22,10 @@ start_log_server()
 set_process_name('main_process')
 set_thread_name('main_thread')
 
-app = QtWidgets.QApplication([])
-lv = LogViewer()
-lv.show()
+if sys.flags.interactive:
+    app = teleprox.qt.QApplication([])
+    lv = LogViewer()
+    lv.show()
 
 proc = start_process(name='child_process')
 
