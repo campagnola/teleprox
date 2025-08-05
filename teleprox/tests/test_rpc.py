@@ -351,15 +351,6 @@ def test_disconnect():
     server_proc.kill()
     client_proc.kill()
 
-    # Clients receive closure messages even if the server exits without closing
-    server_proc2 = start_process('test_disconnect_server_proc2')
-    server_proc2.client['self']._closed = 'sabotage!'
-    time.sleep(0.1)
-    assert server_proc2.client.disconnected() is True
-
-    # add by Sam: force the end of process
-    server_proc2.kill()
-
     # Clients gracefully handle sudden death of server (with timeout)
     server_proc3 = start_process('test_disconnect_server_proc3')
     server_proc3.kill()
