@@ -22,15 +22,9 @@ except ImportError:
 class TestFilteringChildrenDisappear:
     """Test cases for the critical filtering bug where children disappear."""
     
-    @pytest.fixture
-    def app(self):
-        """Create QApplication for tests."""
-        app = qt.QApplication.instance()
-        if app is None:
-            app = qt.QApplication([])
-        return app
+    # QApplication fixture provided by conftest.py
     
-    def test_filtering_preserves_expanded_children(self, app):
+    def test_filtering_preserves_expanded_children(self, qapp):
         """
         CRITICAL BUG TEST: Test that filtering does not cause expanded children to disappear.
         
@@ -158,7 +152,7 @@ class TestFilteringChildrenDisappear:
         
         print("✅ Test passed: Children preserved after filtering!")
     
-    def test_multiple_expansions_with_filtering(self, app):
+    def test_multiple_expansions_with_filtering(self, qapp):
         """Test that multiple expanded items maintain their children after filtering."""
         viewer = LogViewer(logger='test.multiple.expansions')
         logger = logging.getLogger('test.multiple.expansions')
@@ -219,16 +213,16 @@ class TestFilteringChildrenDisappear:
 
 def run_tests():
     """Run the children disappear tests."""
-    app = qt.QApplication.instance()
-    if app is None:
-        app = qt.QApplication([])
+    qapp = qt.QApplication.instance()
+    if qapp is None:
+        qapp = qt.QApplication([])
     
     test_instance = TestFilteringChildrenDisappear()
     
     try:
         print("Testing filtering children disappear bug...")
-        test_instance.test_filtering_preserves_expanded_children(app)
-        test_instance.test_multiple_expansions_with_filtering(app)
+        test_instance.test_filtering_preserves_expanded_children(qapp)
+        test_instance.test_multiple_expansions_with_filtering(qapp)
         print("\n🎉 All tests passed!")
         return True
     except Exception as e:
@@ -238,8 +232,8 @@ def run_tests():
         return False
     finally:
         # Clean up Qt application
-        if app:
-            app.processEvents()
+        if qapp:
+            qapp.processEvents()
 
 
 if __name__ == "__main__":
