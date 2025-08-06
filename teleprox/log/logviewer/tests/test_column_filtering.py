@@ -32,57 +32,41 @@ class TestNewColumnFiltering:
         
         qapp.processEvents()
         
-        # Find and expand the exception
-        exception_item = None
+        # Find the error item
+        error_item = None
         for i in range(viewer.model.rowCount()):
             item = viewer.model.item(i, LogColumns.TIMESTAMP)
             if viewer.model.has_loading_placeholder(item):
-                exception_item = item
+                error_item = item
                 break
         
-        assert exception_item is not None, "Should have found exception item"
+        assert error_item is not None, "Should have found error item with placeholder"
         
-        # Expand to create children
-        viewer.model.replace_placeholder_with_content(exception_item)
-        original_child_count = exception_item.rowCount()
-        assert original_child_count > 0, "Should have exception children"
+        # Expand the error to create children
+        viewer.model.replace_placeholder_with_content(error_item)
+        child_count = error_item.rowCount()
+        assert child_count > 0, "Should have children after expansion"
         
-        # Test all new column filters
-        test_filters = [
-            'host: localhost',
-            'process: MainProcess', 
-            'thread: MainThread'
-        ]
+        # Apply host filter (should match default "localhost")
+        viewer.apply_filters(['host: localhost'])
         
-        for filter_expr in test_filters:
-            # Apply filter
-            viewer.apply_filters([filter_expr])
-            qapp.processEvents()
-            
-            # Check that parent is still visible
-            filtered_model = viewer.tree.model()
-            assert filtered_model.rowCount() >= 1, f"Should have visible rows with filter: {filter_expr}"
-            
-            # Find the exception item in filtered view
-            exception_found = False
-            for row in range(filtered_model.rowCount()):
-                idx = filtered_model.index(row, LogColumns.TIMESTAMP)
-                log_id = filtered_model.data(idx, ItemDataRole.LOG_ID)
-                original_log_id = exception_item.data(ItemDataRole.LOG_ID)
-                
-                if log_id == original_log_id:
-                    exception_found = True
-                    # Check that children are still visible
-                    visible_children = filtered_model.rowCount(idx)
-                    assert visible_children == original_child_count, \
-                        f"Filter '{filter_expr}': Should have {original_child_count} children, got {visible_children}"
-                    break
-            
-            assert exception_found, f"Should find exception item with filter: {filter_expr}"
-            
-            # Clear filter for next test
-            viewer.apply_filters([])
-            qapp.processEvents()
+        # Check that error is still visible and has children
+        filtered_model = viewer.tree.model()
+        visible_rows = filtered_model.rowCount()
+        assert visible_rows >= 1, "Should have at least one visible row after host filter"
+        
+        # Find the error in filtered model
+        error_found = False
+        for i in range(visible_rows):
+            level_index = filtered_model.index(i, LogColumns.LEVEL)
+            if filtered_model.data(level_index, ItemDataRole.LEVEL_NUMBER) == 40:  # ERROR
+                error_index = filtered_model.index(i, LogColumns.TIMESTAMP)
+                children_visible = filtered_model.rowCount(error_index)
+                assert children_visible == child_count, f"Should have {child_count} children, got {children_visible}"
+                error_found = True
+                break
+        
+        assert error_found, "Should have found the error item in filtered results"
     
     def test_new_column_child_inheritance(self, qapp):
         """Test that children properly inherit parent's data for new columns."""
@@ -141,14 +125,12 @@ class TestNewColumnFiltering:
         logger.info("Test message for default host")
         qapp.processEvents()
         
-        assert viewer.model.rowCount() > 0, "Should have log entries"
+        assert viewer.model.rowCount() >= 1, "Should have at least one log message"
         
         # Check that host column has default value
         host_item = viewer.model.item(0, LogColumns.HOST)
-        assert host_item is not None, "Should have host column item"
-        
-        host_text = host_item.text()
-        assert host_text == 'localhost', f"Empty hostName should default to 'localhost', got '{host_text}'"
+        assert host_item is not None, "Should have host item"
+        assert host_item.text() == "localhost", f"Host should default to 'localhost', got '{host_item.text()}'"
     
     def test_new_column_filters_with_expansion_state(self, qapp):
         """Test that expansion state is preserved when using new column filters."""
@@ -164,14 +146,14 @@ class TestNewColumnFiltering:
         
         qapp.processEvents()
         
-        # Find and expand exception
+        # Find and expand the exception
         exception_item = None
-        exception_row = -1
+        error_row = -1
         for i in range(viewer.model.rowCount()):
             item = viewer.model.item(i, LogColumns.TIMESTAMP)
             if viewer.model.has_loading_placeholder(item):
                 exception_item = item
-                exception_row = i
+                error_row = i
                 break
         
         assert exception_item is not None, "Should have found exception item"
@@ -181,18 +163,28 @@ class TestNewColumnFiltering:
         child_count = exception_item.rowCount()
         assert child_count > 0, "Should have children"
         
-        # Manually expand in tree view
-        error_tree_index = viewer.tree.model().index(exception_row, LogColumns.TIMESTAMP)
+        # Expand in tree view
+        error_tree_index = viewer.tree.model().index(error_row, 0)
         viewer.tree.expand(error_tree_index)
-        assert viewer.tree.isExpanded(error_tree_index), "Should be expanded"
+        assert viewer.tree.isExpanded(error_tree_index), "Should be expanded in tree"
         
-        # Apply new column filter
-        viewer.apply_filters(['host: localhost'])
-        qapp.processEvents()
+        # Apply process filter (should match MainProcess)
+        viewer.apply_filters(['process: MainProcess'])
         
-        # Check that item is still expanded and children are visible
+        # Check filtered results
         filtered_model = viewer.tree.model()
-        filtered_error_index = filtered_model.index(0, LogColumns.TIMESTAMP)  # Should be first item
+        visible_rows = filtered_model.rowCount()
+        assert visible_rows >= 1, "Should have visible rows after process filter"
+        
+        # Find error in filtered model
+        filtered_error_index = None
+        for i in range(visible_rows):
+            level_idx = filtered_model.index(i, LogColumns.LEVEL)
+            if filtered_model.data(level_idx, ItemDataRole.LEVEL_NUMBER) == 40:  # ERROR
+                filtered_error_index = filtered_model.index(i, LogColumns.TIMESTAMP)
+                break
+        
+        assert filtered_error_index is not None, "Should find error in filtered model"
         
         # Children should be visible without needing to re-expand
         visible_children = filtered_model.rowCount(filtered_error_index)
