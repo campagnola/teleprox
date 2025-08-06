@@ -45,43 +45,10 @@ class RPCClient(object):
 
         Parameters
         ----------
-        address : URL
-            Address of RPC server to connect to.
-        local_server : "threaded" | "lazy" | RPCServer | None
-            "threaded" (default):
-                Start a dedicated RPCServer in a thread that will proxy data send through this
-                client in an asynchronous manner. This allows the client to send callbacks and
-                persistent objects safely. It means that processing will happen in a separate thread,
-                and therefore thread-safe practices will need to be followed when using this client.
-            "lazy":
-                Start a dedicated RPCServer that is not actively processing requests, but will
-                process them when this client is used. This allows the client to proxy objects
-                intended for use during the individual remote calls, but not outside of them.
-                Violation of this contract will most likely result in timeouts. Because responses
-                from a remote server can themselves be proxied, it may seem like a reference should
-                be pointed at a local object directly, but if it lives inside such a remote proxy,
-                then it will sneakily not be the case.
-            RPCServer:
-                Use the given RPCServer instance to handle proxying data sent to the remote server.
-                This can be used to share a server between multiple clients.
-            None:
-                Do not proxy through a local RPCServer. This means that the client will not be able
-                to proxy objects to the remote server, and will only be able to send simple,
-                serializable data types (see ``serialize_types``).
-        serializer : str
-            Type of serializer to use when communicating with the remote server.
-            Default is 'msgpack'.
-        serialize_types : tuple | None
-            A tuple of types that may be serialized when sending request arguments to the remote server.
-            If a local server is running, then types not in this list will be sent by proxy.
-            Otherwise, a TypeError is raised.
-            If None, then ``serializer.default_serialize_types`` is used instead.
-            This is also used in the construction of the local RPCServer if local_server is dedicated.
+        create : bool
+            If True, then create a new RPCClient instance if one does not already exist.
 
-        Raises
-        ------
-        ConnectionRefusedError if no server is running at the given address.
-        TimeoutError if the server cannot be reached within the default timeout.
+        All other parameters are passed to the RPCClient constructor.
 
         See also
         --------
@@ -111,10 +78,52 @@ class RPCClient(object):
     def __init__(
         self,
         address,
-        local_server="threaded",
+        local_server=None,
         serializer='msgpack',
         serialize_types=None,
     ):
+        """Initialize a new RPCClient.
+
+        Parameters
+        ----------
+        address : URL
+            Address of RPC server to connect to.
+        local_server : "threaded" | "lazy" | RPCServer | None
+            None (default):
+                Do not proxy through a local RPCServer. This means that the client will not be able
+                to proxy objects to the remote server, and will only be able to send simple,
+                serializable data types (see ``serialize_types``).
+            "threaded":
+                Start a dedicated RPCServer in a thread that will proxy data send through this
+                client in an asynchronous manner. This allows the client to send callbacks and
+                persistent objects safely. It means that processing will happen in a separate thread,
+                and therefore thread-safe practices will need to be followed when using this client.
+            "lazy":
+                Start a dedicated RPCServer that is not actively processing requests, but will
+                process them when this client is used. This allows the client to proxy objects
+                intended for use during the individual remote calls, but not outside of them.
+                Violation of this contract will most likely result in timeouts. Because responses
+                from a remote server can themselves be proxied, it may seem like a reference should
+                be pointed at a local object directly, but if it lives inside such a remote proxy,
+                then it will sneakily not be the case.
+            RPCServer:
+                Use the given RPCServer instance to handle proxying data sent to the remote server.
+                This can be used to share a server between multiple clients.
+        serializer : str
+            Type of serializer to use when communicating with the remote server.
+            Default is 'msgpack'.
+        serialize_types : tuple | None
+            A tuple of types that may be serialized when sending request arguments to the remote server.
+            If a local server is running, then types not in this list will be sent by proxy.
+            Otherwise, a TypeError is raised.
+            If None, then ``serializer.default_serialize_types`` is used instead.
+            This is also used in the construction of the local RPCServer if local_server is dedicated.
+
+        Raises
+        ------
+        ConnectionRefusedError if no server is running at the given address.
+        TimeoutError if the server cannot be reached within the default timeout.
+        """
         if isinstance(address, str):
             address = address.encode()
 
