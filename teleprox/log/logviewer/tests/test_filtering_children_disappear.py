@@ -149,8 +149,6 @@ class TestFilteringChildrenDisappear:
         else:
             # If we can't access the filtered item directly, this is also a problem
             pytest.fail("Could not access error item children through filtered model")
-        
-        print("✅ Test passed: Children preserved after filtering!")
     
     def test_multiple_expansions_with_filtering(self, qapp):
         """Test that multiple expanded items maintain their children after filtering."""
@@ -209,6 +207,54 @@ class TestFilteringChildrenDisappear:
                 f"Item {i}: children count mismatch. Before: {expected_count}, After: {children_count_after}"
         
         print("✅ Multiple expansions test passed: All children preserved!")
+    
+    def test_default_filters_show_expansion_handles_for_placeholders(self, qapp):
+        """
+        Test that default filters don't hide loading placeholder children.
+        
+        This test verifies that when a LogViewer is created with default filters (like 'level: info'),
+        items with loading placeholders still report hasChildren=True so expansion handles appear.
+        The bug was that placeholders lacked filter data and got filtered out.
+        """
+        viewer = LogViewer(logger='test.default.filter.placeholders', initial_filters=('level: info',))
+        logger = logging.getLogger('test.default.filter.placeholders')
+        logger.setLevel(logging.DEBUG)
+        
+        # Add a DEBUG message - should be filtered OUT by 'level: info' filter
+        logger.debug("Debug message - filtered out")
+        
+        # Add an ERROR message with exception that creates a loading placeholder
+        try:
+            raise ValueError("Test exception for placeholder visibility")
+        except Exception:
+            logger.error("Error with expandable content", exc_info=True, extra={'key': 'value'})
+        
+        # Verify basic setup: DEBUG filtered out, ERROR visible
+        filtered_model = viewer.tree.model()
+        assert filtered_model.rowCount() == 1, f"Should have 1 visible entry (ERROR), got {filtered_model.rowCount()}"
+        
+        # Find the ERROR entry
+        error_index = filtered_model.index(0, LogColumns.TIMESTAMP)
+        level_index = filtered_model.index(0, LogColumns.LEVEL)
+        level_num = filtered_model.data(level_index, ItemDataRole.LEVEL_NUMBER)
+        assert level_num == 40, f"Expected ERROR level (40), got {level_num}"
+        
+        # CRITICAL TEST: The filtered model should report hasChildren=True
+        # This is what makes Qt show expansion handles in the tree view
+        has_children = filtered_model.hasChildren(error_index)
+        children_count = filtered_model.rowCount(error_index)
+        
+        print(f"ERROR item hasChildren: {has_children}")
+        print(f"ERROR item children count: {children_count}")
+        
+        # This assertion will FAIL if the fix is missing
+        assert has_children, "ERROR item should report hasChildren=True to show expansion handles"
+        assert children_count > 0, "ERROR item should have visible loading placeholder child"
+        
+        # Verify the child is actually a loading placeholder
+        child_index = filtered_model.index(0, LogColumns.TIMESTAMP, error_index)
+        is_placeholder = filtered_model.data(child_index, ItemDataRole.IS_LOADING_PLACEHOLDER)
+        assert is_placeholder is True, "Child should be a loading placeholder"
 
 
 def run_tests():

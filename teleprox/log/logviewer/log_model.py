@@ -616,7 +616,7 @@ class LogModel(qt.QStandardItemModel):
     def add_loading_placeholder(self, parent_item, record):
         """Add a dummy 'loading...' child to indicate expandable content."""
         # Create loading placeholder row
-        loading_row = self._create_loading_placeholder_row()
+        loading_row = self._create_loading_placeholder_row(record)
         
         # Add the placeholder as child
         parent_item.appendRow(loading_row)
@@ -625,7 +625,7 @@ class LogModel(qt.QStandardItemModel):
         parent_item.setData(record, ItemDataRole.PYTHON_DATA)
         parent_item.setData(True, ItemDataRole.HAS_CHILDREN)
     
-    def _create_loading_placeholder_row(self):
+    def _create_loading_placeholder_row(self, parent_record):
         """Create a dummy 'loading...' row."""
         row_items = [qt.QStandardItem("") for _ in range(self._get_column_count())]
         
@@ -635,6 +635,9 @@ class LogModel(qt.QStandardItemModel):
         
         # Mark as loading placeholder
         row_items[LogColumns.TIMESTAMP].setData(True, ItemDataRole.IS_LOADING_PLACEHOLDER)
+        
+        # This ensures that placeholders don't get filtered out when parent passes filters
+        self._set_filter_data_on_row_items(row_items, parent_record)
         
         # Style the placeholder
         row_items[LogColumns.LEVEL].setForeground(qt.QColor("#888888"))
