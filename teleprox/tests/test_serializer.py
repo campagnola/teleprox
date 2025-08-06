@@ -46,13 +46,13 @@ def test_data():
 
 @pytest.mark.skipif(not HAVE_MSGPACK, reason='msgpack not available')
 def test_msgpack(test_data):
-    proc = start_process('test_serializer_fixture_process', serializer='msgpack')
+    proc = start_process('test_serializer_fixture_process', serializer='msgpack', local_server="lazy")
     check_serializer(proc.client.serializer, test_data)
     proc.stop()
 
 
 def test_json(test_data):
-    proc = start_process('test_serializer_fixture_process', serializer='json')
+    proc = start_process('test_serializer_fixture_process', serializer='json', local_server="lazy")
     check_serializer(proc.client.serializer, test_data)
     proc.stop()
 
@@ -71,7 +71,7 @@ def check_serializer(serializer, test_data):
 
 
 # if __name__ == '__main__':
-#     p = start_process('test_serializer_fixture_process', serializer='json')
+#     p = start_process('test_serializer_fixture_process', serializer='json', local_server="lazy)
 #     try:
 #         p.client.serializer.loads(p.client.serializer.dumps(CustomType(), None), None)
 #     finally:

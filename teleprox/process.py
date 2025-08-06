@@ -37,7 +37,7 @@ def start_process(
     shell=False,
     conda_env=None,
     serializer='msgpack',
-    local_server="threaded",
+    local_server=None,
     daemon=False,
     stdin=None,
     stdout=None,
@@ -81,7 +81,7 @@ def start_process(
     serializer : str
         Serialization format to use for RPC communication. Default is 'msgpack'.
     local_server : "threaded" | "lazy" | RPCServer | None
-        See RPCClient documentation for details. Default is 'threaded'.
+        See RPCClient documentation for details. Default is None.
     daemon : bool
         If True, then the new process will be detached from the parent process, allowing
         it to run indefinitely in the background, even after the parent closes.
