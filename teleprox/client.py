@@ -60,7 +60,7 @@ class RPCClient(object):
     clients_by_thread_lock = threading.Lock()
 
     @staticmethod
-    def get_client(address, *args, **kwargs):
+    def get_client(address, create=True, *args, **kwargs):
         """Return the RPC client for this thread and a given server address.
 
         If no client exists already, then a new one will be created. If the
@@ -80,7 +80,9 @@ class RPCClient(object):
             if key in RPCClient.clients_by_thread:
                 return RPCClient.clients_by_thread[key]
 
-        return RPCClient(address, *args, **kwargs)
+        if create:
+            return RPCClient(address, *args, **kwargs)
+        return None
 
     @staticmethod
     def forget_client(client):

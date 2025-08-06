@@ -395,7 +395,7 @@ class RPCServer(object):
         """
         from .client import RPCClient
 
-        cli = RPCClient.get_client(self.address)
+        cli = RPCClient.get_client(self.address, create=False)
         if cli is None:
             self.process_action('close', None, None, None)
         else:
