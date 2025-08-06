@@ -113,9 +113,10 @@ class RPCClient(object):
         self.address = address
 
         if local_server in ("threaded", "lazy"):
-            self._local_server = RPCServer(serialize_types=serialize_types)
-            if local_server == "threaded":
-                self._local_server.run_in_thread()
+            self._local_server = RPCServer(
+                serialize_types=serialize_types,
+                _run_thread=(local_server == "threaded"),
+            )
         else:
             self._local_server = local_server
 
@@ -163,7 +164,9 @@ class RPCClient(object):
             # used to send proxies of local objects unless there is also a server
             # for this thread...
             try:
-                self.serializer: Serializer = all_serializers[serializer](self._local_server)
+                self.serializer: Serializer = all_serializers[serializer](
+                    self._local_server
+                )
             except KeyError as e:
                 raise ValueError(f"Unsupported serializer type '{serializer}'") from e
 
@@ -502,7 +505,7 @@ class RPCClient(object):
                     self._read_and_process_one(timeout=0.05)
             else:
                 # Poll for input on both the client's socket and the server's
-                # socket. This is for lazy local servers.
+                # socket. This is for lazy or same-thread servers.
                 socks = [x[0] for x in poller.poll(itimeout)]
                 if self._socket in socks:
                     self._read_and_process_one(timeout=0)
@@ -654,8 +657,7 @@ class RemoteCallException(Exception):
         self.tb_str = tb_str
 
     def __str__(self):
-        msg = '\n===> Remote exception was:\n' + ''.join(self.tb_str)
-        return msg
+        return '\n===> Remote exception was:\n' + ''.join(self.tb_str)
 
 
 class Future(concurrent.futures.Future):
@@ -696,6 +698,6 @@ class Future(concurrent.futures.Future):
             e.add_note(
                 f"This exception was caused by a remote call to {self.client.address.decode()} with ID"
                 f" {self.call_id}. The call was made from the following stack:\n"
-                f"{''.join(traceback.format_list(self.invocation_stack))}"
+                f"{''.join(traceback.format_list(self.invocation_stack))}\n==============\n"
             )
             raise e

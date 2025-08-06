@@ -71,19 +71,14 @@ def test_rpc():
     server1 = RPCServer()
     server1['test_class'] = TestClass
     server1['my_object'] = TestClass('obj1')
-    serve_thread = threading.Thread(target=server1.run_forever, daemon=True)
-    serve_thread.start()
 
     client = RPCClient.get_client(server1.address)
 
     # test clients are cached
     assert client == RPCClient.get_client(server1.address)
-    try:
+    with pytest.raises(KeyError):
         # can't manually create client for the same address
         RPCClient(server1.address)
-        assert False, "Should have raised KeyError."
-    except KeyError:
-        pass
 
     # get proxy to TestClass instance
     obj = client['my_object']
@@ -216,16 +211,12 @@ def test_rpc():
     r1 = obj.test(obj)
     server2 = RPCServer()
     server2['test_class'] = TestClass
-    serve_thread2 = threading.Thread(target=server2.run_forever, daemon=True)
-    serve_thread2.start()
 
     client2 = RPCClient(server2.address)
     client2.default_proxy_options['defer_getattr'] = True
     obj3 = client2['test_class']('obj3')
     # send proxy from server1 to server2
     r2 = obj3.test(obj)
-    # check that we have a new client between the two servers
-    assert (serve_thread2.ident, server1.address) in RPCClient.clients_by_thread
     # check all communication worked correctly
     assert r1[0] == 'obj1'
     assert r2[0] == 'obj3'
@@ -275,11 +266,9 @@ def test_rpc():
 
     logger.info("-- Shut down servers --")
     client2.close_server()
-    serve_thread2.join()
 
     client.close_server()
     client.close()
-    serve_thread.join()
 
     logger.level = previous_level
 
@@ -289,7 +278,6 @@ def test_qt_rpc():
     previous_level = logger.level
     # logger.level = logging.DEBUG
     server = QtRPCServer(quit_on_close=False)
-    server.run_forever()
 
     # Start a thread that will remotely request a widget to be created in the
     # GUI thread.

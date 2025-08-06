@@ -89,7 +89,7 @@ class RPCServer(object):
 
     """
 
-    def __init__(self, address="tcp://127.0.0.1:*", serialize_types=None):
+    def __init__(self, address="tcp://127.0.0.1:*", serialize_types=None, _run_thread=True):
         self._socket = zmq.Context.instance().socket(zmq.ROUTER)
 
         self._serialize_types = serialize_types
@@ -136,6 +136,8 @@ class RPCServer(object):
 
         # Make sure we inform clients of closure
         atexit.register(self._atexit)
+        if _run_thread:
+            self._run_in_thread()
 
     def __repr__(self):
         return f"<RPCServer {self.address.decode()}>"
@@ -419,7 +421,7 @@ class RPCServer(object):
             name, msg = self._read_one(self._socket)
             self._process_one(name, msg)
 
-    def run_in_thread(self):
+    def _run_in_thread(self):
         """Call run_forever in a new thread."""
         self._run_thread = threading.Thread(target=self.run_forever, daemon=True)
         self._run_thread.start()
