@@ -388,9 +388,9 @@ def test_callbacks():
 
     proc_no_server.stop()
 
-    # Now test with local_server="threaded" - this should work
+    # Now test with local_server= "lazy" or "threaded" - both should work
     proc_with_server = start_process(
-        'test_callback_proc_with_server', local_server="threaded"
+        'test_callback_proc_with_server', local_server="lazy"
     )
 
     # Define a simple class that can accept and invoke callbacks

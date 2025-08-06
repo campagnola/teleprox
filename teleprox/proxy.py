@@ -79,16 +79,35 @@ class ObjectProxy(object):
     """
 
     def __init__(
-        self, rpc_addr, obj_id, ref_id, local_server, type_str='', attributes=(), **kwds
+        self,
+        rpc_addr,
+        obj_id,
+        ref_id,
+        local_server,
+        type_str='',
+        attributes=(),
+        server_is_lazy=False,
+        **kwds,
     ):
         object.__init__(self)
 
         ## can't set attributes directly because setattr is overridden.
 
-        self._init_state(rpc_addr, obj_id, ref_id, local_server, type_str, attributes)
+        self._init_state(
+            rpc_addr, obj_id, ref_id, local_server, type_str, attributes, server_is_lazy
+        )
         self._set_proxy_options(**kwds)
 
-    def _init_state(self, rpc_addr, obj_id, ref_id, local_server, type_str, attributes):
+    def _init_state(
+        self,
+        rpc_addr,
+        obj_id,
+        ref_id,
+        local_server,
+        type_str,
+        attributes,
+        server_is_lazy,
+    ):
         if isinstance(rpc_addr, str):
             rpc_addr = rpc_addr.encode()
         self.__dict__.update(
@@ -102,6 +121,7 @@ class ObjectProxy(object):
                 _hash=None,
                 _client_=None,
                 _local_server=local_server,
+                _server_is_lazy=server_is_lazy,
                 _proxy_options={
                     'sync': 'sync',  ## 'sync', 'async', 'off'
                     'timeout': 10,  ## float
@@ -139,6 +159,7 @@ class ObjectProxy(object):
             'ref_id': self._ref_id,
             'type_str': self._type_str,
             'attributes': self._attributes,
+            'server_is_lazy': self._server_is_lazy,
         }
         # TODO: opts DO need to be sent in some cases, like when sending
         # callbacks.
@@ -230,8 +251,15 @@ class ObjectProxy(object):
         """
         if self._client() is None:
             return self._local_server.unwrap_proxy(self)
-        else:
+        try:
             return self._client().get_obj(self, return_type='value')
+        except TimeoutError as exc:
+            if self._server_is_lazy:
+                exc.add_note(
+                    "This proxy object is being accessed synchronously when the server it references "
+                    "prohibits such access."
+                )
+            raise exc
 
     def __repr__(self):
         if self._proxy_options['safe_print'] is True:
@@ -246,7 +274,15 @@ class ObjectProxy(object):
             return self
         # Transfer sends this object to the remote process and returns a new proxy.
         # In the process, this invokes any deferred attributes.
-        return self._client().get_obj(self, sync=sync, return_type=return_type, **kwds)
+        try:
+            return self._client().get_obj(self, sync=sync, return_type=return_type, **kwds)
+        except TimeoutError as exc:
+            if self._server_is_lazy:
+                exc.add_note(
+                    "This proxy object is being accessed synchronously when the server it references "
+                    "prohibits such access."
+                )
+            raise exc
 
     def _delete(self, sync='sync', **kwds):
         """Ask the RPC server to release the reference held by this proxy.
@@ -255,7 +291,15 @@ class ObjectProxy(object):
         that its reference count will be reduced. Any copies of this proxy will
         no longer be usable.
         """
-        self._client().delete(self, sync=sync, **kwds)
+        try:
+            self._client().delete(self, sync=sync, **kwds)
+        except TimeoutError as exc:
+            if self._server_is_lazy:
+                exc.add_note(
+                    "This proxy object is being deleted synchronously when the server it references "
+                    "prohibits such access."
+                )
+            raise exc
 
     def __del__(self):
         if self._proxy_options['auto_delete'] is True:
@@ -344,7 +388,15 @@ class ObjectProxy(object):
         }
         for k in opts:
             opts[k] = kwargs.pop(f'_{k}', opts[k])
-        return self._client().call_obj(obj=self, args=args, kwargs=kwargs, **opts)
+        try:
+            return self._client().call_obj(obj=self, args=args, kwargs=kwargs, **opts)
+        except TimeoutError as exc:
+            if self._server_is_lazy:
+                exc.add_note(
+                    "This proxy object is being accessed asynchronously when the server it references "
+                    "prohibits such access."
+                )
+            raise exc
 
     def __hash__(self):
         """Override __hash__ because we need to avoid comparing remote and local

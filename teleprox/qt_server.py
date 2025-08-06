@@ -59,6 +59,7 @@ class QtRPCServer(RPCServer):
         self.poll_thread = QtPollThread(self)
 
     def run_forever(self):
+        self.is_lazy = False
         while self.poll_thread is None:
             time.sleep(0.1)  # wait for poll thread to be created
         name = f'{log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}'

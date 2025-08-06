@@ -112,6 +112,7 @@ class RPCServer(object):
         self._clients = {}  # {socket_id: serializer_type}
 
         self._run_thread = None
+        self.is_lazy = not _run_thread
 
         # Objects that may be retrieved by name using client['obj_name']
         self._namespace = {'self': self}
@@ -153,7 +154,14 @@ class RPCServer(object):
         oid = self._get_object_id(obj)
         type_str = str(type(obj))
         proxy = ObjectProxy(
-            self.address, oid, rid, self, type_str, attributes=(), **kwds
+            self.address,
+            oid,
+            rid,
+            self,
+            type_str,
+            attributes=(),
+            server_is_lazy=self.is_lazy,
+            **kwds,
         )
         proxy_ref = self._proxy_refs.setdefault(oid, [obj, set()])
         proxy_ref[1].add(rid)
@@ -403,6 +411,7 @@ class RPCServer(object):
 
     def run_forever(self):
         """Read and process RPC requests until the server is asked to close."""
+        self.is_lazy = False
         logger.info(
             f"RPC start server loop: {log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}"
             f"@{self.address.decode()}"
