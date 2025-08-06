@@ -551,7 +551,13 @@ class RPCClient(object):
             if fut is None:
                 return
             if msg['error'] is not None:
-                exc = RemoteCallException(*msg['error'])
+                error_data = msg['error']
+                exc = RemoteCallException(
+                    error_data['type'], 
+                    error_data['traceback'],
+                    remote_stack_info=error_data.get('remote_stack_info'),
+                    remote_exc_traceback=error_data.get('remote_exc_traceback')
+                )
                 fut.set_exception(exc)
             else:
                 fut.set_result(msg['rval'])
@@ -635,13 +641,52 @@ class RPCClient(object):
 
 
 class RemoteCallException(Exception):
-    def __init__(self, type_str, tb_str):
+    """Exception raised when a remote procedure call fails.
+
+    Parameters
+    ----------
+    type_str : str
+        The name of the exception class that was raised on the remote server.
+        Generated using `exc_info[0].__name__` (e.g., "TypeError", "ValueError").
+    tb_str : list of str
+        Complete traceback as a list of formatted strings. Structure:
+        - First element: "Error while processing request {caller} [{req_id}]: "
+        - Middle elements: Stack frames from `traceback.format_stack()`
+        - Separator: " < exception caught here >\n"
+        - Final elements: Exception traceback from `traceback.format_exception(*exc)`
+    remote_stack_info : str or None
+        Server-side call stack as a single string, showing where the exception
+        was caught. Generated using `''.join(traceback.format_stack())`.
+        Used by the log viewer for hierarchical display of the remote stack.
+    remote_exc_traceback : str or None
+        Original exception traceback as a single string, showing where the
+        exception originated. Generated using `''.join(traceback.format_exception(*exc))`.
+        Used by the log viewer for hierarchical display of the exception chain.
+    
+    Notes
+    -----
+    The structured remote traceback data (remote_stack_info and remote_exc_traceback)
+    is specifically designed for the log viewer, which parses these strings to create
+    hierarchical views under "Remote Stack" and "Remote Exception" categories.
+    """
+    def __init__(self, type_str, tb_str, remote_stack_info=None, remote_exc_traceback=None):
         self.type_str = type_str
         self.tb_str = tb_str
+        # Store structured remote traceback data for log viewer
+        self.remote_stack_info = remote_stack_info
+        self.remote_exc_traceback = remote_exc_traceback
         
     def __str__(self):
-        msg = '\n===> Remote exception was:\n' + ''.join(self.tb_str)
-        return msg
+        # Return a concise message instead of the full traceback
+        # Full traceback details are available through structured remote traceback sections
+        if self.tb_str and len(self.tb_str) > 0:
+            # Extract just the exception type and message from the last line of traceback
+            last_line = self.tb_str[-1].strip() if self.tb_str[-1].strip() else (self.tb_str[-2].strip() if len(self.tb_str) > 1 else "")
+            if last_line and ': ' in last_line:
+                return f"Remote {last_line}"
+            else:
+                return f"Remote {self.type_str}"
+        return f"Remote {self.type_str}"
 
 
 class Future(concurrent.futures.Future):

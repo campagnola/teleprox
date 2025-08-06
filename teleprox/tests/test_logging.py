@@ -1,65 +1,11 @@
 import contextlib
 import logging
-import re
 import time
 
 import teleprox.log
 from teleprox.client import RemoteCallException
-from teleprox.log.remote import LogServer
 from teleprox.util import ProcessCleaner, assert_pid_dead
-
-
-class Handler(logging.Handler):
-    def __init__(self):
-        logging.Handler.__init__(self)
-        self.records = []
-
-    def handle(self, record):
-        self.records.append(record)
-        # print("LOG:", record)
-        return True
-
-    def find_message(self, regex):
-        for record in self.records:
-            if re.search(regex, record.msg):
-                return record
-        return None
-
-    def __str__(self):
-        return '\n'.join([str(record) for record in self.records])
-
-
-class RemoteLogRecorder:
-    """Sets up a log server to receive log messages and a handler to store them.
-    """
-
-    def __init__(self, name):
-        self.logger = logging.getLogger(name)
-        self.logger.level = logging.DEBUG
-        self.logger.propagate = False  # keep these messages for ourselves
-        self.handler = Handler()
-        self.logger.addHandler(self.handler)
-        self.log_server = LogServer(self.logger)
-        self.address = self.log_server.address
-
-    def find_message(self, regex, timeout=0.5):
-        start_time = time.perf_counter()
-        while time.perf_counter() - start_time < timeout:
-            rec = self.handler.find_message(regex)
-            if rec is not None:
-                return rec
-            time.sleep(0.1)
-        return None
-
-    def stop(self):
-        self.log_server.stop()
-        self.logger.removeHandler(self.handler)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.stop()
+from teleprox.tests.util import RemoteLogRecorder
 
 
 def test_log_server():

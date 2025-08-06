@@ -89,6 +89,11 @@ class LogModel(qt.QStandardItemModel):
                 for child_row in exception_children:
                     exc_category_item.appendRow(child_row)
                 
+                # Check if this is a RemoteCallException with remote traceback data
+                remote_children = self._create_remote_exception_children(exc_value, record)
+                for child_row in remote_children:
+                    exc_category_item.appendRow(child_row)
+                
                 # Create properly initialized sibling items for the exception category row
                 sibling_items = self._create_sibling_items_with_filter_data(record)
                 children.append([exc_category_item] + sibling_items)
@@ -570,6 +575,43 @@ class LogModel(qt.QStandardItemModel):
         """Get level cipher for a given level number."""
         from .utils import level_to_cipher
         return level_to_cipher(level_int)
+    
+    def _create_remote_exception_children(self, exc_value, record):
+        """Create children for remote exception traceback if this is a RemoteCallException."""
+        children = []
+        
+        # Check if this is a RemoteCallException with remote traceback data
+        if hasattr(exc_value, 'remote_stack_info') and exc_value.remote_stack_info:
+            # Create "Remote Stack" category
+            remote_stack_category = self._create_category_item("Remote Stack", 'remote_stack_category', record)
+            
+            # Parse remote stack info like we do for regular stack_info
+            stack_frames = self._parse_stack_info(exc_value.remote_stack_info)
+            for frame_text in stack_frames:
+                frame_children = self._create_frame_children(frame_text, 'remote_stack_frame', record)
+                for frame_row in frame_children:
+                    remote_stack_category.appendRow(frame_row)
+            
+            # Create sibling items for the remote stack category
+            sibling_items = self._create_sibling_items_with_filter_data(record)
+            children.append([remote_stack_category] + sibling_items)
+        
+        if hasattr(exc_value, 'remote_exc_traceback') and exc_value.remote_exc_traceback:
+            # Create "Remote Exception" category
+            remote_exc_category = self._create_category_item("Remote Exception", 'remote_exception_category', record)
+            
+            # Parse remote exception traceback like we do for regular stack_info
+            exc_frames = self._parse_stack_info(exc_value.remote_exc_traceback)
+            for frame_text in exc_frames:
+                frame_children = self._create_frame_children(frame_text, 'remote_exception_frame', record)
+                for frame_row in frame_children:
+                    remote_exc_category.appendRow(frame_row)
+            
+            # Create sibling items for the remote exception category
+            sibling_items = self._create_sibling_items_with_filter_data(record)
+            children.append([remote_exc_category] + sibling_items)
+        
+        return children
     
     def add_loading_placeholder(self, parent_item, record):
         """Add a dummy 'loading...' child to indicate expandable content."""
