@@ -26,15 +26,28 @@ logger = logging.getLogger(__name__)
 PROCESS_NAME_PREFIX = ''
 
 
-def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=None, 
-                 log_level=None, log_stdio=None, executable=None, shell=False, conda_env=None, 
-                 serializer='msgpack', start_local_server=False, daemon=False,
-                 stdin=None, stdout=None, stderr=None):
+def start_process(
+    name=None,
+    address="tcp://127.0.0.1:*",
+    qt=False,
+    log_addr=None,
+    log_level=None,
+    log_stdio=None,
+    executable=None,
+    shell=False,
+    conda_env=None,
+    serializer='msgpack',
+    local_server="threaded",
+    daemon=False,
+    stdin=None,
+    stdout=None,
+    stderr=None,
+):
     """Utility for spawning and bootstrapping a new process with an :class:`RPCServer`.
-    
-    Automatically creates an :class:`RPCClient` that is connected to the remote 
+
+    Automatically creates an :class:`RPCClient` that is connected to the remote
     process (``spawner.client``).
-    
+
     Parameters
     ----------
     name : str | None
@@ -42,7 +55,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     address : str
         ZMQ socket address that the new process's RPCServer will bind to.
         Default is ``'tcp://127.0.0.1:*'``.
-        
+
         **Note:** binding RPCServer to a public IP address is a potential
         security hazard (see :class:`RPCServer`).
     qt : bool
@@ -67,29 +80,27 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         executable.
     serializer : str
         Serialization format to use for RPC communication. Default is 'msgpack'.
-    start_local_server : bool
-        If True, then start a local RPCServer in the current process. (See RPCClient)
-        This allows sending objects by proxy to the child process (for example, callback
-        functions). Default is False.
+    local_server : "threaded" | "lazy" | RPCServer | None
+        See RPCClient documentation for details. Default is 'threaded'.
     daemon : bool
         If True, then the new process will be detached from the parent process, allowing
-        it to run indefinitely in the background, even after the parent closes. 
+        it to run indefinitely in the background, even after the parent closes.
         Default is False.
-    stdin, stdout, stderr : 
+    stdin, stdout, stderr :
         See Popen documentation for details. Not compatible with log_addr.
-                
+
     Examples
     --------
-    
+
     ::
-    
+
         # start a new process
         proc = start_process()
-        
+
         # ask the child process to do some work
         mod = proc._import('my.module')
         mod.do_work()
-        
+
         # close the child process
         proc.close()
         proc.wait()
@@ -108,24 +119,38 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
       ensures that the child process file handles are totally independent of the parent (linux and windows).
     - Normal child processes must be wait()ed on after they die to collect their return code, otherwise they remain as a zombie process.
       Daemon processes do not have to be wait()ed on (linux only).
-      
+
     """
-    #logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
+    # logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
     assert daemon in (True, False), f"daemon must be bool; got {repr(daemon)}"
     assert qt in (True, False), f"qt must be bool; got {repr(qt)}"
-    assert isinstance(address, (str, bytes)), f"address must be str or bytes; got {repr(address)}"
-    assert name is None or isinstance(name, str), f"name must be str or None; got {repr(name)}"
-    assert log_addr is None or isinstance(log_addr, (str, bytes)), f"log_addr must be str or None; got {repr(log_addr)}"
+    assert isinstance(
+        address, (str, bytes)
+    ), f"address must be str or bytes; got {repr(address)}"
+    assert name is None or isinstance(
+        name, str
+    ), f"name must be str or None; got {repr(name)}"
+    assert log_addr is None or isinstance(
+        log_addr, (str, bytes)
+    ), f"log_addr must be str or None; got {repr(log_addr)}"
     if log_addr is None and not daemon:
         log_addr = get_logger_address()
-    assert log_level is None or isinstance(log_level, (int, str)), f"log_level must be int, str, or None; got {repr(log_level)}"
+    assert log_level is None or isinstance(
+        log_level, (int, str)
+    ), f"log_level must be int, str, or None; got {repr(log_level)}"
     if log_level is None:
         log_level = logger.getEffectiveLevel()
     elif isinstance(log_level, str):
         log_level = getattr(logging, log_level.upper())
-    assert log_stdio in (True, False, None), f'log_stdio must be True, False, or None; got {repr(log_stdio)}'
+    assert log_stdio in (
+        True,
+        False,
+        None,
+    ), f'log_stdio must be True, False, or None; got {repr(log_stdio)}'
     if log_stdio is True:
-        assert stdout is None and stderr is None, "Cannot use log_stdio with stdout/stderr."
+        assert (
+            stdout is None and stderr is None
+        ), "Cannot use log_stdio with stdout/stderr."
     # If we have a log server and stdio/stderr have not been explicitly set, then
     # turn on stdio logging by default.
     if log_stdio is None and stdout is None and stderr is None and daemon is False:
@@ -133,15 +158,15 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     if name is None:
         name = get_process_name() + '_child'
     name = PROCESS_NAME_PREFIX + name
-    
+
     # temporary socket to allow the remote process to report its status.
     bootstrap_addr = 'tcp://127.0.0.1:*'
     bootstrap_sock = zmq.Context.instance().socket(zmq.PAIR)
     bootstrap_sock.setsockopt(zmq.RCVTIMEO, 10000)
     bootstrap_sock.bind(bootstrap_addr)
-    bootstrap_sock.linger = 1000 # don't let socket deadlock when exiting
+    bootstrap_sock.linger = 1000  # don't let socket deadlock when exiting
     bootstrap_addr = bootstrap_sock.last_endpoint
-    
+
     # Spawn new process
     bootstrap_args = []
     if name is not None:
@@ -151,19 +176,21 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     if daemon is True:
         bootstrap_args.append('--daemon')
     if log_addr is not None:
-        bootstrap_args.extend([
-            f'--logaddr={log_addr.decode()}',
-            f'--loglevel={log_level}',
-        ])
-    bootstrap_args.extend([
-        f'--listen_addr={address}',
-        f'--bootstrap_addr={bootstrap_addr.decode()}',
-    ])
-    if PROCESS_NAME_PREFIX not in ('', None):
-        bootstrap_args.append(
-            f'--child_name_prefix={PROCESS_NAME_PREFIX}'
+        bootstrap_args.extend(
+            [
+                f'--logaddr={log_addr.decode()}',
+                f'--loglevel={log_level}',
+            ]
         )
-    
+    bootstrap_args.extend(
+        [
+            f'--listen_addr={address}',
+            f'--bootstrap_addr={bootstrap_addr.decode()}',
+        ]
+    )
+    if PROCESS_NAME_PREFIX not in ('', None):
+        bootstrap_args.append(f'--child_name_prefix={PROCESS_NAME_PREFIX}')
+
     if executable is None:
         if conda_env is None:
             executable = sys.executable
@@ -176,7 +203,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
 
     if conda_env is not None:
         cmd = ('conda', 'run', '--no-capture-output', '-n', conda_env) + cmd
-    
+
     if shell is True:
         cmd = ' '.join(cmd)
 
@@ -188,15 +215,19 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     }
     if daemon is True:
         # daemom processes have no stdio
-        assert log_stdio is not True, "Cannot use log_stdio with daemon." 
-        assert stdin is None and stdout is None and stderr is None, "Cannot use stdin/stdout/stderr with daemon."
+        assert log_stdio is not True, "Cannot use log_stdio with daemon."
+        assert (
+            stdin is None and stdout is None and stderr is None
+        ), "Cannot use stdin/stdout/stderr with daemon."
         popen_kwargs['stdin'] = subprocess.DEVNULL
         popen_kwargs['stdout'] = subprocess.DEVNULL
         popen_kwargs['stderr'] = subprocess.DEVNULL
         # use DETACH_PROCESS to prevent the child from being killed when the parent is killed
         # use CREATE_NEW_PROCESS_GROUP to prevent the child from receiving signals from the parent
         if sys.platform == 'win32':
-            popen_kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP #subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            popen_kwargs['creationflags'] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP
+            )  # subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         if log_stdio is True:
             popen_kwargs['stdout'] = subprocess.PIPE
@@ -210,7 +241,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         stdio_logger = StdioLogSender(proc, name, log_addr, log_level)
     else:
         stdio_logger = None
-        
+
     logger.info(f'Spawned process "{name}" with pid {proc.pid}')
     if daemon is True and sys.platform != 'win32':
         proc.wait()  # prevent zombie
@@ -224,11 +255,13 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     logger.debug("recv status %s", status)
     bootstrap_sock.send(b'OK')
     bootstrap_sock.close()
-    
+
     if 'address' in status:
         address = status['address']
         #: An RPCClient instance that is connected to the RPCServer in the remote process
-        client = RPCClient(address.encode(), serializer=serializer, start_local_server=start_local_server)
+        client = RPCClient(
+            address.encode(), serializer=serializer, local_server=local_server
+        )
     else:
         err = ''.join(status['error'])
         if proc is not None and proc.poll() is not None:
@@ -249,8 +282,7 @@ class DaemonProcess:
         self.pid = pid
 
     def stop(self):
-        """Stop the spawned process by asking its RPC server to close.
-        """
+        """Stop the spawned process by asking its RPC server to close."""
         logger.info(f"Close daemon process: {self.client.address}")
         closed = self.client.close_server()
         assert closed is True, f"Server refused to close. (reply: {closed})"
@@ -274,12 +306,11 @@ class ChildProcess:
         self.logger = logger
         self.stdio_logger = stdio_logger
 
-        # Automatically shut down process when we exit. 
+        # Automatically shut down process when we exit.
         atexit.register(self.stop)
 
     def wait(self, timeout=10):
-        """Wait for the process to exit and return its return code.
-        """
+        """Wait for the process to exit and return its return code."""
         start = time.time()
 
         # Using proc.wait() can deadlock; use communicate() instead.
@@ -293,21 +324,24 @@ class ChildProcess:
             # exceptions.
             pass
         except subprocess.TimeoutExpired as exc:
-            raise TimeoutError(f'Timed out waiting for process "{self.name}" to exit') from exc
-        
+            raise TimeoutError(
+                f'Timed out waiting for process "{self.name}" to exit'
+            ) from exc
+
         sleep = 1e-3
         while True:
             rcode = self.proc.poll()
             if rcode is not None:
                 return rcode
             if time.time() - start > timeout:
-                raise TimeoutError("Timed out waiting on process exit for %s" % self.name)
+                raise TimeoutError(
+                    "Timed out waiting on process exit for %s" % self.name
+                )
             time.sleep(sleep)
-            sleep = min(sleep*2, 100e-3)
+            sleep = min(sleep * 2, 100e-3)
 
     def kill(self):
-        """Kill the spawned process immediately.
-        """
+        """Kill the spawned process immediately."""
         if self.proc.poll() is not None:
             return
         logger.info("Kill child process: %d", self.proc.pid)
@@ -316,8 +350,7 @@ class ChildProcess:
         return self.wait()
 
     def stop(self, timeout=10):
-        """Stop the spawned process by asking its RPC server to close.
-        """
+        """Stop the spawned process by asking its RPC server to close."""
         if self.proc.poll() is not None:
             # process has already exited
             return

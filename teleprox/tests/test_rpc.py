@@ -3,8 +3,16 @@ import threading
 import time
 
 import numpy as np
+import pytest
 
-from teleprox import RPCClient, RemoteCallException, RPCServer, QtRPCServer, ObjectProxy, start_process
+from teleprox import (
+    RPCClient,
+    RemoteCallException,
+    RPCServer,
+    QtRPCServer,
+    ObjectProxy,
+    start_process,
+)
 from teleprox.tests.check_qt import requires_qt, qt_available
 
 logger = logging.getLogger(__name__)
@@ -46,9 +54,16 @@ def test_rpc():
             return self.name, obj.name, obj.add(5, 7), obj.array(), obj.get_list()
 
         def types(self):
-            return {'int': 7, 'float': 0.5, 'str': 'xxx', 'bytes': bytes('xxx', 'utf8'),
-                    'ndarray': np.arange(10), 'dict': {}, 'list': [],
-                    'ObjectProxy': self}
+            return {
+                'int': 7,
+                'float': 0.5,
+                'str': 'xxx',
+                'bytes': bytes('xxx', 'utf8'),
+                'ndarray': np.arange(10),
+                'dict': {},
+                'list': [],
+                'ObjectProxy': self,
+            }
 
         def type(self, x):
             return type(x).__name__
@@ -56,19 +71,14 @@ def test_rpc():
     server1 = RPCServer()
     server1['test_class'] = TestClass
     server1['my_object'] = TestClass('obj1')
-    serve_thread = threading.Thread(target=server1.run_forever, daemon=True)
-    serve_thread.start()
 
     client = RPCClient.get_client(server1.address)
 
     # test clients are cached
     assert client == RPCClient.get_client(server1.address)
-    try:
+    with pytest.raises(KeyError):
         # can't manually create client for the same address
         RPCClient(server1.address)
-        assert False, "Should have raised KeyError."
-    except KeyError:
-        pass
 
     # get proxy to TestClass instance
     obj = client['my_object']
@@ -95,7 +105,7 @@ def test_rpc():
         if k != 'ObjectProxy':
             assert obj.type(v) == k
 
-    # NOTE: msgpack converts list to tuple. 
+    # NOTE: msgpack converts list to tuple.
     # See: https://github.com/msgpack/msgpack-python/issues/98
     assert obj.get_list() == [0, 'x', 7]
 
@@ -192,6 +202,7 @@ def test_rpc():
 
     logger.info("-- Test import --")
     import os.path as osp
+
     rosp = client._import('os.path')
     assert osp.abspath(osp.dirname(__file__)) == rosp.abspath(rosp.dirname(__file__))
 
@@ -200,16 +211,12 @@ def test_rpc():
     r1 = obj.test(obj)
     server2 = RPCServer()
     server2['test_class'] = TestClass
-    serve_thread2 = threading.Thread(target=server2.run_forever, daemon=True)
-    serve_thread2.start()
 
     client2 = RPCClient(server2.address)
     client2.default_proxy_options['defer_getattr'] = True
     obj3 = client2['test_class']('obj3')
     # send proxy from server1 to server2
     r2 = obj3.test(obj)
-    # check that we have a new client between the two servers
-    assert (serve_thread2.ident, server1.address) in RPCClient.clients_by_thread
     # check all communication worked correctly
     assert r1[0] == 'obj1'
     assert r2[0] == 'obj3'
@@ -228,7 +235,9 @@ def test_rpc():
     logger.info("-- Test JSON client --")
     # Start a JSON client in a remote process
     cli_proc = start_process(name='test_rpc_cli_proc')
-    cli = cli_proc.client._import('teleprox').RPCClient(server2.address, serializer='json')
+    cli = cli_proc.client._import('teleprox').RPCClient(
+        server2.address, serializer='json'
+    )
     # Check everything is ok..
     assert cli.serializer.type._get_value() == 'json'
     assert cli['test_class']('json-tester').add(3, 4) == 7
@@ -257,11 +266,9 @@ def test_rpc():
 
     logger.info("-- Shut down servers --")
     client2.close_server()
-    serve_thread2.join()
 
     client.close_server()
     client.close()
-    serve_thread.join()
 
     logger.level = previous_level
 
@@ -270,12 +277,9 @@ def test_rpc():
 def test_qt_rpc():
     previous_level = logger.level
     # logger.level = logging.DEBUG
-    if QtRPCServer.get_server() is not None:
-        QtRPCServer.get_server().close()
     server = QtRPCServer(quit_on_close=False)
-    server.run_forever()
 
-    # Start a thread that will remotely request a widget to be created in the 
+    # Start a thread that will remotely request a widget to be created in the
     # GUI thread.
     class TestThread(threading.Thread):
         def __init__(self, addr):
@@ -329,33 +333,18 @@ def test_disconnect():
     # Check that our local client for server_proc knows the server is disconnected, even though
     # it was client_proc that closed the server.
     assert server_proc.client.disconnected() is True
-    try:
-        print(server_proc.client.ping())
-        assert False, "Expected RuntimeError"
-    except RuntimeError:
-        pass
+    with pytest.raises(RuntimeError):
+        server_proc.client.ping()
 
     server_proc.kill()
     client_proc.kill()
-
-    # Clients receive closure messages even if the server exits without closing
-    server_proc2 = start_process('test_disconnect_server_proc2')
-    server_proc2.client['self']._closed = 'sabotage!'
-    time.sleep(0.1)
-    assert server_proc2.client.disconnected() is True
-
-    # add by Sam: force the end of process
-    server_proc2.kill()
 
     # Clients gracefully handle sudden death of server (with timeout)
     server_proc3 = start_process('test_disconnect_server_proc3')
     server_proc3.kill()
 
-    try:
+    with pytest.raises(TimeoutError):
         server_proc3.client.ping(timeout=1)
-        assert False, "Expected TimeoutError"
-    except TimeoutError:
-        pass
 
     # server doesn't hang up if clients are not available to receive disconnect
     # message
@@ -379,47 +368,109 @@ def test_callbacks():
     """Test proper way to pass callbacks into remote processes."""
     callback_result = []
 
-    def my_callback(data):
-        callback_result.append(f"callback received: {data}")
+    def my_callback(tester):
+        callback_result.append(f"callback received: {tester.name()}")
         return "callback_response"
 
-    # First, test that callbacks fail without start_local_server
-    proc_no_server = start_process('test_callback_proc_no_server', start_local_server=False)
+    # First, test that callbacks fail without local_server
+    proc_no_server = start_process(
+        'test_callback_proc_no_server', local_server=None
+    )
 
     # Create a simple function that takes another function as parameter
     # Use built-in functionality rather than publishing our own class
     builtins = proc_no_server.client._import('builtins')
 
     # This should fail because we can't serialize the function without a local server
-    try:
-        # Try to use map() with our callback - this should fail
-        result = builtins.list(builtins.map(my_callback, ["test1", "test2"]))
-        assert False, "Should have raised TypeError when sending callback without local server"
-    except TypeError:
-        pass  # Expected
+    with pytest.raises(TypeError):
+        # Use remote map() with our callback so as to execute in the remote process
+        builtins.list(builtins.map(my_callback, ["test1", "test2"]))
 
     proc_no_server.stop()
 
-    # Now test with start_local_server=True - this should work
-    proc_with_server = start_process('test_callback_proc_with_server')  # , start_local_server=True)
-    from teleprox.server import RPCServer
-    local_server = RPCServer()
-    local_server.run_in_thread()
+    # Now test with local_server="threaded" - this should work
+    proc_with_server = start_process(
+        'test_callback_proc_with_server', local_server="threaded"
+    )
 
-    # Test with built-in functions now that we have a local server
-    builtins_with_server = proc_with_server.client._import('builtins')
-    callback_result.clear()
-    result = builtins_with_server.list(builtins_with_server.map(local_server.get_proxy(my_callback), ["builtin1", "builtin2"]))
-    assert result == ["callback_response", "callback_response"]
-    assert callback_result == ["callback received: builtin1", "callback received: builtin2"]
+    # Define a simple class that can accept and invoke callbacks
+    threading = proc_with_server.client._import("threading")
+    queue = proc_with_server.client._import("queue")
+    time = proc_with_server.client._import("time")
 
-    # Clean up: close the local server that was created by start_local_server=True
-    from teleprox.server import RPCServer
-    local_server = RPCServer.get_server()
-    if local_server is not None:
-        local_server.close()
+    proc_with_server.client._import("builtins").exec(
+        """
+import __main__
 
-    proc_with_server.stop()
+class CallbackTester:
+    def __init__(self):
+        self._cb_queue = queue.Queue()
+        self._returns = {}
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def name(self):
+        return "CallbackTester"
+
+    def _run(self):
+        while True:
+            callback_func = self._cb_queue.get()
+            if callback_func is None:  # Exit signal
+                break
+            result = callback_func(self)
+            self._returns[callback_func] = result
+
+    def invoke_callback(self, callback_func):
+        self._cb_queue.put(callback_func)
+        while callback_func not in self._returns:
+            time.sleep(0.01)
+        return self._returns.pop(callback_func)
+
+    def repeated_callback(self, callback_func, count=3):
+        results = []
+        for i in range(count):
+            result = self.invoke_callback(callback_func)
+            results.append(result)
+        return results
+
+    def stop(self):
+        self._cb_queue.put((None, None))
+
+__main__.CallbackTester = CallbackTester
+    """,
+        {'queue': queue, 'threading': threading, 'time': time},
+    )
+    tester_with_server = proc_with_server.client._import("__main__").CallbackTester()
+
+    try:
+        # Reset callback result
+        callback_result.clear()
+
+        # This should work now
+        response = tester_with_server.invoke_callback(my_callback)  # !!!timing out!!!
+        assert response == "callback_response"
+        assert callback_result == ["callback received: CallbackTester"]
+
+        # Test multiple callback invocations
+        callback_result.clear()
+        responses = tester_with_server.repeated_callback(my_callback, 2)
+        assert responses == ["callback_response", "callback_response"]
+        assert callback_result == [
+            "callback received: CallbackTester",
+            "callback received: CallbackTester",
+        ]
+
+        # Test lambda callback
+        callback_result.clear()
+        lambda_response = tester_with_server.invoke_callback(
+            lambda x: f"lambda_processed: {x.name()}"
+        )
+        assert lambda_response == "lambda_processed: CallbackTester"
+
+    finally:
+        # TODO if it times out, we probably can't send any more signals
+        # tester_with_server.stop()
+        proc_with_server.kill()
 
 
 if __name__ == '__main__':

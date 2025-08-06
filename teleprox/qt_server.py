@@ -1,7 +1,8 @@
-import logging, time
-from .server import RPCServer
-from . import log
+import logging
+import time
 
+from . import log
+from .server import RPCServer
 
 logger = logging.getLogger(__name__)
 
@@ -44,25 +45,23 @@ class QtRPCServer(RPCServer):
     Starting in an existing Qt application::
     
         # Create server.
-        server = QtRPCServer()
-        
         # Start listening for requests in a background thread (this call
         # returns immediately).
-        server.run_forever()
+        server = QtRPCServer()
     """
-    def __init__(self, address="tcp://127.0.0.1:*", quit_on_close=True):
+    def __init__(self, address="tcp://127.0.0.1:*", quit_on_close=True, _run_thread=True):
+        self.poll_thread = None
+        self.quit_on_close = quit_on_close
+        RPCServer.__init__(self, address, _run_thread=_run_thread)
         # only import Qt if requested
         from .qt_poll_thread import QtPollThread
-
-        RPCServer.__init__(self, address)
-        self.quit_on_close = quit_on_close        
         self.poll_thread = QtPollThread(self)
-        
+
     def run_forever(self):
-        name = ('%s.%s.%s' % (log.get_host_name(), log.get_process_name(), 
-                              log.get_thread_name()))
+        while self.poll_thread is None:
+            time.sleep(0.1)  # wait for poll thread to be created
+        name = f'{log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}'
         logger.info("RPC start server: %s@%s", name, self.address.decode())
-        RPCServer.register_server(self)
         self.poll_thread.start()
 
     def process_action(self, action, opts, return_type, caller):
@@ -72,14 +71,14 @@ class QtRPCServer(RPCServer):
                 # Qt import deferred
                 from teleprox import qt
                 qt.QApplication.instance().quit()
-            # can't stop poller thread here--that would prevent the return 
-            # message being sent. In general it should be safe to leave this thread
+            # can't stop poller thread here--that would prevent the return
+            # message being sent. In general, it should be safe to leave this thread
             # running anyway.
-            #self.poll_thread.stop()
+            # self.poll_thread.stop()
         return RPCServer.process_action(self, action, opts, return_type, caller)
 
     def _final_close(self):
         # Block for a moment to allow the poller thread to flush any pending
         # messages. Ideally, we could let the poller thread keep the process
-        # alive until it is done, but then we can end up with zombie processes..
+        # alive until it is done, but then we can end up with zombie processes...
         time.sleep(0.1)
