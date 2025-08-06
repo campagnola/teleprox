@@ -373,9 +373,7 @@ def test_callbacks():
         return "callback_response"
 
     # First, test that callbacks fail without local_server
-    proc_no_server = start_process(
-        'test_callback_proc_no_server', local_server=None
-    )
+    proc_no_server = start_process('test_callback_proc_no_server', local_server=None)
 
     # Create a simple function that takes another function as parameter
     # Use built-in functionality rather than publishing our own class
@@ -473,8 +471,336 @@ __main__.CallbackTester = CallbackTester
         proc_with_server.kill()
 
 
+def test_exception_handling():
+    """Test various exception scenarios in RPC calls."""
+
+    class ExceptionTester:
+        def raise_value_error(self, message="test error"):
+            raise ValueError(message)
+
+        def raise_type_error(self, message="type error"):
+            raise TypeError(message)
+
+        def raise_runtime_error(self, message="runtime error"):
+            raise RuntimeError(message)
+
+        def raise_custom_exception(self):
+            class CustomError(Exception):
+                pass
+
+            raise CustomError("custom exception message")
+
+        def raise_nested_exception(self):
+            try:
+                self.raise_value_error("nested")
+            except ValueError as e:
+                raise RuntimeError("wrapper error") from e
+
+        def raise_exception_with_complex_args(self):
+            import numpy as np
+
+            raise ValueError("error with array", np.arange(5))
+
+        def divide_by_zero(self, x, y):
+            return x / y
+
+        def access_missing_attribute(self):
+            return self.nonexistent_attribute
+
+        def return_then_raise(self, should_raise=False):
+            if should_raise:
+                raise ValueError("delayed error")
+            return "success"
+
+    server = RPCServer()
+    server['exception_tester'] = ExceptionTester()
+    client = RPCClient.get_client(server.address)
+    tester = client['exception_tester']
+
+    # Test basic exception types
+    with pytest.raises(RemoteCallException) as exc_info:
+        tester.raise_value_error("custom message")
+    assert exc_info.value.type_str == 'ValueError'
+    assert "custom message" in str(exc_info.value)
+
+    with pytest.raises(RemoteCallException) as exc_info:
+        tester.raise_type_error()
+    assert exc_info.value.type_str == 'TypeError'
+
+    with pytest.raises(RemoteCallException) as exc_info:
+        tester.raise_runtime_error()
+    assert exc_info.value.type_str == 'RuntimeError'
+
+    # Test custom exception
+    with pytest.raises(RemoteCallException) as exc_info:
+        tester.raise_custom_exception()
+    assert "CustomError" in exc_info.value.type_str
+    assert "custom exception message" in str(exc_info.value)
+
+    # Test nested exception
+    with pytest.raises(RemoteCallException) as exc_info:
+        tester.raise_nested_exception()
+    assert exc_info.value.type_str == 'RuntimeError'
+    assert "wrapper error" in str(exc_info.value)
+
+    # Test exception with complex arguments
+    with pytest.raises(RemoteCallException) as exc_info:
+        tester.raise_exception_with_complex_args()
+    assert exc_info.value.type_str == 'ValueError'
+
+    # Test built-in exceptions
+    with pytest.raises(RemoteCallException) as exc_info:
+        tester.divide_by_zero(1, 0)
+    assert exc_info.value.type_str == 'ZeroDivisionError'
+
+    with pytest.raises(RemoteCallException) as exc_info:
+        tester.access_missing_attribute()
+    assert exc_info.value.type_str == 'AttributeError'
+
+    # Test exceptions with async calls
+    future = tester.raise_value_error("async error", _sync='async')
+    with pytest.raises(RemoteCallException) as exc_info:
+        future.result()
+    assert exc_info.value.type_str == 'ValueError'
+    assert "async error" in str(exc_info.value)
+
+    # Test successful call followed by exception
+    result = tester.return_then_raise(False)
+    assert result == "success"
+    with pytest.raises(RemoteCallException):
+        tester.return_then_raise(True)
+
+    client.close_server()
+    client.close()
+
+
+def test_local_server_types():
+    """Test different local_server configurations: None, 'lazy', 'threaded', and shared."""
+
+    def test_callback(x):
+        return x * 2
+
+    # Test 1: None local_server - should fail with callbacks
+    proc_none = start_process('test_none_local_server', local_server=None)
+    try:
+        # Set up a simple object that can receive callbacks in the remote process
+        proc_none.client._import('builtins').exec(
+            '''
+class CallbackTester:
+    def apply_function(self, func, value):
+        return func(value)
+        
+    def echo(self, value):
+        return value
+
+import __main__
+__main__.callback_tester = CallbackTester()
+'''
+        )
+        tester = proc_none.client._import('__main__').callback_tester
+
+        # This should work (no callback)
+        result = tester.echo(42)
+        assert result == 42
+
+        # This should fail (callback required but no local server)
+        with pytest.raises(TypeError):
+            tester.apply_function(test_callback, 5)
+
+    finally:
+        proc_none.kill()
+
+    # Test 2: 'lazy' local_server
+    proc_lazy = start_process('test_lazy_local_server', local_server='lazy')
+    try:
+        proc_lazy.client._import('builtins').exec(
+            '''
+class CallbackTester:
+    def apply_function(self, func, value):
+        return func(value)
+        
+    def apply_multiple(self, func, values):
+        return [func(v) for v in values]
+        
+    def echo(self, value):
+        return value
+
+import __main__
+__main__.callback_tester = CallbackTester()
+'''
+        )
+        tester = proc_lazy.client._import('__main__').callback_tester
+
+        # Both should work
+        result = tester.echo(42)
+        assert result == 42
+
+        result = tester.apply_function(test_callback, 5)
+        assert result == 10
+
+        # Test multiple callbacks
+        results = tester.apply_multiple(test_callback, [1, 2, 3])
+        assert results == [2, 4, 6]
+
+    finally:
+        proc_lazy.kill()
+
+    # Test 3: 'threaded' local_server
+    proc_threaded = start_process('test_threaded_local_server', local_server='threaded')
+    try:
+        proc_threaded.client._import('builtins').exec(
+            '''
+class CallbackTester:
+    def apply_function(self, func, value):
+        return func(value)
+        
+    def apply_multiple(self, func, values):
+        return [func(v) for v in values]
+        
+    def echo(self, value):
+        return value
+
+import __main__
+__main__.callback_tester = CallbackTester()
+'''
+        )
+        tester = proc_threaded.client._import('__main__').callback_tester
+
+        # Both should work
+        result = tester.echo(42)
+        assert result == 42
+
+        result = tester.apply_function(test_callback, 5)
+        assert result == 10
+
+        # Test multiple callbacks
+        results = tester.apply_multiple(test_callback, [1, 2, 3])
+        assert results == [2, 4, 6]
+
+    finally:
+        proc_threaded.kill()
+
+    # Test 4: Shared RPCServer instance
+    shared_server = RPCServer()
+
+    proc_shared1 = start_process(
+        'test_shared1_local_server', local_server=shared_server
+    )
+    proc_shared2 = start_process(
+        'test_shared2_local_server', local_server=shared_server
+    )
+
+    try:
+        # Set up callback testers in both processes
+        for i, proc in enumerate([proc_shared1, proc_shared2], 1):
+            proc.client._import('builtins').exec(
+                f'''
+class CallbackTester:
+    def __init__(self, name):
+        self.name = name
+        
+    def apply_function(self, func, value):
+        return func(value)
+        
+    def get_name(self):
+        return self.name
+
+import __main__
+__main__.callback_tester{i} = CallbackTester("tester{i}")
+'''
+            )
+
+        tester1 = proc_shared1.client._import('__main__').callback_tester1
+        tester2 = proc_shared2.client._import('__main__').callback_tester2
+
+        # Test callbacks work through shared server
+        result1 = tester1.apply_function(test_callback, 10)
+        assert result1 == 20
+
+        result2 = tester2.apply_function(test_callback, 15)
+        assert result2 == 30
+
+        # Test that shared server enables cross-process object sharing
+        shared_server['shared_value'] = 100
+
+        def get_shared_value(unused_arg):
+            return shared_server['shared_value']
+
+        # Both processes can access the shared value through callbacks
+        value1 = tester1.apply_function(get_shared_value, None)
+        value2 = tester2.apply_function(get_shared_value, None)
+
+        assert value1 == 100
+        assert value2 == 100
+
+    finally:
+        proc_shared1.kill()
+        proc_shared2.kill()
+        shared_server.close()
+
+    # Test 5: Performance comparison between lazy and threaded
+    import time
+
+    def slow_callback(x):
+        time.sleep(0.01)  # Small delay
+        return x * 3
+
+    # Time lazy version
+    proc_lazy_perf = start_process('test_lazy_perf', local_server='lazy')
+    try:
+        proc_lazy_perf.client._import('builtins').exec(
+            '''
+class CallbackTester:
+    def apply_multiple(self, func, values):
+        return [func(v) for v in values]
+
+import __main__
+__main__.callback_tester = CallbackTester()
+'''
+        )
+        tester = proc_lazy_perf.client._import('__main__').callback_tester
+
+        start_time = time.time()
+        results = tester.apply_multiple(slow_callback, list(range(5)))
+        lazy_time = time.time() - start_time
+        assert results == [0, 3, 6, 9, 12]
+
+    finally:
+        proc_lazy_perf.kill()
+
+    # Time threaded version
+    proc_threaded_perf = start_process('test_threaded_perf', local_server='threaded')
+    try:
+        proc_threaded_perf.client._import('builtins').exec(
+            '''
+class CallbackTester:
+    def apply_multiple(self, func, values):
+        return [func(v) for v in values]
+
+import __main__
+__main__.callback_tester = CallbackTester()
+'''
+        )
+        tester = proc_threaded_perf.client._import('__main__').callback_tester
+
+        start_time = time.time()
+        results = tester.apply_multiple(slow_callback, list(range(5)))
+        threaded_time = time.time() - start_time
+        assert results == [0, 3, 6, 9, 12]
+
+    finally:
+        proc_threaded_perf.kill()
+
+    # Both should complete successfully (timing comparison is informational)
+    logger.info(
+        f"Lazy callback time: {lazy_time:.3f}s, Threaded callback time: {threaded_time:.3f}s"
+    )
+
+
 if __name__ == '__main__':
     # ~ test_rpc()
     test_qt_rpc()
     # ~ test_disconnect()
     # ~ test_callbacks()
+    # ~ test_exception_handling()
+    # ~ test_local_server_types()
