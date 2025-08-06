@@ -3,6 +3,16 @@
 
 from teleprox import qt
 
+            
+# LogRecord attributes considered standard -- these appear in columns of the log viewer.
+# all non-standard attributes are shown as expandable children in the log viewer.
+standard_record_attrs = {
+    'name', 'msg', 'message', 'args', 'levelname', 'levelno', 'pathname', 'filename',
+    'module', 'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
+    'thread', 'threadName', 'processName', 'hostName', 'process', 'getMessage',
+    'exc_info', 'exc_text', 'stack_info', 'tags', 'taskName'  # exclude our standard ones
+}
+
 
 class ItemDataRole:
     """Constants for QStandardItem UserRole data slots."""

@@ -9,7 +9,7 @@ from teleprox import qt
 from .utils import level_colors, thread_color, level_to_cipher
 from .widgets import FilterInputWidget, HighlightDelegate, HyperlinkTreeView
 from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
-from .constants import ItemDataRole, LogColumns
+from .constants import ItemDataRole, LogColumns, standard_record_attrs
 from .log_model import LogModel
 
 
@@ -411,16 +411,9 @@ class LogViewer(qt.QWidget):
         """Check if record has extra attributes beyond standard LogRecord fields."""
         if not hasattr(record, '__dict__'):
             return False
-            
-        standard_attrs = {
-            'name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 'filename',
-            'module', 'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
-            'thread', 'threadName', 'processName', 'process', 'getMessage',
-            'exc_info', 'exc_text', 'stack_info', 'tags', 'taskName'
-        }
         
         for attr_name in record.__dict__.keys():
-            if attr_name not in standard_attrs and not attr_name.startswith('_'):
+            if attr_name not in standard_record_attrs and not attr_name.startswith('_'):
                 return True
         return False
     

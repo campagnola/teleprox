@@ -1,6 +1,6 @@
 import traceback
 from teleprox import qt
-from .constants import ItemDataRole, LogColumns
+from .constants import ItemDataRole, LogColumns, standard_record_attrs
 
 
 class LogModel(qt.QStandardItemModel):
@@ -146,16 +146,8 @@ class LogModel(qt.QStandardItemModel):
         children = []
         
         if hasattr(record, '__dict__'):
-            # Standard LogRecord attributes to exclude
-            standard_attrs = {
-                'name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 'filename',
-                'module', 'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
-                'thread', 'threadName', 'processName', 'process', 'getMessage',
-                'exc_info', 'exc_text', 'stack_info', 'tags', 'taskName'  # exclude our standard ones
-            }
-            
             for attr_name, attr_value in record.__dict__.items():
-                if attr_name not in standard_attrs and not attr_name.startswith('_'):
+                if attr_name not in standard_record_attrs and not attr_name.startswith('_'):
                     attr_child = self._create_single_extra_attribute_child(attr_name, attr_value, record)
                     if attr_child:
                         children.append(attr_child)
