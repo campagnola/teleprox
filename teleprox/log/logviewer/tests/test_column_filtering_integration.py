@@ -23,15 +23,9 @@ except ImportError:
 class TestColumnFilteringIntegration:
     """Integration tests for filtering with new column layout."""
     
-    @pytest.fixture
-    def app(self):
-        """Create QApplication for tests."""
-        app = qt.QApplication.instance()
-        if app is None:
-            app = qt.QApplication([])
-        return app
+    # QApplication fixture provided by conftest.py
     
-    def test_complete_filtering_integration(self, app):
+    def test_complete_filtering_integration(self, qapp):
         """Comprehensive test of all filtering types with new column layout."""
         viewer = LogViewer(logger='test.integration.filtering')
         logger = logging.getLogger('test.integration.filtering')
@@ -95,7 +89,7 @@ class TestColumnFilteringIntegration:
         
         print("✅ All filtering integration tests passed!")
     
-    def test_column_data_mapping(self, app):
+    def test_column_data_mapping(self, qapp):
         """Test that data is stored in the correct columns after layout changes."""
         viewer = LogViewer(logger='test.column.mapping')
         logger = logging.getLogger('test.column.mapping')
@@ -155,7 +149,7 @@ class TestColumnFilteringIntegration:
         
         print("✅ Column data mapping test passed!")
     
-    def test_filter_data_roles(self, app):
+    def test_filter_data_roles(self, qapp):
         """Test that filtering data roles are stored correctly in new column layout."""
         viewer = LogViewer(logger='test.filter.data')
         logger = logging.getLogger('test.filter.data')
@@ -199,17 +193,17 @@ class TestColumnFilteringIntegration:
 
 def run_tests():
     """Run the integration tests."""
-    app = qt.QApplication.instance()
-    if app is None:
-        app = qt.QApplication([])
+    qapp = qt.QApplication.instance()
+    if qapp is None:
+        qapp = qt.QApplication([])
     
     test_instance = TestColumnFilteringIntegration()
     
     try:
         print("Running column filtering integration tests...")
-        test_instance.test_complete_filtering_integration(app)
-        test_instance.test_column_data_mapping(app)
-        test_instance.test_filter_data_roles(app)
+        test_instance.test_complete_filtering_integration(qapp)
+        test_instance.test_column_data_mapping(qapp)
+        test_instance.test_filter_data_roles(qapp)
         print("\n🎉 All integration tests passed!")
         return True
     except Exception as e:
@@ -219,8 +213,8 @@ def run_tests():
         return False
     finally:
         # Clean up Qt application
-        if app:
-            app.processEvents()  # Process any pending events
+        if qapp:
+            qapp.processEvents()  # Process any pending events
 
 
 if __name__ == "__main__":
