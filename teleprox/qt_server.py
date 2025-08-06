@@ -8,7 +8,9 @@ logger = logging.getLogger(__name__)
 
 
 class QtRPCServer(RPCServer):
-    """RPCServer that executes actions in the main Qt GUI thread.
+    """RPCServer that executes actions in the main Qt GUI thread. In this mode,
+    messages are polled in a separate thread, but then sent to the Qt event
+    loop by signal and processed there.
 
     This server may be used to create and manage QObjects, QWidgets, etc. It
     uses a separate thread to poll for RPC requests, which are then sent to the
@@ -19,16 +21,6 @@ class QtRPCServer(RPCServer):
     QtRPCServer may be started in newly spawned processes using
     ``start_process(qt=True)``.
     
-    Parameters
-    ----------
-    address : str
-        ZMQ address to listen on. Default is ``'tcp://127.0.0.1:*'``.
-        
-        **Note:** binding RPCServer to a public IP address is a potential
-        security hazard. See :class:`RPCServer`.
-    quit_on_close : bool
-        If True, then call `QApplication.quit()` when the server is closed. 
-        
     Examples
     --------
     
@@ -50,6 +42,15 @@ class QtRPCServer(RPCServer):
         server = QtRPCServer()
     """
     def __init__(self, address="tcp://127.0.0.1:*", quit_on_close=True, _run_thread=True):
+        """Initialize a new QtRPCServer.
+
+        Parameters
+        ----------
+        quit_on_close : bool
+            If True, then call `QApplication.quit()` when the server is closed.
+
+        Other parameters are the same as for `RPCServer`.
+        """
         self.poll_thread = None
         self.quit_on_close = quit_on_close
         RPCServer.__init__(self, address, _run_thread=_run_thread)

@@ -25,38 +25,17 @@ class RPCServer(object):
     RPCServer instances are automatically created when using :class:`start_process`.
     It is rarely necessary for the user to interact directly with RPCServer.
 
-    RPCServers can be run in a few different modes:
-
-    * **Exclusive event loop**: call `run_forever()` to cause the server to listen
-      constantly for incoming request messages.
-    * **Threaded event loop**: call `run_in_thread()` to call `run_forever()` in a
-        separate thread. This allows the server to run in the background while the
-        main thread continues to do other work.
-    * **Lazy**: pass a plain RPCServer around to e.g. an RPCClient, which can use it to
-      check for requests (which allows reentrant function calls). You can also manually
-      handle requests with `_read_and_process_one()` in this mode.
-    * **Qt event loop**: use :class:`QtRPCServer`. In this mode, messages are polled in
-      a separate thread, but then sent to the Qt event loop by signal and processed
-      there.
-
-    Parameters
-    ----------
-    address : URL
-        Address for RPC server to bind to. Default is ``'tcp://127.0.0.1:*'``.
-
-        **Note:** binding RPCServer to a public IP address is a potential
-        security hazard.
-
     Notes
     -----
 
-    **RPCServer is not a secure server.** It is intended to be used only on trusted
-    networks; anyone with tcp access to the server can execute arbitrary code
-    on the server.
+    * use :class:`QtRPCServer` to proxy into a qt-enabled process.
 
-    RPCServer is not a thread-safe class. Possibly use a :class:`RPCClient` to
-    communicate with RPCServer from other threads.
+    * **RPCServer is not a secure server.** It is intended to be used only on trusted
+        networks; anyone with tcp access to the server can execute arbitrary code
+        on the server.
 
+    * RPCServer is not a thread-safe class. Possibly use a :class:`RPCClient` to
+        communicate with RPCServer from other threads.
 
     Examples
     --------
@@ -90,6 +69,24 @@ class RPCServer(object):
     """
 
     def __init__(self, address="tcp://127.0.0.1:*", serialize_types=None, _run_thread=True):
+        """Initialize the RPC server.
+
+        Parameters
+        ----------
+        address : URL
+            Address for RPC server to bind to. Default is ``'tcp://127.0.0.1:*'``.
+
+            **Note:** binding RPCServer to a public IP address is a potential
+            security hazard.
+        serialize_types : Enumerable of types | None
+            List of types that should not be wrapped in an ObjectProxy when
+            sent to a remote client. This is used to avoid wrapping objects
+            that are already proxies, or that are not safe to proxy.
+            Default is `serializer.default_serialize_types`.
+        _run_thread : bool
+            INTERNAL USE ONLY. If True, then the server will run in a separate
+            thread.
+        """
         self._socket = zmq.Context.instance().socket(zmq.ROUTER)
 
         self._serialize_types = serialize_types
@@ -391,17 +388,10 @@ class RPCServer(object):
             self.close()
 
     def close(self):
-        """Ask the server to close.
-
-        This method is thread-safe.
+        """Ask the server to close immediately. Pending requests will be ignored, and the currently active request
+        may not send its return value.
         """
-        from .client import RPCClient
-
-        cli = RPCClient.get_client(self.address, create=False)
-        if cli is None:
-            self.process_action('close', None, None, None)
-        else:
-            cli.close_server(sync='sync')
+        self.process_action('close', None, None, None)
 
     def _final_close(self):
         # Called after the server has closed and sent its disconnect messages.

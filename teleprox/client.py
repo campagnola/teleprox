@@ -31,29 +31,6 @@ class RPCClient(object):
     :class:`start_process` or by requesting attributes from an :class:`ObjectProxy`.
     In general, it is not necessary for the user to interact directly with
     RPCClient.
-
-    Parameters
-    ----------
-    address : URL
-        Address of RPC server to connect to.
-    local_server : "threaded" | "lazy" | RPCServer | None
-        If "threaded", start a dedicated server in a thread to handle proxying data sent to the
-        remote server. If "lazy", then make a dedicated local server that isn't actively
-        processing and will only be handling requests while this client is actively
-        communicating. If an RPCServer, then use it. If None, then no proxying is done and this
-        client will only be able to send fully serializable objects to the remote server.
-        Defaults to "threaded".
-    serializer : str
-        Type of serializer to use when communicating with the remote server.
-        Default is 'msgpack'.
-    serialize_types : tuple | None
-        A tuple of types that may be serialized when sending request arguments to the remote server.
-        If a local server is running, then types not in this list will be sent by proxy.
-        Otherwise, a TypeError is raised.
-        If None, then ``serializer.default_serialize_types`` is used instead.
-        This is also used in the construction of the local RPCServer if local_server is dedicated.
-
-    Raises ConnectionRefusedError if no server is running at the given address.
     """
 
     clients_by_thread = {}  # (thread_id, rpc_addr): client
@@ -66,10 +43,50 @@ class RPCClient(object):
         If no client exists already, then a new one will be created. If the
         server is running in the current thread, then return None.
 
+        Parameters
+        ----------
+        address : URL
+            Address of RPC server to connect to.
+        local_server : "threaded" | "lazy" | RPCServer | None
+            "threaded" (default):
+                Start a dedicated RPCServer in a thread that will proxy data send through this
+                client in an asynchronous manner. This allows the client to send callbacks and
+                persistent objects safely. It means that processing will happen in a separate thread,
+                and therefore thread-safe practices will need to be followed when using this client.
+            "lazy":
+                Start a dedicated RPCServer that is not actively processing requests, but will
+                process them when this client is used. This allows the client to proxy objects
+                intended for use during the individual remote calls, but not outside of them.
+                Violation of this contract will most likely result in timeouts. Because responses
+                from a remote server can themselves be proxied, it may seem like a reference should
+                be pointed at a local object directly, but if it lives inside such a remote proxy,
+                then it will sneakily not be the case.
+            RPCServer:
+                Use the given RPCServer instance to handle proxying data sent to the remote server.
+                This can be used to share a server between multiple clients.
+            None:
+                Do not proxy through a local RPCServer. This means that the client will not be able
+                to proxy objects to the remote server, and will only be able to send simple,
+                serializable data types (see ``serialize_types``).
+        serializer : str
+            Type of serializer to use when communicating with the remote server.
+            Default is 'msgpack'.
+        serialize_types : tuple | None
+            A tuple of types that may be serialized when sending request arguments to the remote server.
+            If a local server is running, then types not in this list will be sent by proxy.
+            Otherwise, a TypeError is raised.
+            If None, then ``serializer.default_serialize_types`` is used instead.
+            This is also used in the construction of the local RPCServer if local_server is dedicated.
+
+        Raises
+        ------
+        ConnectionRefusedError if no server is running at the given address.
+        TimeoutError if the server cannot be reached within the default timeout.
+
         See also
         --------
 
-        RPCServer.address
+        ``RPCServer.address``
         """
         if isinstance(address, str):
             address = address.encode()
