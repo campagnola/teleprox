@@ -43,7 +43,7 @@ class TestNewColumnFiltering:
         assert error_item is not None, "Should have found error item with placeholder"
         
         # Expand the error to create children
-        viewer.expandItem(error_item)
+        viewer.expand_item(error_item)
         child_count = error_item.rowCount()
         assert child_count > 0, "Should have children after expansion"
         
@@ -93,7 +93,7 @@ class TestNewColumnFiltering:
         assert exception_item is not None, "Should have found exception item"
         
         # Expand to create children
-        viewer.expandItem(exception_item)
+        viewer.expand_item(exception_item)
         assert exception_item.rowCount() > 0, "Should have children"
         
         # Test the actual user behavior: that children remain visible when filtering on new columns
@@ -161,7 +161,7 @@ class TestNewColumnFiltering:
         assert exception_item is not None, "Should have found exception item"
         
         # Expand the exception
-        viewer.expandItem(exception_item)
+        viewer.expand_item(exception_item)
         child_count = exception_item.rowCount()
         assert child_count > 0, "Should have children"
         

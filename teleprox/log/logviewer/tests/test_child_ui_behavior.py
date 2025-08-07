@@ -39,7 +39,7 @@ class TestChildUIBehavior:
         assert exception_item is not None, "Should have found exception item"
         
         # Expand the exception
-        viewer.expandItem(exception_item)
+        viewer.expand_item(exception_item)
         child_count = exception_item.rowCount()
         assert child_count > 0, "Should have exception children"
         
@@ -99,7 +99,7 @@ class TestChildUIBehavior:
         for i in range(viewer.model.rowCount()):
             item = viewer.model.item(i, LogColumns.TIMESTAMP)
             if item.rowCount() > 0:  # Has expandable content
-                viewer.expandItem(item)
+                viewer.expand_item(item)
                 exception_items.append((i, item))
         
         assert len(exception_items) == 2, "Should have 2 exception items"
@@ -157,7 +157,7 @@ class TestChildUIBehavior:
         assert exception_item is not None, "Should have found exception item"
         
         # Expand the exception
-        viewer.expandItem(exception_item)
+        viewer.expand_item(exception_item)
         child_count = exception_item.rowCount()
         assert child_count >= 1, "Should have at least the exception category"
         
@@ -205,7 +205,7 @@ class TestChildUIBehavior:
         assert exception_item is not None, "Should have found exception item"
         
         # Expand the exception
-        viewer.expandItem(exception_item)
+        viewer.expand_item(exception_item)
         
         # Get the exception category
         exc_category = exception_item.child(0, LogColumns.TIMESTAMP)

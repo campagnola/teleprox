@@ -507,7 +507,7 @@ class LogViewer(qt.QWidget):
         """Map an item index from the top-level source model to the current proxy model."""
         return self.proxy_model.map_index_from_model(model_index)
     
-    def expandItem(self, item):
+    def expand_item(self, item):
         """Expand an item in the tree view."""
         source_index = self.model.indexFromItem(item)
         tree_index = self.map_index_from_model(source_index)
@@ -550,7 +550,6 @@ class LogViewer(qt.QWidget):
                     break
             except:
                 continue
-    
     
     def _parse_code_line_info(self, text):
         """Parse file path and line number from traceback or stack frame text."""
@@ -662,7 +661,7 @@ class LogViewer(qt.QWidget):
         """Expand all lazy-loaded content in the model for export."""
         def expand_recursive(parent_item):
             # If this item has a loading placeholder, replace it with content
-            if model.has_loading_placeholder(parent_item):
+            if getattr(parent_item, 'has_child_placeholder', False):
                 model.replace_placeholder_with_content(parent_item)
             
             # Recursively expand all children
@@ -688,7 +687,7 @@ class LogViewer(qt.QWidget):
                 ))
                 
                 # Add filter criteria summary if this is a filtered export
-                if filter_criteria:
+                if filter_criteria is not None:
                     if filter_criteria:
                         filter_items = '\n'.join(
                             HTML_FILTER_ITEM.format(filter_expr=html.escape(filter_expr))

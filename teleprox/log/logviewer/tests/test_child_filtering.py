@@ -194,7 +194,7 @@ class TestChildFiltering:
         for i in range(viewer.model.rowCount()):
             item = viewer.model.item(i, 0)
             if item.rowCount() > 0:  # Has expandable content
-                viewer.expandItem(item)
+                viewer.expand_item(item)
                 expanded_count += 1
         
         assert expanded_count == 2, "Should have expanded 2 exception items"
