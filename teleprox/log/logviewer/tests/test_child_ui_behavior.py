@@ -32,14 +32,14 @@ class TestChildUIBehavior:
         exception_item = None
         for i in range(viewer.model.rowCount()):
             item = viewer.model.item(i, LogColumns.TIMESTAMP)
-            if viewer.model.has_loading_placeholder(item):
+            if item.rowCount() > 0:  # Has expandable content
                 exception_item = item
                 break
         
         assert exception_item is not None, "Should have found exception item"
         
         # Expand the exception
-        viewer.model.replace_placeholder_with_content(exception_item)
+        viewer.expandItem(exception_item)
         child_count = exception_item.rowCount()
         assert child_count > 0, "Should have exception children"
         
@@ -98,8 +98,8 @@ class TestChildUIBehavior:
         exception_items = []
         for i in range(viewer.model.rowCount()):
             item = viewer.model.item(i, LogColumns.TIMESTAMP)
-            if viewer.model.has_loading_placeholder(item):
-                viewer.model.replace_placeholder_with_content(item)
+            if item.rowCount() > 0:  # Has expandable content
+                viewer.expandItem(item)
                 exception_items.append((i, item))
         
         assert len(exception_items) == 2, "Should have 2 exception items"
@@ -150,14 +150,14 @@ class TestChildUIBehavior:
         exception_item = None
         for i in range(viewer.model.rowCount()):
             item = viewer.model.item(i, LogColumns.TIMESTAMP)
-            if viewer.model.has_loading_placeholder(item):
+            if item.rowCount() > 0:  # Has expandable content
                 exception_item = item
                 break
         
         assert exception_item is not None, "Should have found exception item"
         
         # Expand the exception
-        viewer.model.replace_placeholder_with_content(exception_item)
+        viewer.expandItem(exception_item)
         child_count = exception_item.rowCount()
         assert child_count >= 1, "Should have at least the exception category"
         
@@ -198,14 +198,14 @@ class TestChildUIBehavior:
         exception_item = None
         for i in range(viewer.model.rowCount()):
             item = viewer.model.item(i, LogColumns.TIMESTAMP)
-            if viewer.model.has_loading_placeholder(item):
+            if item.rowCount() > 0:  # Has expandable content
                 exception_item = item
                 break
         
         assert exception_item is not None, "Should have found exception item"
         
         # Expand the exception
-        viewer.model.replace_placeholder_with_content(exception_item)
+        viewer.expandItem(exception_item)
         
         # Get the exception category
         exc_category = exception_item.child(0, LogColumns.TIMESTAMP)

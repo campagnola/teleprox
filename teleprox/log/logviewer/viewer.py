@@ -517,6 +517,12 @@ class LogViewer(qt.QWidget):
     def map_index_from_model(self, model_index):
         """Map an item index from the top-level source model to the current proxy model."""
         return self.proxy_model.map_index_from_model(model_index)
+    
+    def expandItem(self, item):
+        """Expand an item in the tree view."""
+        source_index = self.model.indexFromItem(item)
+        tree_index = self.map_index_from_model(source_index)
+        self.tree.expand(tree_index)
 
     def _get_selected_item_data(self):
         """Get unique ID from currently selected item for selection preservation."""

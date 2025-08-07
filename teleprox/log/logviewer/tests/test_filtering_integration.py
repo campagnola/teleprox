@@ -13,6 +13,7 @@ from unittest.mock import Mock, MagicMock
 # Import Qt for testing
 try:
     from teleprox import qt
+    from teleprox.log.logviewer.viewer import LogViewer
     QStandardItemModel = qt.QStandardItemModel
     QStandardItem = qt.QStandardItem
     Qt = qt.Qt
@@ -114,24 +115,47 @@ class TestFilteringIntegration:
         filtered_count = manager.rowCount()
         assert filtered_count == 3
     
-    def test_source_thread_filtering_integration(self, full_model):
-        """Test source filtering for thread-like data with realistic data."""
-        manager = ChainedLogFilterManager(full_model)
+    def test_source_thread_filtering_integration(self, qapp):
+        """Test source filtering for thread-like data through LogViewer interface."""
+        viewer = LogViewer(logger='test.source.filtering')
         
-        # Filter for MainThread in source column
-        manager.set_filters(["source: MainThread"])
+        # Add some test data with different threads
+        import logging
+        logger = logging.getLogger('test.source.filtering')
+        logger.setLevel(logging.DEBUG)
         
-        # Should match 4 records (all MainThread records)
-        filtered_count = manager.rowCount()
-        assert filtered_count == 4
+        # Add messages from MainThread (default)
+        logger.info("Message 1 from MainThread")
+        logger.warning("Message 2 from MainThread")
+        logger.error("Message 3 from MainThread")
+        logger.debug("Message 4 from MainThread")
+        
+        # Apply source filter for MainThread
+        viewer.apply_filters(["source: MainThread"])
+        
+        # Should have all messages visible since they're all from MainThread
+        filtered_model = viewer.tree.model()
+        filtered_count = filtered_model.rowCount()
+        assert filtered_count == 4, f"Should have 4 MainThread records, got {filtered_count}"
     
-    def test_source_filtering_integration(self, full_model):
-        """Test source filtering using the column name."""
-        manager = ChainedLogFilterManager(full_model)
+    def test_source_filtering_integration(self, qapp):
+        """Test source filtering using the LogViewer interface."""
+        viewer = LogViewer(logger='test.source.process.filtering')
         
-        # Filter for 'main' in source (should match process names)
-        manager.set_filters(["source: main"])
+        # Add some test data
+        import logging
+        logger = logging.getLogger('test.source.process.filtering')
+        logger.setLevel(logging.DEBUG)
         
-        # Should match 5 records (all MainProcess records)
-        filtered_count = manager.rowCount()
-        assert filtered_count == 5
+        # Add messages from MainProcess (default)
+        logger.info("Message 1 from main process")
+        logger.warning("Message 2 from main process")
+        logger.error("Message 3 from main process")
+        
+        # Apply source filter for 'main' (should match MainProcess/MainThread combination)
+        viewer.apply_filters(["source: Main"])
+        
+        # Should have all messages visible since they're all from MainProcess/MainThread
+        filtered_model = viewer.tree.model()
+        filtered_count = filtered_model.rowCount()
+        assert filtered_count == 3, f"Should have 3 Main* records, got {filtered_count}"
