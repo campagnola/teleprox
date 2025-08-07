@@ -6,7 +6,7 @@ import logging
 import time
 
 from teleprox import qt
-from .widgets import FilterInputWidget, HighlightDelegate
+from .widgets import FilterInputWidget, HighlightDelegate, SearchWidget
 from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .constants import ItemDataRole, LogColumns
 from .log_model import LogModel
@@ -232,12 +232,30 @@ class LogViewer(qt.QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.layout)
 
-        # Add filter input widget
+        # Create top bar with search widget (left) and filter widget (right)
+        top_bar_widget = qt.QWidget()
+        top_bar_layout = qt.QHBoxLayout()
+        top_bar_layout.setContentsMargins(0, 0, 0, 0)
+        top_bar_layout.setSpacing(10)
+        top_bar_widget.setLayout(top_bar_layout)
+        
+        # Add search widget (left side)
+        self.search_widget = SearchWidget()
+        top_bar_layout.addWidget(self.search_widget)
+        
+        # Add filter input widget (right side)
         self.filter_input_widget = FilterInputWidget()
         self.filter_input_widget.filters_changed.connect(self.apply_filters)
         self.filter_input_widget.export_all_requested.connect(self._export_all_to_html)
         self.filter_input_widget.export_filtered_requested.connect(self._export_filtered_to_html)
-        self.layout.addWidget(self.filter_input_widget, 0, 0)
+        top_bar_layout.addWidget(self.filter_input_widget)
+        
+        # Make both widgets take equal space
+        top_bar_layout.setStretch(0, 1)  # Search widget
+        top_bar_layout.setStretch(1, 1)  # Filter widget
+        
+        # Add top bar to main layout
+        self.layout.addWidget(top_bar_widget, 0, 0)
 
         self.model = LogModel()
         self.model.setHorizontalHeaderLabels(LogColumns.TITLES)
@@ -256,6 +274,9 @@ class LogViewer(qt.QWidget):
         self.tree.setModel(tree_model)
         self.tree.setAlternatingRowColors(True)
         self.tree.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)  # Make non-editable
+        
+        # Connect search widget to tree view
+        self.search_widget.set_tree_view(self.tree)
         
         # Initialize expansion state manager now that tree is created
         self.expansion_manager = ExpansionStateManager(self.tree)
@@ -429,6 +450,16 @@ class LogViewer(qt.QWidget):
         
     def _ensure_chronological_sorting(self):
         """Ensure the tree view is sorted chronologically by timestamp."""
+        current_model = self.tree.model()
+        
+        # Set sort role to use numeric timestamp from ItemDataRole.NUMERIC_TIMESTAMP
+        if hasattr(current_model, 'setSortRole'):
+            current_model.setSortRole(ItemDataRole.NUMERIC_TIMESTAMP)
+        
+        # Apply sorting
+        # if hasattr(current_model, 'sort'):
+            # current_model.sort(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
+
         self.tree.sortByColumn(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
     
     def _show_header_context_menu(self, position):
