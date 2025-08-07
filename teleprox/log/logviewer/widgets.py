@@ -5,41 +5,6 @@ from teleprox import qt
 from .constants import ItemDataRole, LogColumns
 
 
-class HyperlinkTreeView(qt.QTreeView):
-    """Custom QTreeView that shows pointer cursor over hyperlink portions of traceback lines."""
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setMouseTracking(True)
-    
-    def mouseMoveEvent(self, event):
-        """Override mouse move to change cursor over hyperlinks."""
-        index = self.indexAt(event.pos())
-        cursor = qt.Qt.ArrowCursor  # Default cursor
-        
-        if index.isValid():
-            # Get the item data to check if it's a clickable code line
-            model = self.model()
-            
-            # Map to source model if using proxy
-            source_index = index
-            if hasattr(model, 'mapToSource'):
-                source_index = model.mapToSource(index)
-            
-            # Get the actual item from the source model
-            if hasattr(self.parent(), 'model') and hasattr(self.parent().model, 'itemFromIndex'):
-                item = self.parent().model.itemFromIndex(source_index)
-                if item:
-                    data = item.data(ItemDataRole.PYTHON_DATA)
-                    if (data and isinstance(data, dict) and 
-                        data.get('type') in ['traceback_frame', 'stack_frame'] and
-                        data.get('frame_parts', {}).get('has_file_ref')):
-                        cursor = qt.Qt.PointingHandCursor
-        
-        self.setCursor(cursor)
-        super().mouseMoveEvent(event)
-
-
 class FilterTagWidget(qt.QLineEdit):
     """Widget representing an active filter with built-in clear button."""
     
