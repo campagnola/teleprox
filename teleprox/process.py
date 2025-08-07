@@ -137,7 +137,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
     # temporary socket to allow the remote process to report its status.
     bootstrap_addr = 'tcp://127.0.0.1:*'
     bootstrap_sock = zmq.Context.instance().socket(zmq.PAIR)
-    bootstrap_sock.setsockopt(zmq.RCVTIMEO, 10000)
+    bootstrap_sock.setsockopt(zmq.RCVTIMEO, 100)  # short timeout; we'll poll it later
     bootstrap_sock.bind(bootstrap_addr)
     bootstrap_sock.linger = 1000 # don't let socket deadlock when exiting
     bootstrap_addr = bootstrap_sock.last_endpoint
@@ -217,10 +217,18 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         proc = None  # prevent trying wait/kill/poll  (but maybe we can still do this on windows?)
 
     # Receive status information (especially the final RPC address)
-    try:
-        status = bootstrap_sock.recv_json()
-    except zmq.error.Again:
-        raise TimeoutError("Timed out waiting for response from spawned process.")
+    start = time.time()
+    while True:
+        if time.time() - start > 10:
+            raise TimeoutError("Timed out waiting for spawned process to report its status.")
+        if proc is not None and proc.poll() is not None:
+            raise RuntimeError(f"Spawned process {name} exited unexpectedly with return code {proc.returncode}.")
+        try:            
+            status = bootstrap_sock.recv_json()
+            logger.debug("recv status %s", status)
+            break
+        except zmq.error.Again:
+            pass
     logger.debug("recv status %s", status)
     bootstrap_sock.send(b'OK')
     bootstrap_sock.close()

@@ -3,6 +3,18 @@
 
 from teleprox import qt
 
+            
+# Any log record attributes not in this set should be displayed as a child item 
+attrs_not_shown_as_children = {
+    'name', 'msg', 'message', 'args', 'levelname', 'levelno', 'pathname', 'filename',
+    'module', 'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
+    'thread', 'threadName', 'processName', 'hostName', 'process', 'getMessage',
+    'tags', 'taskName',
+}
+# attributes we can show as children, or ignore if their value is None
+ignorable_child_attrs = {'exc_info', 'exc_text', 'stack_info'}
+
+
 
 class ItemDataRole:
     """Constants for QStandardItem UserRole data slots."""
@@ -18,11 +30,9 @@ class ItemDataRole:
     LEVEL_CIPHER = qt.Qt.UserRole + 6       # string level cipher for filtering
     MESSAGE_TEXT = qt.Qt.UserRole + 7       # string message for filtering
     LOG_ID = qt.Qt.UserRole + 8             # unique int ID for selection tracking
-    
-    # Lazy loading state
-    HAS_CHILDREN = qt.Qt.UserRole + 9       # bool - has unfetched exception data
-    CHILDREN_FETCHED = qt.Qt.UserRole + 10  # bool - children already loaded
-    IS_LOADING_PLACEHOLDER = qt.Qt.UserRole + 11  # bool - marks dummy "loading..." child
+    HOST_NAME = qt.Qt.UserRole + 9          # string host name for filtering
+    SOURCE_TEXT = qt.Qt.UserRole + 10       # string source (process/thread) for filtering
+    TASK_NAME = qt.Qt.UserRole + 11         # string task name for filtering
 
 
 class LogColumns:

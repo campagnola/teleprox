@@ -2,42 +2,198 @@
 # ABOUTME: Contains FilterTagWidget, FilterInputWidget, and HighlightDelegate for log viewer GUI
 
 from teleprox import qt
-from .constants import ItemDataRole, LogColumns
+from .constants import LogColumns
 
 
-class HyperlinkTreeView(qt.QTreeView):
-    """Custom QTreeView that shows pointer cursor over hyperlink portions of traceback lines."""
+class SearchWidget(qt.QWidget):
+    """Widget for searching through log entries with navigation controls."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMouseTracking(True)
+        
+        # Create horizontal layout
+        self.layout = qt.QHBoxLayout()
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(5)
+        self.setLayout(self.layout)
+        
+        # Search input field with clear button
+        self.search_input = qt.QLineEdit()
+        self.search_input.setPlaceholderText("Search logs...")
+        self.search_input.setClearButtonEnabled(True)
+        self.layout.addWidget(self.search_input)
+        
+        # Navigation controls (hidden by default)
+        self.prev_button = qt.QPushButton("←")
+        self.prev_button.setFixedSize(30, 25)
+        self.prev_button.setToolTip("Previous result")
+        self.layout.addWidget(self.prev_button)
+        
+        self.result_label = qt.QLabel("0/0")
+        self.result_label.setAlignment(qt.Qt.AlignCenter)
+        self.layout.addWidget(self.result_label)
+        
+        self.next_button = qt.QPushButton("→")
+        self.next_button.setFixedSize(30, 25)
+        self.next_button.setToolTip("Next result")
+        self.layout.addWidget(self.next_button)
+        
+        # Hide navigation controls initially
+        self._hide_navigation()
+        
+        # Search state
+        self.search_results = []  # List of QModelIndex matches
+        self.current_result_index = -1
+        self.tree_view = None  # Will be set by parent
+        
+        # Connect signals
+        self.search_input.textChanged.connect(self._on_search_text_changed)
+        self.prev_button.clicked.connect(self._go_to_previous)
+        self.next_button.clicked.connect(self._go_to_next)
     
-    def mouseMoveEvent(self, event):
-        """Override mouse move to change cursor over hyperlinks."""
-        index = self.indexAt(event.pos())
-        cursor = qt.Qt.ArrowCursor  # Default cursor
-        
-        if index.isValid():
-            # Get the item data to check if it's a clickable code line
-            model = self.model()
+    def set_tree_view(self, tree_view):
+        """Set the tree view that this search widget will operate on."""
+        self.tree_view = tree_view
+    
+    def _on_search_text_changed(self, text):
+        """Handle search text changes."""
+        if not text.strip():
+            self._clear_search()
+            return
             
-            # Map to source model if using proxy
-            source_index = index
-            if hasattr(model, 'mapToSource'):
-                source_index = model.mapToSource(index)
+        if not self.tree_view:
+            return
             
-            # Get the actual item from the source model
-            if hasattr(self.parent(), 'model') and hasattr(self.parent().model, 'itemFromIndex'):
-                item = self.parent().model.itemFromIndex(source_index)
-                if item:
-                    data = item.data(ItemDataRole.PYTHON_DATA)
-                    if (data and isinstance(data, dict) and 
-                        data.get('type') in ['traceback_frame', 'stack_frame'] and
-                        data.get('frame_parts', {}).get('has_file_ref')):
-                        cursor = qt.Qt.PointingHandCursor
+        # Perform search
+        self._perform_search(text.strip())
         
-        self.setCursor(cursor)
-        super().mouseMoveEvent(event)
+        # Update navigation
+        self._update_navigation()
+        
+        # Go to first result if any
+        if self.search_results:
+            self.current_result_index = 0
+            self._navigate_to_current_result()
+    
+    def _perform_search(self, search_term):
+        """Perform case-insensitive substring search through visible tree items."""
+        self.search_results = []
+        
+        if not self.tree_view or not search_term:
+            return
+            
+        model = self.tree_view.model()
+        if not model:
+            return
+            
+        search_term_lower = search_term.lower()
+        
+        # Search through all visible items recursively
+        self._search_recursive(model, qt.QModelIndex(), search_term_lower)
+    
+    def _search_recursive(self, model, parent_index, search_term_lower):
+        """Recursively search through tree items and their children."""
+        row_count = model.rowCount(parent_index)
+        
+        for row in range(row_count):
+            # Check each visible column for this row
+            match_found = False
+            
+            # Check visible columns only
+            for col in range(model.columnCount()):
+                if self.tree_view.isColumnHidden(col):
+                    continue
+                    
+                index = model.index(row, col, parent_index)
+                if not index.isValid():
+                    continue
+                    
+                # Get display text and check for match
+                text = model.data(index, qt.Qt.DisplayRole)
+                if text and search_term_lower in str(text).lower():
+                    match_found = True
+                    break
+            
+            # If this row matches, add the timestamp column index (column 0) to results
+            if match_found:
+                timestamp_index = model.index(row, LogColumns.TIMESTAMP, parent_index)
+                if timestamp_index.isValid():
+                    self.search_results.append(timestamp_index)
+            
+            # Recursively search children
+            timestamp_index = model.index(row, LogColumns.TIMESTAMP, parent_index)
+            if timestamp_index.isValid() and model.rowCount(timestamp_index) > 0:
+                self._search_recursive(model, timestamp_index, search_term_lower)
+    
+    def _update_navigation(self):
+        """Update navigation controls based on search results."""
+        if not self.search_results:
+            self._hide_navigation()
+        else:
+            self._show_navigation()
+            self._update_result_label()
+    
+    def _navigate_to_current_result(self):
+        """Navigate to the current search result."""
+        if not self.search_results or self.current_result_index < 0:
+            return
+            
+        if not (0 <= self.current_result_index < len(self.search_results)):
+            return
+            
+        result_index = self.search_results[self.current_result_index]
+        
+        # Set current index (this works for both top-level and child items)
+        self.tree_view.setCurrentIndex(result_index)
+        
+        # Scroll to make sure it's visible
+        self.tree_view.scrollTo(result_index, qt.QAbstractItemView.EnsureVisible)
+        
+        # Update result label
+        self._update_result_label()
+    
+    def _go_to_previous(self):
+        """Navigate to previous search result."""
+        if not self.search_results:
+            return
+            
+        self.current_result_index = (self.current_result_index - 1) % len(self.search_results)
+        self._navigate_to_current_result()
+    
+    def _go_to_next(self):
+        """Navigate to next search result.""" 
+        if not self.search_results:
+            return
+            
+        self.current_result_index = (self.current_result_index + 1) % len(self.search_results)
+        self._navigate_to_current_result()
+    
+    def _update_result_label(self):
+        """Update the result counter label."""
+        if not self.search_results:
+            self.result_label.setText("0/0")
+        else:
+            current = self.current_result_index + 1  # 1-based for display
+            total = len(self.search_results)
+            self.result_label.setText(f"{current}/{total}")
+    
+    def _show_navigation(self):
+        """Show navigation controls."""
+        self.prev_button.show()
+        self.result_label.show()  
+        self.next_button.show()
+    
+    def _hide_navigation(self):
+        """Hide navigation controls."""
+        self.prev_button.hide()
+        self.result_label.hide()
+        self.next_button.hide()
+    
+    def _clear_search(self):
+        """Clear search state and hide navigation."""
+        self.search_results = []
+        self.current_result_index = -1
+        self._hide_navigation()
 
 
 class FilterTagWidget(qt.QLineEdit):

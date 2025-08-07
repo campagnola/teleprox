@@ -20,15 +20,6 @@ pytest teleprox/tests/test_basics.py
 pytest teleprox/tests/test_basics.py::test_function_name
 ```
 
-### Installation and Development
-```bash
-# Install in development mode
-pip install -e .
-
-# Install with dependencies
-pip install -e .[dev]  # if dev dependencies are defined
-```
-
 ## Architecture Overview
 
 Teleprox is a Python library for creating object proxies over TCP using ZeroMQ. The core architecture consists of:
@@ -63,7 +54,12 @@ The project includes a sophisticated logging system (`log/` directory):
 
 ### Testing Infrastructure
 
-- Comprehensive test suite in `teleprox/tests/`
-- Custom pytest configuration with logging and process management
+- Test files in `tests` directories found throughout `teleprox/`
+- Custom pytest configuration with logging, process management, and QApplication fixture
 - Tests cover basic RPC, Qt integration, serialization, and failure modes
 - Process cleanup ensures no stray processes after tests
+
+## Coding standards
+
+- Prefer test-driven development
+- Tests should focus on API promises and user-facing behaviors, rather than implementation details

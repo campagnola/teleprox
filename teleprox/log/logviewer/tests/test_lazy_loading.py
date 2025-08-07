@@ -46,34 +46,42 @@ class TestLogViewerLazyLoading:
         return MockRecord()
     
     def test_loading_placeholder_creation(self, qapp, log_model, mock_record_with_exc_text):
-        """Test that loading placeholders are created correctly."""
-        # Create parent item
-        parent_item = qt.QStandardItem("Test Log Entry")
+        """Test that records with exceptions get expandable content."""
+        # Simulate adding a record with exception text using the new API
+        log_model.append_record(mock_record_with_exc_text)
         
-        # Add loading placeholder
-        log_model.add_loading_placeholder(parent_item, mock_record_with_exc_text)
+        # Verify record was added
+        assert log_model.rowCount() == 1
+        parent_item = log_model.item(0, 0)
         
-        # Verify placeholder was added
+        # Verify it has expandable content (placeholder child)
         assert parent_item.rowCount() == 1
-        assert log_model.has_loading_placeholder(parent_item)
         
-        # Verify data storage
-        assert parent_item.data(ItemDataRole.PYTHON_DATA) == mock_record_with_exc_text
-        assert parent_item.data(ItemDataRole.HAS_CHILDREN) is True
+        # Verify the placeholder child exists
+        placeholder = parent_item.child(0, 0)
+        assert placeholder is not None
+        assert placeholder.text() == "Loading..."
     
     def test_placeholder_replacement(self, qapp, log_model, mock_record_with_exc_text):
         """Test that placeholders are replaced with actual content."""
-        # Create parent item with placeholder
-        parent_item = qt.QStandardItem("Test Log Entry")
-        log_model.add_loading_placeholder(parent_item, mock_record_with_exc_text)
+        # Add record with exception text using new API
+        log_model.append_record(mock_record_with_exc_text)
+        parent_item = log_model.item(0, 0)
         
-        # Replace placeholder with content
-        log_model.replace_placeholder_with_content(parent_item)
+        # Verify it has placeholder initially
+        assert parent_item.rowCount() == 1
+        placeholder = parent_item.child(0, 0)
+        assert placeholder.text() == "Loading..."
         
-        # Verify replacement occurred  
+        # Simulate expansion to replace placeholder with content
+        log_model.item_expanded(parent_item)
+        
+        # Verify replacement occurred - should have exception content now
         assert parent_item.rowCount() >= 1  # Should have at least the exception category
-        assert not log_model.has_loading_placeholder(parent_item)
-        assert parent_item.data(ItemDataRole.CHILDREN_FETCHED) is True
+        
+        # First child should no longer be "Loading..."
+        first_child = parent_item.child(0, 0)
+        assert first_child.text() != "Loading..."
     
     def test_logviewer_integration(self, qapp):
         """Test that LogViewer properly integrates with lazy loading."""
@@ -104,18 +112,23 @@ class TestLogViewerLazyLoading:
         # Get the log entry item
         log_item = viewer.model.item(0, 0)  # First row, timestamp column
         
-        # Verify it has loading placeholder
-        assert viewer.model.has_loading_placeholder(log_item)
+        # Verify it has expandable content (placeholder)
+        assert log_item.rowCount() == 1
+        placeholder = log_item.child(0, 0)
+        assert placeholder.text() == "Loading..."
         
-        # Simulate expansion
-        viewer.model.replace_placeholder_with_content(log_item)
+        # Simulate UI expansion by expanding the tree view item
+        source_index = viewer.model.indexFromItem(log_item)
+        tree_index = viewer.map_index_from_model(source_index)
+        viewer.tree.expand(tree_index)
         
-        # Verify content was loaded
-        assert not viewer.model.has_loading_placeholder(log_item)
-        assert log_item.rowCount() > 1
+        # Verify content was loaded after UI expansion
+        assert log_item.rowCount() >= 1
+        first_child = log_item.child(0, 0)
+        assert first_child.text() != "Loading..."
     
     def test_no_placeholder_without_exception(self, qapp):
-        """Test that no placeholder is added for records without exceptions."""
+        """Test that no expandable content is shown for records without exceptions."""
         viewer = LogViewer(logger='test.no.exception')  # Pass logger name to constructor
         logger = logging.getLogger('test.no.exception')
         logger.setLevel(logging.DEBUG)  # Ensure all messages are captured
@@ -123,11 +136,10 @@ class TestLogViewerLazyLoading:
         # Log normal message without exception
         logger.warning("Regular log message")
         
-        # Verify model has entry but no placeholder
+        # Verify model has entry but no expandable content
         assert viewer.model.rowCount() > 0
         log_item = viewer.model.item(0, 0)
-        assert not viewer.model.has_loading_placeholder(log_item)
-        assert log_item.rowCount() == 0  # No children
+        assert log_item.rowCount() == 0  # No children - not expandable
 
 
 def run_manual_tests():
