@@ -2,7 +2,7 @@
 # ABOUTME: Contains FilterTagWidget, FilterInputWidget, and HighlightDelegate for log viewer GUI
 
 from teleprox import qt
-from .constants import ItemDataRole, LogColumns
+from .constants import LogColumns
 
 
 class SearchWidget(qt.QWidget):

@@ -585,7 +585,14 @@ class LogModel(qt.QStandardItemModel):
         
         # Apply styling to the timestamp column item (where content is now)
         # Apply monospace font for code-like content
-        if data_dict.get('type') in ['traceback_frame', 'stack_frame']:
+        text = data_dict.get('text', '')
+        should_use_monospace = (
+            data_dict.get('type') in ['traceback_frame', 'stack_frame'] or
+            (text.startswith("    ") and not text.strip().startswith("File ")) or  # Code lines starting with 4+ spaces
+            "^^^^" in text  # Lines with error pointer characters
+        )
+        
+        if should_use_monospace:
             # Use monospace font for all code lines
             monospace_font = qt.QFont("Consolas, Monaco, 'Courier New', monospace")
             monospace_font.setStyleHint(qt.QFont.TypeWriter)
