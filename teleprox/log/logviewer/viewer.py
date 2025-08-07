@@ -409,7 +409,7 @@ class LogViewer(qt.QWidget):
                 self.tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
                 
                 # Always ensure chronological sorting
-                self._ensure_chronological_sorting()
+                # self._ensure_chronological_sorting()
                 
                 # Restore selection if possible
                 if selected_log_id is not None:
@@ -429,17 +429,6 @@ class LogViewer(qt.QWidget):
         
     def _ensure_chronological_sorting(self):
         """Ensure the tree view is sorted chronologically by timestamp."""
-        current_model = self.tree.model()
-        
-        # Set sort role to use numeric timestamp from ItemDataRole.NUMERIC_TIMESTAMP
-        if hasattr(current_model, 'setSortRole'):
-            current_model.setSortRole(ItemDataRole.NUMERIC_TIMESTAMP)
-        
-        # Apply sorting
-        if hasattr(current_model, 'sort'):
-            current_model.sort(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
-        
-        # Also tell the tree view about the sorting
         self.tree.sortByColumn(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
     
     def _show_header_context_menu(self, position):
