@@ -499,32 +499,24 @@ class LogViewer(qt.QWidget):
     
     def _on_item_expanded(self, index):
         """Handle tree item expansion to replace loading placeholders and set spans."""
-        # Get the item from the current model (could be proxy)
-        current_model = self.tree.model()
-        
         # Map index back to source model if using proxy
         source_index = self.map_index_to_model(index)
         
         # Get the actual item from our LogModel
         item = self.model.itemFromIndex(source_index)
-        if not item:
-            raise ValueError("Item not found in model for expanded index")
         self.model.item_expanded(item)
         
         # Always set column spans for children when an item is expanded
         # This ensures spans are set even for items that don't have placeholders
         self.expansion_manager._set_child_spans_for_item(index)
 
-    def map_index_to_model(self, index):
+    def map_index_to_model(self, tree_index):
         """Map an item index to the top-level source model (mapping through all layers of proxies)."""
-        proxy = self.tree.model()
-        while True:
-            if isinstance(proxy, qt.QSortFilterProxyModel):
-                index = proxy.mapToSource(index)
-                proxy = proxy.sourceModel()
-            else:
-                break
-        return index
+        return self.proxy_model.map_index_to_model(tree_index)
+    
+    def map_index_from_model(self, model_index):
+        """Map an item index from the top-level source model to the current proxy model."""
+        return self.proxy_model.map_index_from_model(model_index)
 
     def _get_selected_item_data(self):
         """Get unique ID from currently selected item for selection preservation."""

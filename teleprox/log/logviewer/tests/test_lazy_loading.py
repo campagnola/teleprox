@@ -118,8 +118,9 @@ class TestLogViewerLazyLoading:
         assert placeholder.text() == "Loading..."
         
         # Simulate UI expansion by expanding the tree view item
-        model_index = viewer.model.indexFromItem(log_item)
-        viewer.tree.expand(model_index)
+        source_index = viewer.model.indexFromItem(log_item)
+        tree_index = viewer.map_index_from_model(source_index)
+        viewer.tree.expand(tree_index)
         
         # Verify content was loaded after UI expansion
         assert log_item.rowCount() >= 1
