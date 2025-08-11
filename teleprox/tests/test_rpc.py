@@ -589,7 +589,7 @@ def test_local_server_types():
 class CallbackTester:
     def apply_function(self, func, value):
         return func(value)
-        
+
     def echo(self, value):
         return value
 
@@ -618,10 +618,10 @@ __main__.callback_tester = CallbackTester()
 class CallbackTester:
     def apply_function(self, func, value):
         return func(value)
-        
+
     def apply_multiple(self, func, values):
         return [func(v) for v in values]
-        
+
     def echo(self, value):
         return value
 
@@ -653,10 +653,10 @@ __main__.callback_tester = CallbackTester()
 class CallbackTester:
     def apply_function(self, func, value):
         return func(value)
-        
+
     def apply_multiple(self, func, values):
         return [func(v) for v in values]
-        
+
     def echo(self, value):
         return value
 
@@ -698,10 +698,10 @@ __main__.callback_tester = CallbackTester()
 class CallbackTester:
     def __init__(self, name):
         self.name = name
-        
+
     def apply_function(self, func, value):
         return func(value)
-        
+
     def get_name(self):
         return self.name
 
@@ -737,64 +737,6 @@ __main__.callback_tester{i} = CallbackTester("tester{i}")
         proc_shared1.kill()
         proc_shared2.kill()
         shared_server.close()
-
-    # Test 5: Performance comparison between lazy and threaded
-    import time
-
-    def slow_callback(x):
-        time.sleep(0.01)  # Small delay
-        return x * 3
-
-    # Time lazy version
-    proc_lazy_perf = start_process('test_lazy_perf', local_server='lazy')
-    try:
-        proc_lazy_perf.client._import('builtins').exec(
-            '''
-class CallbackTester:
-    def apply_multiple(self, func, values):
-        return [func(v) for v in values]
-
-import __main__
-__main__.callback_tester = CallbackTester()
-'''
-        )
-        tester = proc_lazy_perf.client._import('__main__').callback_tester
-
-        start_time = time.time()
-        results = tester.apply_multiple(slow_callback, list(range(5)))
-        lazy_time = time.time() - start_time
-        assert results == [0, 3, 6, 9, 12]
-
-    finally:
-        proc_lazy_perf.kill()
-
-    # Time threaded version
-    proc_threaded_perf = start_process('test_threaded_perf', local_server='threaded')
-    try:
-        proc_threaded_perf.client._import('builtins').exec(
-            '''
-class CallbackTester:
-    def apply_multiple(self, func, values):
-        return [func(v) for v in values]
-
-import __main__
-__main__.callback_tester = CallbackTester()
-'''
-        )
-        tester = proc_threaded_perf.client._import('__main__').callback_tester
-
-        start_time = time.time()
-        results = tester.apply_multiple(slow_callback, list(range(5)))
-        threaded_time = time.time() - start_time
-        assert results == [0, 3, 6, 9, 12]
-
-    finally:
-        proc_threaded_perf.kill()
-
-    # Both should complete successfully (timing comparison is informational)
-    logger.info(
-        f"Lazy callback time: {lazy_time:.3f}s, Threaded callback time: {threaded_time:.3f}s"
-    )
 
 
 if __name__ == '__main__':
