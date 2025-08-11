@@ -497,13 +497,13 @@ class CallbackTester:
 
     def apply_function(self, func, value):
         return func(value)
-    
+
     def apply_multiple(self, func, values):
         return [func(v) for v in values]
-    
+
     def echo(self, value):
         return value
-    
+
     def get_name(self):
         return self.name
 
