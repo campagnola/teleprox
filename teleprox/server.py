@@ -414,6 +414,7 @@ class RPCServer(object):
     def run_forever(self):
         """Read and process RPC requests until the server is asked to close."""
         self.is_lazy = False
+        self._run_thread = threading.current_thread()
         logger.info(
             f"RPC start server loop: {log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}"
             f"@{self.address.decode()}"
@@ -429,7 +430,7 @@ class RPCServer(object):
 
     def client_should_handle_requests(self):
         """Return whether a client is allowed to take over the server's request handling."""
-        if self._run_thread is None and self.running():
+        if self.is_lazy and self.running():
             return True
         return threading.current_thread().ident == self._run_thread.ident
 
