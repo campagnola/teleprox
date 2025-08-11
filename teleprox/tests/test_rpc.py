@@ -471,6 +471,50 @@ __main__.CallbackTester = CallbackTester
         proc_with_server.kill()
 
 
+def setup_callback_tester(client, instance_name="callback_tester", tester_name=None):
+    """Set up a CallbackTester class in the remote process and return a proxy to it.
+
+    Parameters
+    ----------
+    client : RPCClient
+        The client connected to the remote process.
+    instance_name : str
+        Name for the instance in the remote process's __main__ namespace.
+    tester_name : str or None
+        Optional name to pass to CallbackTester constructor.
+
+    Returns
+    -------
+    ObjectProxy
+        Proxy to the CallbackTester instance in the remote process.
+    """
+    tester_name = f'"{tester_name}"' if tester_name else ''
+    # Create class definition and instance in single exec call
+    exec_code = f'''
+class CallbackTester:
+    def __init__(self, name=None):
+        self.name = name
+
+    def apply_function(self, func, value):
+        return func(value)
+    
+    def apply_multiple(self, func, values):
+        return [func(v) for v in values]
+    
+    def echo(self, value):
+        return value
+    
+    def get_name(self):
+        return self.name
+
+import __main__
+__main__.{instance_name} = CallbackTester({tester_name})
+'''
+
+    client._import('builtins').exec(exec_code)
+    return client._import('__main__').__getattr__(instance_name)
+
+
 @pytest.fixture
 def exception_server():
     """Fixture providing server with exception testing class."""
@@ -614,20 +658,7 @@ def test_no_local_server_blocks_callbacks():
 
     proc = start_process('test_none_local_server', local_server=None)
     try:
-        proc.client._import('builtins').exec(
-            '''
-class CallbackTester:
-    def apply_function(self, func, value):
-        return func(value)
-    
-    def echo(self, value):
-        return value
-
-import __main__
-__main__.callback_tester = CallbackTester()
-'''
-        )
-        tester = proc.client._import('__main__').callback_tester
+        tester = setup_callback_tester(proc.client)
 
         # This should work (no callback required)
         result = tester.echo(42)
@@ -649,23 +680,7 @@ def test_lazy_local_server():
 
     proc = start_process('test_lazy_local_server', local_server='lazy')
     try:
-        proc.client._import('builtins').exec(
-            '''
-class CallbackTester:
-    def apply_function(self, func, value):
-        return func(value)
-    
-    def apply_multiple(self, func, values):
-        return [func(v) for v in values]
-    
-    def echo(self, value):
-        return value
-
-import __main__
-__main__.callback_tester = CallbackTester()
-'''
-        )
-        tester = proc.client._import('__main__').callback_tester
+        tester = setup_callback_tester(proc.client)
 
         # Both should work
         result = tester.echo(42)
@@ -690,23 +705,7 @@ def test_threaded_local_server():
 
     proc = start_process('test_threaded_local_server', local_server='threaded')
     try:
-        proc.client._import('builtins').exec(
-            '''
-class CallbackTester:
-    def apply_function(self, func, value):
-        return func(value)
-    
-    def apply_multiple(self, func, values):
-        return [func(v) for v in values]
-    
-    def echo(self, value):
-        return value
-
-import __main__
-__main__.callback_tester = CallbackTester()
-'''
-        )
-        tester = proc.client._import('__main__').callback_tester
+        tester = setup_callback_tester(proc.client)
 
         # Both should work
         result = tester.echo(42)
@@ -735,26 +734,8 @@ def test_shared_local_server():
 
     try:
         # Set up callback testers in both processes
-        for i, proc in enumerate([proc1, proc2], 1):
-            proc.client._import('builtins').exec(
-                f'''
-class CallbackTester:
-    def __init__(self, name):
-        self.name = name
-
-    def apply_function(self, func, value):
-        return func(value)
-
-    def get_name(self):
-        return self.name
-
-import __main__
-__main__.callback_tester{i} = CallbackTester("tester{i}")
-'''
-            )
-
-        tester1 = proc1.client._import('__main__').callback_tester1
-        tester2 = proc2.client._import('__main__').callback_tester2
+        tester1 = setup_callback_tester(proc1.client, "callback_tester1", "tester1")
+        tester2 = setup_callback_tester(proc2.client, "callback_tester2", "tester2")
 
         # Test callbacks work through shared server
         result1 = tester1.apply_function(test_callback, 10)
@@ -777,20 +758,8 @@ def test_shared_local_server_cross_process_objects():
 
     try:
         # Set up callback testers
-        for i, proc in enumerate([proc1, proc2], 1):
-            proc.client._import('builtins').exec(
-                f'''
-class CallbackTester:
-    def apply_function(self, func, value):
-        return func(value)
-
-import __main__
-__main__.callback_tester{i} = CallbackTester()
-'''
-            )
-
-        tester1 = proc1.client._import('__main__').callback_tester1
-        tester2 = proc2.client._import('__main__').callback_tester2
+        tester1 = setup_callback_tester(proc1.client, "callback_tester1")
+        tester2 = setup_callback_tester(proc2.client, "callback_tester2")
 
         # Test cross-process object sharing through shared server
         shared_server['shared_value'] = 100
@@ -822,17 +791,7 @@ def test_lazy_vs_threaded_performance():
     # Time lazy version
     proc_lazy = start_process('test_lazy_perf', local_server='lazy')
     try:
-        proc_lazy.client._import('builtins').exec(
-            '''
-class CallbackTester:
-    def apply_multiple(self, func, values):
-        return [func(v) for v in values]
-
-import __main__
-__main__.callback_tester = CallbackTester()
-'''
-        )
-        tester_lazy = proc_lazy.client._import('__main__').callback_tester
+        tester_lazy = setup_callback_tester(proc_lazy.client)
 
         start_time = time.time()
         results_lazy = tester_lazy.apply_multiple(slow_callback, list(range(5)))
@@ -845,17 +804,7 @@ __main__.callback_tester = CallbackTester()
     # Time threaded version
     proc_threaded = start_process('test_threaded_perf', local_server='threaded')
     try:
-        proc_threaded.client._import('builtins').exec(
-            '''
-class CallbackTester:
-    def apply_multiple(self, func, values):
-        return [func(v) for v in values]
-
-import __main__
-__main__.callback_tester = CallbackTester()
-'''
-        )
-        tester_threaded = proc_threaded.client._import('__main__').callback_tester
+        tester_threaded = setup_callback_tester(proc_threaded.client)
 
         start_time = time.time()
         results_threaded = tester_threaded.apply_multiple(slow_callback, list(range(5)))
