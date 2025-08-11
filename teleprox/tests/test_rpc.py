@@ -364,111 +364,175 @@ def test_disconnect():
     server_proc4.kill()
 
 
-def test_callbacks():
-    """Test proper way to pass callbacks into remote processes."""
-    callback_result = []
+def test_callback_without_local_server():
+    """Test that callbacks fail properly without local_server."""
 
-    def my_callback(tester):
-        callback_result.append(f"callback received: {tester.name()}")
-        return "callback_response"
+    def test_callback(x):
+        return x * 2
 
-    # First, test that callbacks fail without local_server
-    proc_no_server = start_process('test_callback_proc_no_server', local_server=None)
-
-    # Create a simple function that takes another function as parameter
-    # Use built-in functionality rather than publishing our own class
-    builtins = proc_no_server.client._import('builtins')
-
-    # This should fail because we can't serialize the function without a local server
-    with pytest.raises(TypeError):
-        # Use remote map() with our callback so as to execute in the remote process
-        builtins.list(builtins.map(my_callback, ["test1", "test2"]))
-
-    proc_no_server.stop()
-
-    # Now test with local_server= "lazy" or "threaded" - both should work
-    proc_with_server = start_process(
-        'test_callback_proc_with_server', local_server="lazy"
-    )
-
-    # Define a simple class that can accept and invoke callbacks
-    threading = proc_with_server.client._import("threading")
-    queue = proc_with_server.client._import("queue")
-    time = proc_with_server.client._import("time")
-
-    proc_with_server.client._import("builtins").exec(
-        """
-import __main__
-
-class CallbackTester:
-    def __init__(self):
-        self._cb_queue = queue.Queue()
-        self._returns = {}
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def name(self):
-        return "CallbackTester"
-
-    def _run(self):
-        while True:
-            callback_func = self._cb_queue.get()
-            if callback_func is None:  # Exit signal
-                break
-            result = callback_func(self)
-            self._returns[callback_func] = result
-
-    def invoke_callback(self, callback_func):
-        self._cb_queue.put(callback_func)
-        while callback_func not in self._returns:
-            time.sleep(0.01)
-        return self._returns.pop(callback_func)
-
-    def repeated_callback(self, callback_func, count=3):
-        results = []
-        for i in range(count):
-            result = self.invoke_callback(callback_func)
-            results.append(result)
-        return results
-
-    def stop(self):
-        self._cb_queue.put((None, None))
-
-__main__.CallbackTester = CallbackTester
-    """,
-        {'queue': queue, 'threading': threading, 'time': time},
-    )
-    tester_with_server = proc_with_server.client._import("__main__").CallbackTester()
-
+    proc = start_process('test_callback_proc_no_server', local_server=None)
     try:
-        # Reset callback result
-        callback_result.clear()
+        tester = setup_callback_tester(proc.client)
 
-        # This should work now
-        response = tester_with_server.invoke_callback(my_callback)  # !!!timing out!!!
-        assert response == "callback_response"
-        assert callback_result == ["callback received: CallbackTester"]
+        # This should work (no callback required)
+        result = tester.echo(42)
+        assert result == 42
 
-        # Test multiple callback invocations
-        callback_result.clear()
-        responses = tester_with_server.repeated_callback(my_callback, 2)
-        assert responses == ["callback_response", "callback_response"]
-        assert callback_result == [
-            "callback received: CallbackTester",
-            "callback received: CallbackTester",
-        ]
+        # This should fail (callback required but no local server)
+        with pytest.raises(TypeError):
+            tester.apply_function(test_callback, 5)
+    finally:
+        proc.kill()
+
+
+def test_callback_with_lazy_server():
+    """Test basic callback functionality with lazy local_server."""
+
+    def test_callback(x):
+        return x * 2
+
+    proc = start_process('test_callback_proc_lazy', local_server="lazy")
+    try:
+        tester = setup_callback_tester(proc.client)
+
+        # Both should work
+        result = tester.echo(42)
+        assert result == 42
+
+        result = tester.apply_function(test_callback, 5)
+        assert result == 10
+    finally:
+        proc.kill()
+
+
+def test_callback_multiple_invocations():
+    """Test multiple callback invocations work correctly."""
+
+    def test_callback(x):
+        return x * 2
+
+    proc = start_process('test_callback_multiple', local_server="lazy")
+    try:
+        tester = setup_callback_tester(proc.client)
+
+        # Test multiple callbacks
+        results = tester.apply_multiple(test_callback, [1, 2, 3])
+        assert results == [2, 4, 6]
+    finally:
+        proc.kill()
+
+
+def test_callback_lambda_functions():
+    """Test lambda callbacks work correctly."""
+    proc = start_process('test_callback_lambda', local_server="lazy")
+    try:
+        tester = setup_callback_tester(proc.client, tester_name="LambdaTester")
 
         # Test lambda callback
-        callback_result.clear()
-        lambda_response = tester_with_server.invoke_callback(
-            lambda x: f"lambda_processed: {x.name()}"
+        result = tester.apply_function(lambda x: x * 3, 4)
+        assert result == 12
+
+        # Test lambda with tester name access
+        result = tester.apply_function(
+            lambda t: f"processed by {tester.get_name()}", None
         )
-        assert lambda_response == "lambda_processed: CallbackTester"
+        assert result == "processed by LambdaTester"
+    finally:
+        proc.kill()
+
+
+def test_callback_threaded_execution():
+    """Test threaded callback execution."""
+    callback_results = []
+
+    def threaded_callback(tester):
+        callback_results.append(f"callback from: {tester.get_name()}")
+        return "threaded_response"
+
+    proc = start_process('test_callback_threaded', local_server="lazy")
+    try:
+        tester = setup_callback_tester(proc.client, tester_name="ThreadedTester")
+
+        # Reset results
+        callback_results.clear()
+
+        # Test single threaded callback
+        response = tester.invoke_callback_threaded(threaded_callback)
+        assert response == "threaded_response"
+        assert callback_results == ["callback from: ThreadedTester"]
+
+        # Test repeated threaded callbacks
+        callback_results.clear()
+        responses = tester.repeated_callback_threaded(threaded_callback, 2)
+        assert responses == ["threaded_response", "threaded_response"]
+        assert callback_results == [
+            "callback from: ThreadedTester",
+            "callback from: ThreadedTester",
+        ]
+
+        # Test lambda with threaded execution
+        lambda_response = tester.invoke_callback_threaded(
+            lambda x: f"lambda_threaded: {x.get_name()}"
+        )
+        assert lambda_response == "lambda_threaded: ThreadedTester"
 
     finally:
-        # TODO if it times out, we probably can't send any more signals
-        # tester_with_server.stop()
-        proc_with_server.kill()
+        proc.kill()
+
+
+def test_callback_error_handling():
+    """Test callback error handling scenarios."""
+
+    def failing_callback(x):
+        raise ValueError("callback failed")
+
+    def working_callback(x):
+        return "success"
+
+    proc = start_process('test_callback_errors', local_server="lazy")
+    try:
+        tester = setup_callback_tester(proc.client)
+
+        # Working callback should succeed
+        result = tester.apply_function(working_callback, None)
+        assert result == "success"
+
+        # Failing callback should raise exception
+        with pytest.raises(RemoteCallException) as exc_info:
+            tester.apply_function(failing_callback, None)
+        assert "callback failed" in str(exc_info.value)
+    finally:
+        proc.kill()
+
+
+def test_callback_nested_objects():
+    """Test callbacks with complex nested object arguments."""
+    import numpy as np
+
+    def process_data(data_dict):
+        return {
+            'sum': sum(data_dict['values']),
+            'array_mean': float(data_dict['array'].mean()),
+            'message': data_dict['metadata']['message'],
+        }
+
+    proc = start_process('test_callback_nested', local_server="lazy")
+    try:
+        tester = setup_callback_tester(proc.client)
+
+        # Create complex nested data
+        complex_data = {
+            'values': [1, 2, 3, 4, 5],
+            'array': np.array([10, 20, 30]),
+            'metadata': {'message': 'processed'},
+        }
+
+        result = tester.apply_function(process_data, complex_data)
+        assert result['sum'] == 15
+        assert result['array_mean'] == 20.0
+        assert result['message'] == 'processed'
+    finally:
+        proc.kill()
 
 
 def setup_callback_tester(client, instance_name="callback_tester", tester_name=None):
@@ -488,13 +552,30 @@ def setup_callback_tester(client, instance_name="callback_tester", tester_name=N
     ObjectProxy
         Proxy to the CallbackTester instance in the remote process.
     """
+    # Import modules needed for threaded methods
+    threading = client._import("threading")
+    queue = client._import("queue")
+    time = client._import("time")
+
     tester_name = f'"{tester_name}"' if tester_name else ''
-    # Create class definition and instance in single exec call
     exec_code = f'''
 class CallbackTester:
     def __init__(self, name=None):
         self.name = name
+        self._cb_queue = queue.Queue()
+        self._returns = {{}}
+        self._thread = threading.Thread(target=self._run_threaded, daemon=True)
+        self._thread.start()
 
+    def _run_threaded(self):
+        while True:
+            callback_func = self._cb_queue.get()
+            if callback_func is None:  # Exit signal
+                break
+            result = callback_func(self)
+            self._returns[callback_func] = result
+
+    # Synchronous callback methods
     def apply_function(self, func, value):
         return func(value)
 
@@ -507,11 +588,30 @@ class CallbackTester:
     def get_name(self):
         return self.name
 
+    # Multithreaded callback methods
+    def invoke_callback_threaded(self, callback_func):
+        self._cb_queue.put(callback_func)
+        while callback_func not in self._returns:
+            time.sleep(0.01)
+        return self._returns.pop(callback_func)
+
+    def repeated_callback_threaded(self, callback_func, count=3):
+        results = []
+        for i in range(count):
+            result = self.invoke_callback_threaded(callback_func)
+            results.append(result)
+        return results
+
+    def stop_threaded(self):
+        self._cb_queue.put(None)
+
 import __main__
 __main__.{instance_name} = CallbackTester({tester_name})
 '''
 
-    client._import('builtins').exec(exec_code)
+    client._import('builtins').exec(
+        exec_code, {'queue': queue, 'threading': threading, 'time': time}
+    )
     return client._import('__main__').__getattr__(instance_name)
 
 
@@ -778,46 +878,6 @@ def test_shared_local_server_cross_process_objects():
         proc1.kill()
         proc2.kill()
         shared_server.close()
-
-
-def test_lazy_vs_threaded_performance():
-    """Test performance characteristics of lazy vs threaded local servers."""
-    import time
-
-    def slow_callback(x):
-        time.sleep(0.01)  # Small delay
-        return x * 3
-
-    # Time lazy version
-    proc_lazy = start_process('test_lazy_perf', local_server='lazy')
-    try:
-        tester_lazy = setup_callback_tester(proc_lazy.client)
-
-        start_time = time.time()
-        results_lazy = tester_lazy.apply_multiple(slow_callback, list(range(5)))
-        lazy_time = time.time() - start_time
-        assert results_lazy == [0, 3, 6, 9, 12]
-
-    finally:
-        proc_lazy.kill()
-
-    # Time threaded version
-    proc_threaded = start_process('test_threaded_perf', local_server='threaded')
-    try:
-        tester_threaded = setup_callback_tester(proc_threaded.client)
-
-        start_time = time.time()
-        results_threaded = tester_threaded.apply_multiple(slow_callback, list(range(5)))
-        threaded_time = time.time() - start_time
-        assert results_threaded == [0, 3, 6, 9, 12]
-
-    finally:
-        proc_threaded.kill()
-
-    # Both should complete successfully (timing comparison is informational)
-    logger.info(
-        f"Lazy callback time: {lazy_time:.3f}s, Threaded callback time: {threaded_time:.3f}s"
-    )
 
 
 if __name__ == '__main__':
