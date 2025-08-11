@@ -186,9 +186,9 @@ class RPCClient(object):
             self.establishing_connect = False
             self._disconnected = False
 
-            # For unserializing results returned from servers. This cannot be
-            # used to send proxies of local objects unless there is also a server
-            # for this thread...
+            # For serializing requests sent to servers and unserializing the responses.
+            # When sending requests, this serializer can only generate proxies if it is
+            # associated with a local server.
             try:
                 self.serializer: Serializer = all_serializers[serializer](
                     self._local_server
