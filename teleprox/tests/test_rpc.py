@@ -463,20 +463,51 @@ def test_async_callback_threaded_execution():
                 raise TimeoutError("Callback did not complete in time")
         assert callback_results == ["callback from: ThreadedTester"]
 
-        # Test repeated threaded callbacks
+        # again!
         callback_results.clear()
-        response = tester.repeated_callback_threaded(recording_callback, 2)
+        response = tester.invoke_callback_threaded(recording_callback)
         assert response is None
         start = time.time()
-        while len(callback_results) < 2:
+        while not callback_results:
+            time.sleep(0.01)
+            if (time.time() - start) >= 1:
+                raise TimeoutError("Callback did not complete in time")
+        assert callback_results == ["callback from: ThreadedTester"]
+
+        # even more again!
+        callback_results.clear()
+        response = tester.repeated_callback_threaded(recording_callback, 3)
+        assert response is None
+        start = time.time()
+        while len(callback_results) < 3:
             time.sleep(0.01)
             if (time.time() - start) >= 1:
                 raise TimeoutError(f"Callback did not complete in time: {callback_results}")
         assert callback_results == [
             "callback from: ThreadedTester",
             "callback from: ThreadedTester",
+            "callback from: ThreadedTester",
         ]
 
+    finally:
+        proc.kill()
+
+
+def test_lazy_servers_fail_at_async_callbacks():
+    callback_results = []
+
+    def recording_callback(tester):
+        callback_results.append(f"callback from: {tester.get_name()}")
+        return "threaded_response"
+
+    proc = start_process('test_lazy_server_fail_async', local_server='lazy')
+    try:
+        tester = setup_callback_tester(proc.client, tester_name="LazyTester")
+
+        response = tester.invoke_callback_threaded(recording_callback)
+        assert response is None
+        time.sleep(0.5)
+        assert not callback_results, "Callback should not have been executed"
     finally:
         proc.kill()
 

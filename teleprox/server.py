@@ -68,7 +68,9 @@ class RPCServer(object):
 
     """
 
-    def __init__(self, address="tcp://127.0.0.1:*", serialize_types=None, _run_thread=True):
+    def __init__(
+        self, address="tcp://127.0.0.1:*", serialize_types=None, _run_thread=True
+    ):
         """Initialize the RPC server.
 
         Parameters
@@ -426,8 +428,7 @@ class RPCServer(object):
         self._run_thread.start()
 
     def client_should_handle_requests(self):
-        """For servers that don't run a thread, or for handling the back-and-forth of e.g. callbacks, clients should
-        call this method to check if the client can take over the server's request handling."""
+        """Return whether a client is allowed to take over the server's request handling."""
         if self._run_thread is None and self.running():
             return True
         return threading.current_thread().ident == self._run_thread.ident
