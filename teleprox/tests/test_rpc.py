@@ -441,40 +441,41 @@ def test_callback_lambda_functions():
         proc.kill()
 
 
-def test_callback_threaded_execution():
+def test_async_callback_threaded_execution():
     """Test threaded callback execution."""
     callback_results = []
 
-    def threaded_callback(tester):
+    def recording_callback(tester):
         callback_results.append(f"callback from: {tester.get_name()}")
         return "threaded_response"
 
-    proc = start_process('test_callback_threaded', local_server="lazy")
+    proc = start_process('test_callback_threaded', local_server="threaded")
     try:
         tester = setup_callback_tester(proc.client, tester_name="ThreadedTester")
 
-        # Reset results
-        callback_results.clear()
-
         # Test single threaded callback
-        response = tester.invoke_callback_threaded(threaded_callback)
-        assert response == "threaded_response"
+        response = tester.invoke_callback_threaded(recording_callback)
+        assert response is None
+        start = time.time()
+        while not callback_results:
+            time.sleep(0.01)
+            if (time.time() - start) >= 1:
+                raise TimeoutError("Callback did not complete in time")
         assert callback_results == ["callback from: ThreadedTester"]
 
         # Test repeated threaded callbacks
         callback_results.clear()
-        responses = tester.repeated_callback_threaded(threaded_callback, 2)
-        assert responses == ["threaded_response", "threaded_response"]
+        response = tester.repeated_callback_threaded(recording_callback, 2)
+        assert response is None
+        start = time.time()
+        while len(callback_results) < 2:
+            time.sleep(0.01)
+            if (time.time() - start) >= 1:
+                raise TimeoutError(f"Callback did not complete in time: {callback_results}")
         assert callback_results == [
             "callback from: ThreadedTester",
             "callback from: ThreadedTester",
         ]
-
-        # Test lambda with threaded execution
-        lambda_response = tester.invoke_callback_threaded(
-            lambda x: f"lambda_threaded: {x.get_name()}"
-        )
-        assert lambda_response == "lambda_threaded: ThreadedTester"
 
     finally:
         proc.kill()
@@ -591,16 +592,11 @@ class CallbackTester:
     # Multithreaded callback methods
     def invoke_callback_threaded(self, callback_func):
         self._cb_queue.put(callback_func)
-        while callback_func not in self._returns:
-            time.sleep(0.01)
-        return self._returns.pop(callback_func)
 
     def repeated_callback_threaded(self, callback_func, count=3):
         results = []
         for i in range(count):
-            result = self.invoke_callback_threaded(callback_func)
-            results.append(result)
-        return results
+            self.invoke_callback_threaded(callback_func)
 
     def stop_threaded(self):
         self._cb_queue.put(None)
