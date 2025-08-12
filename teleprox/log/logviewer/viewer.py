@@ -1,5 +1,5 @@
-# ABOUTME: Core LogViewer implementation with Qt integration and log handling
-# ABOUTME: Contains LogViewer widget, QtLogHandler, and main GUI functionality
+# Core LogViewer implementation with Qt integration and log handling
+# Contains LogViewer widget, QtLogHandler, and main GUI functionality
 
 import html
 import logging

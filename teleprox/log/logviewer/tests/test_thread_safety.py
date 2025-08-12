@@ -1,5 +1,5 @@
-# ABOUTME: Test LogViewer thread safety for multi-threaded logging
-# ABOUTME: Ensures messages from non-Qt threads are properly handled via queued signals
+# Test LogViewer thread safety for multi-threaded logging
+# Ensures messages from non-Qt threads are properly handled via queued signals
 
 import logging
 import threading

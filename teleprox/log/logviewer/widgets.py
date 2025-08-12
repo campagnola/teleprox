@@ -1,5 +1,5 @@
-# ABOUTME: UI widgets for log filtering interface including filter tags and input controls
-# ABOUTME: Contains FilterTagWidget, FilterInputWidget, and HighlightDelegate for log viewer GUI
+# UI widgets for log filtering interface including filter tags and input controls
+# Contains FilterTagWidget, FilterInputWidget, and HighlightDelegate for log viewer GUI
 
 from teleprox import qt
 from .constants import ItemDataRole, LogColumns

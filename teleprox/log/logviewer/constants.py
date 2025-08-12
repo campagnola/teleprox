@@ -1,5 +1,5 @@
-# ABOUTME: Constants and enums for log viewer data roles and other shared values
-# ABOUTME: Centralized location for UserRole slot assignments and configuration constants
+# Constants and enums for log viewer data roles and other shared values
+# Centralized location for UserRole slot assignments and configuration constants
 
 from teleprox import qt
 
