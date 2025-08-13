@@ -52,7 +52,7 @@ def start_process(name=None, address="tcp://127.0.0.1:*", qt=False, log_addr=Non
         Optional log server address to which the new process will send its log
         records. For non-daemon processes, this will also cause log_stdio to be
         enabled by default.
-    log_level : int
+    log_level : int | str | None
         Optional initial log level to assign to the root logger in the new
         process.
     log_stdio : bool | None

@@ -1,6 +1,8 @@
+import contextlib
 import logging
 import re
 import time
+
 import teleprox.log
 from teleprox.client import RemoteCallException
 from teleprox.log.remote import LogServer
@@ -22,7 +24,7 @@ class Handler(logging.Handler):
             if re.search(regex, record.msg):
                 return record
         return None
-    
+
     def __str__(self):
         return '\n'.join([str(record) for record in self.records])
 
@@ -30,6 +32,7 @@ class Handler(logging.Handler):
 class RemoteLogRecorder:
     """Sets up a log server to receive log messages and a handler to store them.
     """
+
     def __init__(self, name):
         self.logger = logging.getLogger(name)
         self.logger.level = logging.DEBUG
@@ -45,7 +48,8 @@ class RemoteLogRecorder:
             rec = self.handler.find_message(regex)
             if rec is not None:
                 return rec
-            time.sleep(0.1)        
+            time.sleep(0.1)
+        return None
 
     def stop(self):
         self.log_server.stop()
@@ -53,10 +57,9 @@ class RemoteLogRecorder:
 
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.stop()
-
 
 
 def test_log_server():
@@ -72,13 +75,14 @@ def test_log_server():
         # check that we get log records for the child's stderr
         proc.client._import('sys').stderr.write("message 2\n")
         # check that the child's log messages are propagated to the server
-        proc.client._import('logging').getLogger().info("logged message 3")
-        # check that log messages are generated for exceptions in the child
-        try:
-            proc.client._import('fake_module')  # exception should generate a log message
-        except RemoteCallException:
-            pass
 
+        # note: the ("%d",3) here mangles the request so that "logged message 3" only appears
+        # once in the logs, when the string is finally formatted.
+        proc.client._import('logging').getLogger().info("logged message %d", 3)
+        
+        # check that log messages are generated for exceptions in the child
+        with contextlib.suppress(RemoteCallException):
+            proc.client._import('fake_module')  # exception should generate a log message
         time.sleep(0.1)  # wait for log messages to be received
         proc.stop()
 
@@ -104,16 +108,18 @@ def test_quick_exit():
     # can we get log messages if the process exits immediately after generating them?
     with ProcessCleaner() as cleaner:
         with RemoteLogRecorder('test_quick_exit_logger') as logger:
-            proc = teleprox.start_process(name='test_quick_exit_logged', log_addr=logger.address, log_level=logging.INFO)
+            proc = teleprox.start_process(
+                name='test_quick_exit_logged', log_addr=logger.address, log_level=logging.INFO)
             cleaner.add(proc)
-            proc.client._import('logging').getLogger().info("quick exit message")
+            proc.client._import('logging').getLogger().info("quick %s message", "exit")
             proc.stop()
 
             assert logger.find_message(r"quick exit message") is not None
 
     with ProcessCleaner() as cleaner:
         with RemoteLogRecorder('test_quick_exit_logger') as logger:
-            proc = teleprox.start_process(name='test_quick_exit_stdout', log_addr=logger.address, log_level=logging.INFO)
+            proc = teleprox.start_process(
+                name='test_quick_exit_stdout', log_addr=logger.address, log_level=logging.INFO)
             cleaner.add(proc)
             proc.client._import('sys').stdout.write("quick exit message\n")
             proc.client._import('sys').stdout.flush()
@@ -129,8 +135,8 @@ def test_unhandled_exception():
             # We should still get a log message for the unhandled exception
             # because tx.log.log_exceptions() is called in teleprox/bootstrap.py
             proc = teleprox.start_process(
-                name='test_unhandled_exception', 
-                log_stdio=False, 
+                name='test_unhandled_exception',
+                log_stdio=False,
                 log_addr=logger.address,
                 log_level=logging.INFO
             )
@@ -146,7 +152,7 @@ def test_unhandled_exception():
             assert rec is not None
             assert 'stderr' not in rec.msg
 
-            # test that the exception hander works from a background thread
+            # test that the exception handler works from a background thread
             proc.client._import('teleprox.tests.threaded_exceptions').raise_in_thread("threaded exception")
             assert logger.find_message(r"threaded exception") is not None
 
@@ -173,7 +179,7 @@ def test_log_server_reconnect(debug=False):
             cleaner.add(child1)
 
             # test logging from daemon
-            child1.client._import('logging').getLogger().info("message 1")
+            child1.client._import('logging').getLogger().info("message %d", 1)
             assert logger.find_message(r"message 1") is not None
 
         # create a new logger and reconnect to the daemon
@@ -191,7 +197,7 @@ def test_log_server_reconnect(debug=False):
             client2._import('teleprox.log').set_logger_address(logger.address)
 
             # test logging from daemon
-            client2._import('logging').getLogger().info("message 2")
+            client2._import('logging').getLogger().info("message %d", 2)
             assert logger.find_message(r"message 2") is not None
 
             # raise an exception using the old client

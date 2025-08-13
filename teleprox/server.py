@@ -468,10 +468,7 @@ class RPCServer(object):
         not actually begin processing requests.
         
         RPCClients in the same thread will allow the server to process requests
-        while they are waiting for responses. This can prevent deadlocks that
-        occur when 
-        
-        This can also be used to allow the user to manually process requests.
+        while they are waiting for responses.
         """
         name = ('%s.%s.%s' % (log.get_host_name(), log.get_process_name(), 
                               log.get_thread_name()))

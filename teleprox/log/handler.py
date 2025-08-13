@@ -11,9 +11,9 @@ import traceback
 
 from .remote import get_host_name, get_process_name, get_thread_name
 
-
 try:
     import colorama
+
     HAVE_COLORAMA = True
     _ints = [colorama.Style.NORMAL, colorama.Style.BRIGHT, colorama.Style.DIM]
     _fcolors = [colorama.Fore.WHITE, colorama.Fore.GREEN, colorama.Fore.RED,
@@ -22,8 +22,8 @@ try:
     _bcolors = [colorama.Back.WHITE, colorama.Back.GREEN, colorama.Back.RED,
                 colorama.Back.CYAN, colorama.Back.YELLOW, colorama.Back.BLUE,
                 colorama.Back.MAGENTA]
-    _thread_color_list = [i+c for i in _ints for c in _fcolors[1:]]  # skip white
-    
+    _thread_color_list = [i + c for i in _ints for c in _fcolors[1:]]  # skip white
+
     _level_color_map = {
         0: colorama.Style.DIM + colorama.Fore.WHITE,
         logging.DEBUG: colorama.Style.DIM + colorama.Fore.WHITE,
@@ -31,10 +31,10 @@ try:
         logging.WARNING: colorama.Style.BRIGHT + colorama.Fore.YELLOW,
         logging.ERROR: colorama.Style.BRIGHT + colorama.Fore.RED,
         logging.CRITICAL: colorama.Back.RED,
-    }    
+    }
 except ImportError:
     HAVE_COLORAMA = False
-    
+
 
 class RPCLogHandler(logging.StreamHandler):
     """StreamHandler that sorts incoming log records by their creation time
@@ -55,7 +55,7 @@ class RPCLogHandler(logging.StreamHandler):
             logging.StreamHandler.__init__(self, colorama.AnsiToWin32(stream).stream)
         else:
             logging.StreamHandler.__init__(self, stream)
-        
+
         # Hold log records for 0.5 sec before printing them to allow sorting
         # by creation time.
         self.delay = 0.2
@@ -84,7 +84,7 @@ class RPCLogHandler(logging.StreamHandler):
             with self.record_lock:
                 while len(self.records) > 0 and self.records[0].created < limit:
                     recs.append(self.records.pop(0))
-                    
+
             # emit records or sleep
             if len(recs) > 0:
                 for rec in recs:
@@ -99,6 +99,8 @@ class RPCLogHandler(logging.StreamHandler):
         if HAVE_COLORAMA:
             ind = record.levelno // 10 * 10  # decrease to multiple of 10
             message = _level_color_map[ind] + message + colorama.Style.RESET_ALL
+
+        return header + ' ' + message
 
         return f'{header} {message}'
 
@@ -129,14 +131,21 @@ _threading_excepthook = None
 
 
 def _log_unhandled_exception(exc, val, tb):
-    exc_str = traceback.format_stack()
-    exc_str += [" < exception caught here >\n"]
-    exc_str += traceback.format_exception(exc, val, tb)[1:]
-    exc_str = ''.join(['    ' + line for line in exc_str])
-    logging.getLogger().warning("Unhandled exception:\n%s", exc_str)
+    logger = logging.getLogger()
+    logger.warning(
+        f"Unhandled exception: {val}",
+        exc_info=(exc, val, tb),
+    )
+
 
 def _log_unhandled_exc_from_thread(args):
-    _log_unhandled_exception(args.exc_type, args.exc_value, args.exc_traceback)
+    logger = logging.getLogger()
+    tb_lines = traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)
+    tb_str = ''.join(tb_lines)
+    # we can't use logger.error(exc_info=...) here because it will ignore that arg if our main
+    # thread is not currently inside an exception (why isn't this in the thread where the exception
+    # is raised?)
+    logger.warning(f"Unhandled exception: {args.exc_value}\n{tb_str}")
 
 
 def log_exceptions():
