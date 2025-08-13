@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
+
+import os
+
 import pytest
 
 from teleprox import start_process
-import os
 from teleprox.tests.check_qt import requires_qt
 
 
@@ -29,17 +31,13 @@ def test_serverless_client():
     assert os.getpid() != ros.getpid()
 
     class CustomType:
-        def __init__(self):
-            self.x = 1
-            self.y = 'a'
-
-        def __eq__(self, a):
-            return type(a) == type(self) and a.x == self.x and a.y == self.y
+        pass
 
     with pytest.raises(TypeError):
         cli.transfer(CustomType())
 
-    # test closing nicely
+    rmt_os = cli._import('os')
+    rmt_os.getpid()
     proc.stop()
 
 
@@ -54,4 +52,3 @@ def test_qt_spawner():
 
     # test closing Qt process
     proc.stop()
-    
