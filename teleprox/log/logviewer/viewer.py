@@ -311,6 +311,24 @@ class LogViewer(qt.QWidget):
             
             # Apply the filters
             self.apply_filters(list(initial_filters))
+        
+        # Set up autoscroll functionality - track if user wants to stay at bottom
+        self._should_autoscroll = True  # Start with autoscroll enabled
+        
+        # Connect scroll bar changes to monitor user scrolling behavior
+        scrollbar = self.tree.verticalScrollBar()
+        scrollbar.valueChanged.connect(self._on_scroll_changed)
+
+        # detect changes to model length
+        self.model.rowsInserted.connect(self._on_model_rows_inserted)
+
+    def _on_scroll_changed(self, value):
+        scrollbar = self.tree.verticalScrollBar()
+        self._should_autoscroll = scrollbar.value() == scrollbar.maximum()
+
+    def _on_model_rows_inserted(self, parent, start, end):
+        if self._should_autoscroll:
+            self.tree.scrollToBottom()
 
     def new_record(self, rec):
         # Check if we're running in the Qt main thread

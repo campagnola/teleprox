@@ -13,15 +13,9 @@ from teleprox import qt
 class TestLogViewerThreadSafety:
     """Test LogViewer's thread safety mechanisms."""
     
-    @pytest.fixture
-    def app(self):
-        """Create QApplication for tests."""
-        app = qt.QApplication.instance()
-        if app is None:
-            app = qt.QApplication([])
-        return app
+    # QApplication fixture provided by conftest.py
     
-    def test_main_thread_logging(self, app):
+    def test_main_thread_logging(self, qapp):
         """Test that main thread logging works normally."""
         viewer = LogViewer(logger='test.main.thread')
         logger = logging.getLogger('test.main.thread')
@@ -39,7 +33,7 @@ class TestLogViewerThreadSafety:
         message_item = viewer.model.item(initial_count, LogColumns.MESSAGE)
         assert message_item.text() == "Main thread message"
     
-    def test_background_thread_logging(self, app):
+    def test_background_thread_logging(self, qapp):
         """Test that background thread logging is handled safely."""
         viewer = LogViewer(logger='test.bg.thread')
         logger = logging.getLogger('test.bg.thread')
@@ -58,9 +52,9 @@ class TestLogViewerThreadSafety:
         bg_thread.join()
         
         # Process queued signals
-        app.processEvents()
+        qapp.processEvents()
         time.sleep(0.05)  # Brief delay for signal processing
-        app.processEvents()
+        qapp.processEvents()
         
         # Should have received both messages
         assert viewer.model.rowCount() == initial_count + 2
@@ -72,7 +66,7 @@ class TestLogViewerThreadSafety:
             # Should not contain "MainThread"
             assert "MainThread" not in source_text
     
-    def test_mixed_thread_logging(self, app):
+    def test_mixed_thread_logging(self, qapp):
         """Test that mixed main and background thread logging works correctly."""
         viewer = LogViewer(logger='test.mixed.thread')
         logger = logging.getLogger('test.mixed.thread')
@@ -95,9 +89,9 @@ class TestLogViewerThreadSafety:
         logger.info("Main message 2")
         
         # Process queued signals
-        app.processEvents()
+        qapp.processEvents()
         time.sleep(0.05)
-        app.processEvents()
+        qapp.processEvents()
         
         # Should have all 3 messages
         assert viewer.model.rowCount() == initial_count + 3

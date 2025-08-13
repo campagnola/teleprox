@@ -9,6 +9,16 @@ import teleprox, teleprox.util, teleprox.process
 from teleprox.log.handler import RPCLogHandler
 from teleprox.log.remote import set_process_name, set_thread_name, start_log_server
 
+# Try to import Qt - it may not be available in all environments
+try:
+    from teleprox import qt
+    QT_AVAILABLE = True
+except ImportError:
+    QT_AVAILABLE = False
+
+# Global reference to keep QApplication alive for entire process
+_qt_app = None
+
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -66,6 +76,32 @@ def process_name_prefix():
     teleprox.process.PROCESS_NAME_PREFIX = prefix
     yield prefix
     assert teleprox.process.PROCESS_NAME_PREFIX == prefix, "Process name prefix was changed during test run, this is not allowed."
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Session-scoped QApplication fixture.
+    
+    This creates exactly one QApplication for the entire test session and keeps
+    it alive until all tests complete. This prevents Qt crashes that occur when
+    QApplication instances are destroyed and recreated between tests.
+    
+    Uses teleprox.qt.make_qapp() which safely creates or reuses existing QApplication.
+    Skips if Qt is not available in the environment.
+    
+    Returns:
+        qt.QApplication or None: The singleton QApplication instance, or None if Qt unavailable
+    """
+    global _qt_app
+    
+    if not QT_AVAILABLE:
+        pytest.skip("Qt not available - skipping Qt-dependent test")
+    
+    if _qt_app is None:
+        # Use teleprox's safe QApplication creation function
+        _qt_app = qt.make_qapp()
+    
+    return _qt_app
 
 
 def pytest_collection_modifyitems(items):

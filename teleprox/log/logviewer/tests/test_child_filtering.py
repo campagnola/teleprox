@@ -16,15 +16,9 @@ except ImportError:
 class TestChildFiltering:
     """Test cases for child filtering and expansion state preservation."""
     
-    @pytest.fixture
-    def app(self):
-        """Create QApplication for tests."""
-        app = qt.QApplication.instance()
-        if app is None:
-            app = qt.QApplication([])
-        return app
+    # QApplication fixture provided by conftest.py
     
-    def test_children_inherit_parent_filter_data(self, app):
+    def test_children_inherit_parent_filter_data(self, qapp):
         """Test that exception children inherit parent's filter-relevant data."""
         viewer = LogViewer(logger='test.inherit.data')
         logger = logging.getLogger('test.inherit.data')
@@ -62,7 +56,7 @@ class TestChildFiltering:
         assert parent_logger == original_record.name, "Child should inherit parent's logger name"
         assert parent_cipher is not None, "Child should have level cipher"
     
-    def test_children_visible_when_parent_matches_filter(self, app):
+    def test_children_visible_when_parent_matches_filter(self, qapp):
         """Test that exception children are visible when parent matches filter."""
         viewer = LogViewer(logger='test.children.visible')
         logger = logging.getLogger('test.children.visible')
@@ -134,7 +128,7 @@ class TestChildFiltering:
         total_filtered_descendants = count_all_filtered_descendants(error_index, current_model)
         assert total_filtered_descendants == total_descendants, f"Should have {total_descendants} total descendants, got {total_filtered_descendants}"
     
-    def test_children_visible_with_complex_filtering(self, app):
+    def test_children_visible_with_complex_filtering(self, qapp):
         """Test that children remain visible with various filter combinations."""
         viewer = LogViewer(logger='test.complex.filtering')
         logger = logging.getLogger('test.complex.filtering')
@@ -241,7 +235,7 @@ class TestChildFiltering:
             count += self.count_all_nodes_in_model(child_index, model)
         return count
     
-    def test_expansion_state_preserved_across_filters(self, app):
+    def test_expansion_state_preserved_across_filters(self, qapp):
         """Test that item expansion state is preserved when filters change."""
         viewer = LogViewer(logger='test.expansion.preserve')
         logger = logging.getLogger('test.expansion.preserve')
@@ -318,7 +312,7 @@ class TestChildFiltering:
         
         assert error_found, "Should have found the error item with original LOG_ID"
     
-    def test_multiple_expanded_items_with_filtering(self, app):
+    def test_multiple_expanded_items_with_filtering(self, qapp):
         """Test filtering with multiple expanded items."""
         viewer = LogViewer(logger='test.multiple.expanded')
         logger = logging.getLogger('test.multiple.expanded')
@@ -362,7 +356,7 @@ class TestChildFiltering:
             child_count = current_model.rowCount(error_index)
             assert child_count > 0, f"Error entry {i} should have visible children"
     
-    def test_expansion_state_mechanism(self, app):
+    def test_expansion_state_mechanism(self, qapp):
         """Test the expansion state save/restore mechanism directly."""
         viewer = LogViewer(logger='test.expansion.mechanism')
         logger = logging.getLogger('test.expansion.mechanism')
@@ -401,7 +395,7 @@ class TestChildFiltering:
         viewer.expansion_manager.restore_state(expanded_ids)
         assert viewer.tree.isExpanded(error_tree_index), "Should be expanded after restore"
     
-    def test_child_selection_highlighting(self, app):
+    def test_child_selection_highlighting(self, qapp):
         """Test that selecting child items uses parent's highlighting data."""
         viewer = LogViewer(logger='test.child.highlighting')
         logger = logging.getLogger('test.child.highlighting')
@@ -454,7 +448,7 @@ class TestChildFiltering:
         # Should use parent's data for highlighting (no exception should occur)
         # The test passes if no exception is raised and highlighting works
     
-    def test_child_highlighting_isolation(self, app):
+    def test_child_highlighting_isolation(self, qapp):
         """Test that child items don't get highlighted when unrelated entries are selected."""
         viewer = LogViewer(logger='test.highlight.isolation')
         
@@ -513,7 +507,7 @@ class TestChildFiltering:
         
         # Test passed if no exceptions were raised during selection changes
     
-    def test_exception_message_ordering(self, app):
+    def test_exception_message_ordering(self, qapp):
         """Test that exception message appears at bottom of traceback."""
         viewer = LogViewer(logger='test.exception.order')
         logger = logging.getLogger('test.exception.order')
@@ -568,7 +562,7 @@ class TestChildFiltering:
         first_message = first_child.text()
         assert "File " in first_message, "First child should be a traceback frame"
     
-    def test_monospace_font_for_code(self, app):
+    def test_monospace_font_for_code(self, qapp):
         """Test that traceback frames use monospace font."""
         viewer = LogViewer(logger='test.monospace')
         logger = logging.getLogger('test.monospace')
@@ -627,23 +621,26 @@ class TestChildFiltering:
 
 def run_manual_tests():
     """Run basic tests without pytest."""
-    app = qt.QApplication([])
+    # Create QApplication for manual testing (conftest.py only works in pytest)
+    qapp = qt.QApplication.instance()
+    if qapp is None:
+        qapp = qt.QApplication([])
     
     print("Test 1: Children inherit parent filter data...")
     test = TestChildFiltering()
-    test.test_children_inherit_parent_filter_data(app)
+    test.test_children_inherit_parent_filter_data(qapp)
     print("✅ Test 1 passed!")
     
     print("Test 2: Children visible when parent matches filter...")
-    test.test_children_visible_when_parent_matches_filter(app)
+    test.test_children_visible_when_parent_matches_filter(qapp)
     print("✅ Test 2 passed!")
     
     print("Test 3: Expansion state preserved across filters...")
-    test.test_expansion_state_preserved_across_filters(app)
+    test.test_expansion_state_preserved_across_filters(qapp)
     print("✅ Test 3 passed!")
     
     print("Test 4: Multiple expanded items with filtering...")
-    test.test_multiple_expanded_items_with_filtering(app)
+    test.test_multiple_expanded_items_with_filtering(qapp)
     print("✅ Test 4 passed!")
     
     print("All child filtering tests completed successfully!")
