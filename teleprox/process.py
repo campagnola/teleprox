@@ -6,6 +6,7 @@ import sys
 import json
 import subprocess
 import atexit
+import contextlib
 from teleprox.log.remote import get_process_name, set_thread_name
 from teleprox.log.stdio import StdioLogSender
 from teleprox.util import kill_pid
@@ -122,35 +123,29 @@ def start_process(
 
     """
     # logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
-    assert daemon in (True, False), f"daemon must be bool; got {repr(daemon)}"
-    assert qt in (True, False), f"qt must be bool; got {repr(qt)}"
-    assert isinstance(
-        address, (str, bytes)
-    ), f"address must be str or bytes; got {repr(address)}"
-    assert name is None or isinstance(
-        name, str
-    ), f"name must be str or None; got {repr(name)}"
-    assert log_addr is None or isinstance(
-        log_addr, (str, bytes)
-    ), f"log_addr must be str or None; got {repr(log_addr)}"
+    if not isinstance(daemon, bool):
+        raise TypeError(f"daemon must be bool; got {repr(daemon)}")
+    if not isinstance(qt, bool):
+        raise TypeError(f"qt must be bool; got {repr(qt)}")
+    if not isinstance(address, (str, bytes)):
+        raise TypeError(f"address must be str or bytes; got {repr(address)}")
+    if name is not None and not isinstance(name, str):
+        raise TypeError(f"name must be str or None; got {repr(name)}")
+    if log_addr is not None and not isinstance(log_addr, (str, bytes)):
+        raise TypeError(f"log_addr must be str or None; got {repr(log_addr)}")
     if log_addr is None and not daemon:
         log_addr = get_logger_address()
-    assert log_level is None or isinstance(
-        log_level, (int, str)
-    ), f"log_level must be int, str, or None; got {repr(log_level)}"
+    if log_level is not None and not isinstance(log_level, (int, str)):
+        raise TypeError(f"log_level must be int, str, or None; got {repr(log_level)}")
     if log_level is None:
         log_level = logger.getEffectiveLevel()
     elif isinstance(log_level, str):
         log_level = getattr(logging, log_level.upper())
-    assert log_stdio in (
-        True,
-        False,
-        None,
-    ), f'log_stdio must be True, False, or None; got {repr(log_stdio)}'
+    if log_stdio not in (True, False, None):
+        raise TypeError(f'log_stdio must be True, False, or None; got {repr(log_stdio)}')
     if log_stdio is True:
-        assert (
-            stdout is None and stderr is None
-        ), "Cannot use log_stdio with stdout/stderr."
+        if not (stdout is None and stderr is None):
+            raise ValueError("Cannot use log_stdio with stdout/stderr.")
     # If we have a log server and stdio/stderr have not been explicitly set, then
     # turn on stdio logging by default.
     if log_stdio is None and stdout is None and stderr is None and daemon is False:
@@ -213,12 +208,12 @@ def start_process(
         'stderr': stderr,
         'shell': shell,
     }
-    if daemon is True:
+    if daemon:
         # daemom processes have no stdio
-        assert log_stdio is not True, "Cannot use log_stdio with daemon."
-        assert (
-            stdin is None and stdout is None and stderr is None
-        ), "Cannot use stdin/stdout/stderr with daemon."
+        if log_stdio:
+            raise ValueError("Cannot use log_stdio with daemon.")
+        if stdin is not None or stdout is not None or stderr is not None:
+            raise ValueError("Cannot use stdin/stdout/stderr with daemon.")
         popen_kwargs['stdin'] = subprocess.DEVNULL
         popen_kwargs['stdout'] = subprocess.DEVNULL
         popen_kwargs['stderr'] = subprocess.DEVNULL
@@ -285,7 +280,8 @@ class DaemonProcess:
         """Stop the spawned process by asking its RPC server to close."""
         logger.info(f"Close daemon process: {self.client.address}")
         closed = self.client.close_server()
-        assert closed is True, f"Server refused to close. (reply: {closed})"
+        if not closed:
+            raise RuntimeError(f"Server refused to close. (reply: {closed})")
 
     def kill(self):
         """Kill the spawned process immediately."""
@@ -356,7 +352,8 @@ class ChildProcess:
             return
         logger.info(f"Close process: {self.client.address}")
         closed = self.client.close_server(timeout=timeout)
-        assert closed is True, f"Server refused to close. (reply: {closed})"
+        if not closed:
+            raise RuntimeError(f"Server refused to close. (reply: {closed})")
 
         return self.wait(timeout)
 
