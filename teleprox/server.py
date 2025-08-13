@@ -25,6 +25,22 @@ class RPCServer(object):
     RPCServer instances are automatically created when using :class:`start_process`.
     It is rarely necessary for the user to interact directly with RPCServer.
 
+    Parameters
+    ----------
+    address : URL
+        Address for RPC server to bind to. Default is ``'tcp://127.0.0.1:*'``.
+
+        **Note:** binding RPCServer to a public IP address is a potential
+        security hazard.
+    serialize_types : Enumerable of types | None
+        List of types that should not be wrapped in an ObjectProxy when
+        sent to a remote client. This is used to avoid wrapping objects
+        that are already proxies, or that are not safe to proxy.
+        Default is `serializer.default_serialize_types`.
+    _run_thread : bool
+        INTERNAL USE ONLY. If True, then the server will run in a separate
+        thread.
+
     Notes
     -----
 
@@ -68,27 +84,8 @@ class RPCServer(object):
 
     """
 
-    def __init__(
-        self, address="tcp://127.0.0.1:*", serialize_types=None, _run_thread=True
-    ):
-        """Initialize the RPC server.
-
-        Parameters
-        ----------
-        address : URL
-            Address for RPC server to bind to. Default is ``'tcp://127.0.0.1:*'``.
-
-            **Note:** binding RPCServer to a public IP address is a potential
-            security hazard.
-        serialize_types : Enumerable of types | None
-            List of types that should not be wrapped in an ObjectProxy when
-            sent to a remote client. This is used to avoid wrapping objects
-            that are already proxies, or that are not safe to proxy.
-            Default is `serializer.default_serialize_types`.
-        _run_thread : bool
-            INTERNAL USE ONLY. If True, then the server will run in a separate
-            thread.
-        """
+    def __init__(self, address="tcp://127.0.0.1:*", serialize_types=None, _run_thread=True):
+        """Initialize the RPC server."""
         self._socket = zmq.Context.instance().socket(zmq.ROUTER)
 
         self._serialize_types = serialize_types
@@ -204,9 +201,7 @@ class RPCServer(object):
     def _read_one(socket):
         parts = socket.recv_multipart()
         if len(parts) != 6:
-            raise ValueError(
-                f"Invalid RPC message: expected 6 parts, got {len(parts)}: {parts}"
-            )
+            raise ValueError(f"Invalid RPC message: expected 6 parts, got {len(parts)}: {parts}")
         name, req_id, action, return_type, ser_type, opts = parts
 
         msg = {
@@ -251,9 +246,7 @@ class RPCServer(object):
                 raise ValueError(f"Unsupported serializer '{ser_type}'") from e
             opts = msg.pop('opts', None)
 
-            logger.debug(
-                "RPC recv '%s' from %s [req_id=%s]", action, caller.decode(), req_id
-            )
+            logger.debug("RPC recv '%s' from %s [req_id=%s]", action, caller.decode(), req_id)
             logger.debug("    => %s", msg)
             if opts == b'':
                 opts = None
@@ -293,9 +286,7 @@ class RPCServer(object):
             self._final_close()
 
     def _send_error(self, caller, req_id, exc):
-        exc_str = [
-            "Error while processing request %s [%d]: " % (caller.decode(), req_id)
-        ]
+        exc_str = ["Error while processing request %s [%d]: " % (caller.decode(), req_id)]
         exc_str += traceback.format_stack()
         exc_str += [" < exception caught here >\n"]
         exc_str += traceback.format_exception(*exc)
@@ -303,9 +294,7 @@ class RPCServer(object):
 
     def _send_result(self, caller, req_id, rval=None, error=None):
         result = {'action': 'return', 'req_id': req_id, 'rval': rval, 'error': error}
-        logger.info(
-            "RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id']
-        )
+        logger.info("RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id'])
         logger.debug("    => %s", result)
 
         # Select the correct serializer for this client
@@ -327,9 +316,7 @@ class RPCServer(object):
                 try:
                     result = obj(*fnargs)
                 except Exception:
-                    logger.warning(
-                        "Failed to call object %s: %d, %s", obj, len(fnargs), fnargs[1:]
-                    )
+                    logger.warning("Failed to call object %s: %d, %s", obj, len(fnargs), fnargs[1:])
                     raise
             else:
                 result = obj(*fnargs, **fnkwds)
@@ -377,9 +364,7 @@ class RPCServer(object):
                 if ser_type not in data:
                     ser = self._serializers[ser_type]
                     ser.server = None  # no more server
-                    data[ser_type] = ser.dumps(
-                        {'action': 'disconnect'}, serialize_types=None
-                    )
+                    data[ser_type] = ser.dumps({'action': 'disconnect'}, serialize_types=None)
                 data_str = data[ser_type]
 
                 # Send disconnect message.

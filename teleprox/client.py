@@ -31,6 +31,46 @@ class RPCClient(object):
     :class:`start_process` or by requesting attributes from an :class:`ObjectProxy`.
     In general, it is not necessary for the user to interact directly with
     RPCClient.
+
+    Parameters
+    ----------
+    address : URL
+        Address of RPC server to connect to.
+    local_server : "threaded" | "lazy" | RPCServer | None
+        None (default):
+            Do not proxy through a local RPCServer. This means that the client will not be able
+            to proxy objects to the remote server, and will only be able to send simple,
+            serializable data types (see ``serialize_types``).
+        "threaded":
+            Start a dedicated RPCServer in a thread that will proxy data send through this
+            client in an asynchronous manner. This allows the client to send callbacks and
+            persistent objects safely. It means that processing will happen in a separate thread,
+            and therefore thread-safe practices will need to be followed when using this client.
+        "lazy":
+            Start a dedicated RPCServer that is not actively processing requests, but will
+            process them when this client is used. This allows the client to proxy objects
+            intended for use during the individual remote calls, but not outside of them.
+            Violation of this contract will most likely result in timeouts. Because responses
+            from a remote server can themselves be proxied, it may seem like a reference should
+            be pointed at a local object directly, but if it lives inside such a remote proxy,
+            then it will sneakily not be the case.
+        RPCServer:
+            Use the given RPCServer instance to handle proxying data sent to the remote server.
+            This can be used to share a server between multiple clients.
+    serializer : str
+        Type of serializer to use when communicating with the remote server.
+        Default is 'msgpack'.
+    serialize_types : tuple | None
+        A tuple of types that may be serialized when sending request arguments to the remote server.
+        If a local server is running, then types not in this list will be sent by proxy.
+        Otherwise, a TypeError is raised.
+        If None, then ``serializer.default_serialize_types`` is used instead.
+        This is also used in the construction of the local RPCServer if local_server is dedicated.
+
+    Raises
+    ------
+    ConnectionRefusedError if no server is running at the given address.
+    TimeoutError if the server cannot be reached within the default timeout.
     """
 
     clients_by_thread = {}  # (thread_id, rpc_addr): client
@@ -82,48 +122,7 @@ class RPCClient(object):
         serializer='msgpack',
         serialize_types=None,
     ):
-        """Initialize a new RPCClient.
-
-        Parameters
-        ----------
-        address : URL
-            Address of RPC server to connect to.
-        local_server : "threaded" | "lazy" | RPCServer | None
-            None (default):
-                Do not proxy through a local RPCServer. This means that the client will not be able
-                to proxy objects to the remote server, and will only be able to send simple,
-                serializable data types (see ``serialize_types``).
-            "threaded":
-                Start a dedicated RPCServer in a thread that will proxy data send through this
-                client in an asynchronous manner. This allows the client to send callbacks and
-                persistent objects safely. It means that processing will happen in a separate thread,
-                and therefore thread-safe practices will need to be followed when using this client.
-            "lazy":
-                Start a dedicated RPCServer that is not actively processing requests, but will
-                process them when this client is used. This allows the client to proxy objects
-                intended for use during the individual remote calls, but not outside of them.
-                Violation of this contract will most likely result in timeouts. Because responses
-                from a remote server can themselves be proxied, it may seem like a reference should
-                be pointed at a local object directly, but if it lives inside such a remote proxy,
-                then it will sneakily not be the case.
-            RPCServer:
-                Use the given RPCServer instance to handle proxying data sent to the remote server.
-                This can be used to share a server between multiple clients.
-        serializer : str
-            Type of serializer to use when communicating with the remote server.
-            Default is 'msgpack'.
-        serialize_types : tuple | None
-            A tuple of types that may be serialized when sending request arguments to the remote server.
-            If a local server is running, then types not in this list will be sent by proxy.
-            Otherwise, a TypeError is raised.
-            If None, then ``serializer.default_serialize_types`` is used instead.
-            This is also used in the construction of the local RPCServer if local_server is dedicated.
-
-        Raises
-        ------
-        ConnectionRefusedError if no server is running at the given address.
-        TimeoutError if the server cannot be reached within the default timeout.
-        """
+        """Initialize a new RPCClient."""
         if isinstance(address, str):
             address = address.encode()
 
@@ -133,9 +132,7 @@ class RPCClient(object):
         self.serialize_types = serialize_types
 
         if sys.platform == 'win32' and '0.0.0.0' in str(address):
-            logger.warning(
-                f"RPC server address {address} is likely to cause trouble on windows"
-            )
+            logger.warning(f"RPC server address {address} is likely to cause trouble on windows")
         self.address = address
 
         if local_server in ("threaded", "lazy"):
@@ -159,9 +156,7 @@ class RPCClient(object):
             # Make sure we can reach this address and there is an open socket
             port_status = self.check_address(address)
             if port_status == "closed":
-                raise ConnectionRefusedError(
-                    f"Connection refused to {address.decode()}"
-                )
+                raise ConnectionRefusedError(f"Connection refused to {address.decode()}")
 
             # DEALER is fully asynchronous--we can send or receive at any time, and
             # unlike ROUTER, it only connects to a single endpoint.
@@ -190,9 +185,7 @@ class RPCClient(object):
             # When sending requests, this serializer can only generate proxies if it is
             # associated with a local server.
             try:
-                self.serializer: Serializer = all_serializers[serializer](
-                    self._local_server
-                )
+                self.serializer: Serializer = all_serializers[serializer](self._local_server)
             except KeyError as e:
                 raise ValueError(f"Unsupported serializer type '{serializer}'") from e
 
@@ -324,9 +317,7 @@ class RPCClient(object):
         else:
             req_id = self.next_request_id
             self.next_request_id += 1
-        logger.info(
-            "RPC request '%s' to %s [req_id=%s]", action, self.address.decode(), req_id
-        )
+        logger.info("RPC request '%s' to %s [req_id=%s]", action, self.address.decode(), req_id)
         logger.debug("    => sync=%s return=%s opts=%s", sync, return_type, opts)
 
         if opts is None:
@@ -445,9 +436,7 @@ class RPCClient(object):
         continue to function even after A deletes its proxy.
         """
         assert obj._rpc_addr == self.address
-        return self.send(
-            'delete', opts={'obj_id': obj._obj_id, 'ref_id': obj._ref_id}, **kwds
-        )
+        return self.send('delete', opts={'obj_id': obj._obj_id, 'ref_id': obj._ref_id}, **kwds)
 
     def __getitem__(self, name):
         """Return a named item published by the remote server.
@@ -663,10 +652,7 @@ class RPCClient(object):
             ltimes.append(time.perf_counter())
             rtimes.append(rcounter())
         rtimes = rtimes[:-1]
-        dif = [
-            rt - ((lt1 + lt2) * 0.5)
-            for rt, lt1, lt2 in zip(rtimes, ltimes[1:], ltimes[:-1])
-        ]
+        dif = [rt - ((lt1 + lt2) * 0.5) for rt, lt1, lt2 in zip(rtimes, ltimes[1:], ltimes[:-1])]
         avg = sum(dif) / len(dif)
         # we can probably constrain this estimate a bit more by looking at
         # min/max times and excluding outliers.
