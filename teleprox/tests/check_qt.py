@@ -5,7 +5,6 @@ import teleprox
 
 qt_available = True
 qt_reason = ""
-p_started = False
 
 p = teleprox.start_process('check_qt_process')
 try:
@@ -22,8 +21,7 @@ except ImportError as exc:
     qt_available = False
     qt_reason = str(exc)
 finally:
-    if p_started:
-        p.stop()
+    p.stop()
     p.client.close_server()
     for _ in range(10):
         if p.poll() is not None:
