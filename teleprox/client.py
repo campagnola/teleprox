@@ -77,7 +77,7 @@ class RPCClient(object):
     clients_by_thread_lock = threading.Lock()
 
     @staticmethod
-    def get_client(address, create=True, *args, **kwargs):
+    def get_client(address, create=True, **kwargs):
         """Return the RPC client for this thread and a given server address.
 
         If no client exists already, then a new one will be created. If the
@@ -105,7 +105,7 @@ class RPCClient(object):
                 return RPCClient.clients_by_thread[key]
 
         if create:
-            return RPCClient(address, *args, **kwargs)
+            return RPCClient(address, **kwargs)
         return None
 
     @staticmethod
@@ -136,12 +136,12 @@ class RPCClient(object):
         self.address = address
 
         if local_server in ("threaded", "lazy"):
-            self._local_server = RPCServer(
+            self.local_server = RPCServer(
                 serialize_types=serialize_types,
                 _run_thread=(local_server == "threaded"),
             )
         else:
-            self._local_server = local_server
+            self.local_server = local_server
 
         key = (threading.current_thread().ident, address)
         with RPCClient.clients_by_thread_lock:
@@ -185,7 +185,7 @@ class RPCClient(object):
             # When sending requests, this serializer can only generate proxies if it is
             # associated with a local server.
             try:
-                self.serializer: Serializer = all_serializers[serializer](self._local_server)
+                self.serializer: Serializer = all_serializers[serializer](self.local_server)
             except KeyError as e:
                 raise ValueError(f"Unsupported serializer type '{serializer}'") from e
 
@@ -220,14 +220,14 @@ class RPCClient(object):
         # thread is able to process requests while we are blocked waiting
         # for responses from other servers.
         if self._poller is None:
-            if self._local_server is None:
+            if self.local_server is None:
                 return None
-            elif isinstance(self._local_server, QtRPCServer):
+            elif isinstance(self.local_server, QtRPCServer):
                 self._poller = 'qt'
-            elif self._local_server.client_should_handle_requests():
+            elif self.local_server.client_should_handle_requests():
                 self._poller = zmq.Poller()
                 self._poller.register(self._socket, zmq.POLLIN)
-                self._poller.register(self._local_server._socket, zmq.POLLIN)
+                self._poller.register(self.local_server._socket, zmq.POLLIN)
             else:
                 return None
         return self._poller
@@ -524,8 +524,8 @@ class RPCClient(object):
                 socks = [x[0] for x in poller.poll(itimeout)]
                 if self._socket in socks:
                     self._read_and_process_one(timeout=0)
-                if self._local_server._socket in socks:
-                    self._local_server._read_and_process_one()
+                if self.local_server._socket in socks:
+                    self.local_server._read_and_process_one()
 
     def _read_and_process_one(self, timeout):
         """Read a single message from the remote server and process it by
