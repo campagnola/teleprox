@@ -88,7 +88,8 @@ class RPCClient(object):
         create : bool
             If True, then create a new RPCClient instance if one does not already exist.
 
-        All other parameters are passed to the RPCClient constructor.
+        All other parameters are FOR INTERNAL USE ONLY (and are passed to the RPCClient
+        constructor).
 
         See also
         --------
@@ -102,7 +103,13 @@ class RPCClient(object):
         # Return an existing client if there is one
         with RPCClient.clients_by_thread_lock:
             if key in RPCClient.clients_by_thread:
-                return RPCClient.clients_by_thread[key]
+                client = RPCClient.clients_by_thread[key]
+                local_server = kwargs.pop('local_server', client.local_server)
+                if kwargs or local_server is not client.local_server:
+                    raise ValueError(
+                        "Cannot pass arguments to get_client() if it already exists for this address."
+                    )
+                return client
 
         if create:
             return RPCClient(address, **kwargs)
