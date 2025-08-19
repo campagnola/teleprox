@@ -220,7 +220,9 @@ def start_process(
         # use DETACH_PROCESS to prevent the child from being killed when the parent is killed
         # use CREATE_NEW_PROCESS_GROUP to prevent the child from receiving signals from the parent
         if sys.platform == 'win32':
-            popen_kwargs['creationflags'] = (
+            popen_kwargs[
+                'creationflags'
+            ] = (
                 subprocess.CREATE_NEW_PROCESS_GROUP
             )  # subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
@@ -254,9 +256,7 @@ def start_process(
     if 'address' in status:
         address = status['address']
         #: An RPCClient instance that is connected to the RPCServer in the remote process
-        client = RPCClient(
-            address.encode(), serializer=serializer, local_server=local_server
-        )
+        client = RPCClient(address.encode(), serializer=serializer, local_server=local_server)
     else:
         err = ''.join(status['error'])
         if proc is not None and proc.poll() is not None:
@@ -318,9 +318,7 @@ class ChildProcess:
             # exceptions.
             pass
         except subprocess.TimeoutExpired as exc:
-            raise TimeoutError(
-                f'Timed out waiting for process "{self.name}" to exit'
-            ) from exc
+            raise TimeoutError(f'Timed out waiting for process "{self.name}" to exit') from exc
 
         sleep = 1e-3
         while True:
@@ -328,9 +326,7 @@ class ChildProcess:
             if rcode is not None:
                 return rcode
             if time.time() - start > timeout:
-                raise TimeoutError(
-                    "Timed out waiting on process exit for %s" % self.name
-                )
+                raise TimeoutError("Timed out waiting on process exit for %s" % self.name)
             time.sleep(sleep)
             sleep = min(sleep * 2, 100e-3)
 
