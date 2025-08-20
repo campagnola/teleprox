@@ -1,6 +1,6 @@
 """
-ABOUTME: Advanced logging example with daemon process, GUI controls, and reconnection capability
-ABOUTME: Demonstrates interactive log generation and remote log collection in a GUI environment
+Advanced logging example with daemon process, GUI controls, and reconnection capability
+Demonstrates interactive log generation and remote log collection in a GUI environment
 """
 import atexit
 import logging

@@ -21,7 +21,7 @@ def test_spawner():
 
 
 def test_serverless_client():
-    proc = start_process('test_serverless_client_proc', start_local_server=False)
+    proc = start_process('test_serverless_client_proc', local_server=None)
     cli = proc.client
 
     # check spawned RPC server has a different PID

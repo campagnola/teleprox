@@ -1,5 +1,5 @@
-# ABOUTME: Log filtering implementations including Python-based and chained Qt proxy models
-# ABOUTME: Contains PythonLogFilterProxyModel, ChainedLogFilterManager, and filtering utilities
+# Log filtering implementations including Python-based and chained Qt proxy models
+# Contains PythonLogFilterProxyModel, ChainedLogFilterManager, and filtering utilities
 
 import re
 from teleprox import qt

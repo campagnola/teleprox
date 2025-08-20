@@ -60,10 +60,6 @@ class Timer(object):
     def _run(self):
         try:
             callback = self.callback
-            if isinstance(callback, ObjectProxy):
-                # Make sure we are using a proxy owned by this thread
-                callback = callback._copy()
-            
             while True:
                 if self._last_call_time is None:
                     sleep_time = 0

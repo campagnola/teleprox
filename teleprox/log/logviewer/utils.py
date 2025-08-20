@@ -1,5 +1,5 @@
-# ABOUTME: Utility functions and constants for log viewer styling and level handling
-# ABOUTME: Contains color schemes, level-to-cipher conversion, and other shared utilities
+# Utility functions and constants for log viewer styling and level handling
+# Contains color schemes, level-to-cipher conversion, and other shared utilities
 
 Stylesheet = """
     body {color: #000; font-family: sans;}
