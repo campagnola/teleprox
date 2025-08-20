@@ -594,7 +594,7 @@ class RPCClient(object):
                     error_data['type'],
                     error_data['traceback'],
                     remote_stack_info=error_data.get('remote_stack_info'),
-                    remote_exc_traceback=error_data.get('remote_exc_traceback')
+                    remote_exc_traceback=error_data.get('remote_exc_traceback'),
                 )
                 fut.set_exception(exc)
             else:
@@ -705,6 +705,7 @@ class RemoteCallException(Exception):
     is specifically designed for the log viewer, which parses these strings to create
     hierarchical views under "Remote Stack" and "Remote Exception" categories.
     """
+
     def __init__(self, type_str, tb_str, remote_stack_info=None, remote_exc_traceback=None):
         self.type_str = type_str
         self.tb_str = tb_str
@@ -717,7 +718,11 @@ class RemoteCallException(Exception):
         # Full traceback details are available through structured remote traceback sections
         if self.tb_str and len(self.tb_str) > 0:
             # Extract just the exception type and message from the last line of traceback
-            last_line = self.tb_str[-1].strip() if self.tb_str[-1].strip() else (self.tb_str[-2].strip() if len(self.tb_str) > 1 else "")
+            last_line = (
+                self.tb_str[-1].strip()
+                if self.tb_str[-1].strip()
+                else (self.tb_str[-2].strip() if len(self.tb_str) > 1 else "")
+            )
             if last_line and ': ' in last_line:
                 return f"Remote {last_line}"
             else:
