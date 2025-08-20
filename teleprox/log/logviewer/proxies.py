@@ -17,13 +17,19 @@ class FieldFilterProxy(qt.QSortFilterProxyModel):
         self.setFilterCaseSensitivity(qt.Qt.CaseInsensitive)
         self.filter_pattern = ""
         
-        # Set custom filter role for fields that have dedicated data roles
-        # Other fields use display text (default behavior)
-        if field_name == 'logger':
-            self.setFilterRole(ItemDataRole.LOGGER_NAME)
-        elif field_name == 'message':
-            self.setFilterRole(ItemDataRole.MESSAGE_TEXT)
-        # host, process, thread, and source use display text (Qt.DisplayRole is default)
+        # Set custom filter role for fields - all fields now use data roles, not display text
+        field_roles = {
+            'logger': ItemDataRole.LOGGER_NAME,
+            'message': ItemDataRole.MESSAGE_TEXT,
+            'host': ItemDataRole.HOST_NAME,
+            'process': ItemDataRole.PROCESS_NAME,
+            'thread': ItemDataRole.THREAD_NAME,
+            'source': ItemDataRole.SOURCE_TEXT,
+            'task': ItemDataRole.TASK_NAME,
+        }
+        
+        if field_name in field_roles:
+            self.setFilterRole(field_roles[field_name])
     
     def set_filter_pattern(self, pattern):
         """Set the filter pattern for this field."""

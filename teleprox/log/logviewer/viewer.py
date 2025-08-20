@@ -6,8 +6,7 @@ import logging
 import time
 
 from teleprox import qt
-from .utils import level_colors, thread_color, level_to_cipher
-from .widgets import FilterInputWidget, HighlightDelegate, HyperlinkTreeView
+from .widgets import FilterInputWidget, HighlightDelegate, SearchWidget
 from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .constants import ItemDataRole, LogColumns
 from .log_model import LogModel
@@ -215,9 +214,6 @@ class LogViewer(qt.QWidget):
     def __init__(self, logger='', initial_filters=('level: info',), parent=None):
         qt.QWidget.__init__(self, parent=parent)
         
-        # Unique ID counter for log entries
-        self._next_log_id = 0
-        
         # Track filter changes for expansion state preservation
         self._last_filter_strings = []
 
@@ -236,12 +232,30 @@ class LogViewer(qt.QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(self.layout)
 
-        # Add filter input widget
+        # Create top bar with search widget (left) and filter widget (right)
+        top_bar_widget = qt.QWidget()
+        top_bar_layout = qt.QHBoxLayout()
+        top_bar_layout.setContentsMargins(0, 0, 0, 0)
+        top_bar_layout.setSpacing(10)
+        top_bar_widget.setLayout(top_bar_layout)
+        
+        # Add search widget (left side)
+        self.search_widget = SearchWidget()
+        top_bar_layout.addWidget(self.search_widget)
+        
+        # Add filter input widget (right side)
         self.filter_input_widget = FilterInputWidget()
         self.filter_input_widget.filters_changed.connect(self.apply_filters)
         self.filter_input_widget.export_all_requested.connect(self._export_all_to_html)
         self.filter_input_widget.export_filtered_requested.connect(self._export_filtered_to_html)
-        self.layout.addWidget(self.filter_input_widget, 0, 0)
+        top_bar_layout.addWidget(self.filter_input_widget)
+        
+        # Make both widgets take equal space
+        top_bar_layout.setStretch(0, 1)  # Search widget
+        top_bar_layout.setStretch(1, 1)  # Filter widget
+        
+        # Add top bar to main layout
+        self.layout.addWidget(top_bar_widget, 0, 0)
 
         self.model = LogModel()
         self.model.setHorizontalHeaderLabels(LogColumns.TITLES)
@@ -256,10 +270,13 @@ class LogViewer(qt.QWidget):
             tree_model = self.proxy_model
         
         # Create custom tree view with hyperlink cursor support
-        self.tree = HyperlinkTreeView()
+        self.tree = qt.QTreeView()
         self.tree.setModel(tree_model)
         self.tree.setAlternatingRowColors(True)
         self.tree.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)  # Make non-editable
+        
+        # Connect search widget to tree view
+        self.search_widget.set_tree_view(self.tree)
         
         # Initialize expansion state manager now that tree is created
         self.expansion_manager = ExpansionStateManager(self.tree)
@@ -345,84 +362,10 @@ class LogViewer(qt.QWidget):
     
     def _process_record(self, rec):
         """Process a log record in the GUI thread."""
-        # Create a new row for the log record
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(rec.created)) + f'{rec.created % 1.0:.3f}'.lstrip('0')
-        source = f"{rec.processName}/{rec.threadName}"
-        logger_name = rec.name
-        level = f"{rec.levelno} - {rec.levelname}"
-        message = rec.getMessage()
-        
-        # Create items for each column using LogColumns order
-        row_items = [qt.QStandardItem("") for _ in range(len(LogColumns.TITLES))]
-        
-        # Populate each column according to the new layout
-        row_items[LogColumns.TIMESTAMP].setText(timestamp)
-        host_name = getattr(rec, 'hostName', '') or 'localhost'
-        row_items[LogColumns.HOST].setText(host_name)
-        row_items[LogColumns.PROCESS].setText(rec.processName)
-        row_items[LogColumns.THREAD].setText(rec.threadName)
-        row_items[LogColumns.SOURCE].setText(source)
-        row_items[LogColumns.LOGGER].setText(logger_name)
-        row_items[LogColumns.LEVEL].setText(level)
-        row_items[LogColumns.MESSAGE].setText(message)
-        row_items[LogColumns.TASK].setText(getattr(rec, 'taskName', ''))
-        
-        # Set colors based on log level
-        level_color = level_colors.get(rec.levelno, "#000000")
-        source_color = thread_color(source)
-        row_items[LogColumns.SOURCE].setForeground(qt.QColor(source_color))
-        row_items[LogColumns.LEVEL].setForeground(qt.QColor(level_color))
-        row_items[LogColumns.MESSAGE].setForeground(qt.QColor(level_color))
-        
-        # Assign unique ID to this log entry
-        log_id = self._next_log_id
-        self._next_log_id += 1
-        
-        # Store data using named constants
-        row_items[LogColumns.TIMESTAMP].setData(rec, ItemDataRole.PYTHON_DATA)  # Store complete log record
-        row_items[LogColumns.TIMESTAMP].setData(rec.created, ItemDataRole.NUMERIC_TIMESTAMP)  # Store numeric timestamp
-        row_items[LogColumns.TIMESTAMP].setData(log_id, ItemDataRole.LOG_ID)  # Store unique log ID
-        row_items[LogColumns.SOURCE].setData(rec.processName, ItemDataRole.PROCESS_NAME)  # Store process name
-        row_items[LogColumns.SOURCE].setData(rec.threadName, ItemDataRole.THREAD_NAME)  # Store thread name
-        row_items[LogColumns.LOGGER].setData(rec.name, ItemDataRole.LOGGER_NAME)  # Store logger name
-        row_items[LogColumns.LEVEL].setData(rec.levelno, ItemDataRole.LEVEL_NUMBER)  # Store numeric level
-        row_items[LogColumns.LEVEL].setData(level_to_cipher(rec.levelno), ItemDataRole.LEVEL_CIPHER)  # Store level cipher
-        row_items[LogColumns.MESSAGE].setData(rec.getMessage(), ItemDataRole.MESSAGE_TEXT)  # Store message text
-        
-        # Add items to the model
-        self.model.appendRow(row_items)
-        
-        # Check if this record has any expandable information for lazy loading
-        has_expandable_info = (
-            (hasattr(rec, 'exc_info') and rec.exc_info and rec.exc_info != (None, None, None)) or
-            (hasattr(rec, 'exc_text') and rec.exc_text) or
-            (hasattr(rec, 'stack_info') and rec.stack_info) or
-            self._has_extra_attributes(rec)
-        )
-        
-        if has_expandable_info:
-            # Add loading placeholder for lazy expansion
-            self.model.add_loading_placeholder(row_items[LogColumns.TIMESTAMP], rec)
+        self.model.append_record(rec)
         
         # Ensure sorting is maintained when adding new data
         self._ensure_chronological_sorting()
-    
-    def _has_extra_attributes(self, record):
-        """Check if record has extra attributes beyond standard LogRecord fields."""
-        if not hasattr(record, '__dict__'):
-            return False
-            
-        standard_attrs = {
-            'name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 'filename',
-            'module', 'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
-            'thread', 'threadName', 'processName', 'process', 'getMessage',
-            'exc_info', 'exc_text', 'stack_info', 'tags', 'taskName'
-        }
-        
-        for attr_name in record.__dict__.keys():
-            if attr_name not in standard_attrs and not attr_name.startswith('_'):
-                return True
-        return False
     
     def _set_child_spans(self, parent_item):
         """Set column spans for all children of a parent item to span full width."""
@@ -452,7 +395,6 @@ class LogViewer(qt.QWidget):
         # If we can't find the viewer through the model, we'll need to set spans later
         # This will be called from the LogViewer class
         pass
-    
 
     def apply_filters(self, filter_strings):
         """Apply the given filter strings to the proxy model."""
@@ -488,7 +430,7 @@ class LogViewer(qt.QWidget):
                 self.tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
                 
                 # Always ensure chronological sorting
-                self._ensure_chronological_sorting()
+                # self._ensure_chronological_sorting()
                 
                 # Restore selection if possible
                 if selected_log_id is not None:
@@ -515,10 +457,9 @@ class LogViewer(qt.QWidget):
             current_model.setSortRole(ItemDataRole.NUMERIC_TIMESTAMP)
         
         # Apply sorting
-        if hasattr(current_model, 'sort'):
-            current_model.sort(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
-        
-        # Also tell the tree view about the sorting
+        # if hasattr(current_model, 'sort'):
+            # current_model.sort(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
+
         self.tree.sortByColumn(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
     
     def _show_header_context_menu(self, position):
@@ -578,24 +519,31 @@ class LogViewer(qt.QWidget):
     
     def _on_item_expanded(self, index):
         """Handle tree item expansion to replace loading placeholders and set spans."""
-        # Get the item from the current model (could be proxy)
-        current_model = self.tree.model()
-        
         # Map index back to source model if using proxy
-        source_index = index
-        if hasattr(current_model, 'mapToSource'):
-            source_index = current_model.mapToSource(index)
+        source_index = self.map_index_to_model(index)
         
         # Get the actual item from our LogModel
         item = self.model.itemFromIndex(source_index)
-        if item and self.model.has_loading_placeholder(item):
-            # Replace placeholder with real content
-            self.model.replace_placeholder_with_content(item)
+        self.model.item_expanded(item)
         
         # Always set column spans for children when an item is expanded
         # This ensures spans are set even for items that don't have placeholders
         self.expansion_manager._set_child_spans_for_item(index)
+
+    def map_index_to_model(self, tree_index):
+        """Map an item index to the top-level source model (mapping through all layers of proxies)."""
+        return self.proxy_model.map_index_to_model(tree_index)
     
+    def map_index_from_model(self, model_index):
+        """Map an item index from the top-level source model to the current proxy model."""
+        return self.proxy_model.map_index_from_model(model_index)
+    
+    def expand_item(self, item):
+        """Expand an item in the tree view."""
+        source_index = self.model.indexFromItem(item)
+        tree_index = self.map_index_from_model(source_index)
+        self.tree.expand(tree_index)
+
     def _get_selected_item_data(self):
         """Get unique ID from currently selected item for selection preservation."""
         selection = self.tree.selectionModel().selectedIndexes()
@@ -634,7 +582,6 @@ class LogViewer(qt.QWidget):
             except:
                 continue
     
-    
     def _parse_code_line_info(self, text):
         """Parse file path and line number from traceback or stack frame text."""
         import re
@@ -662,13 +609,8 @@ class LogViewer(qt.QWidget):
         if not index.isValid():
             return
         
-        # Get the item data
-        model = self.tree.model()
-        
         # Map to source model if using proxy
-        source_index = index
-        if hasattr(model, 'mapToSource'):
-            source_index = model.mapToSource(index)
+        source_index = self.map_index_to_model(index)
         
         # Get the actual item from our LogModel
         item = self.model.itemFromIndex(source_index)
@@ -750,7 +692,7 @@ class LogViewer(qt.QWidget):
         """Expand all lazy-loaded content in the model for export."""
         def expand_recursive(parent_item):
             # If this item has a loading placeholder, replace it with content
-            if model.has_loading_placeholder(parent_item):
+            if getattr(parent_item, 'has_child_placeholder', False):
                 model.replace_placeholder_with_content(parent_item)
             
             # Recursively expand all children
@@ -776,7 +718,7 @@ class LogViewer(qt.QWidget):
                 ))
                 
                 # Add filter criteria summary if this is a filtered export
-                if filter_criteria:
+                if filter_criteria is not None:
                     if filter_criteria:
                         filter_items = '\n'.join(
                             HTML_FILTER_ITEM.format(filter_expr=html.escape(filter_expr))

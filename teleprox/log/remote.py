@@ -211,6 +211,11 @@ class LogSender(logging.Handler):
         serialized = {}
 
         for key, value in rec.items():
+            if key in serialized:
+                # specifically: rec['exc_info'] becomes serialized['exc_text'], and we don't want to overwrite that
+                # if rec['exc_text'] is also present.
+                continue
+
             if key == 'exc_info' and value is not None:
                 # Use handler's formatter to convert exc_info to exc_text
                 try:

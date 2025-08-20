@@ -149,8 +149,7 @@ class ChainedLogFilterManager:
     
     def __init__(self, source_model, parent=None):
         self.source_model = source_model
-        self.proxies = {}
-        self.chain_order = []
+        self.proxy_chain = []
         self.final_model = source_model
         
         # Available proxy types mapped to column names where possible
@@ -163,7 +162,19 @@ class ChainedLogFilterManager:
             'process': lambda: FieldFilterProxy('process', LogColumns.PROCESS),
             'thread': lambda: FieldFilterProxy('thread', LogColumns.THREAD),
         }
-    
+
+    def map_index_from_model(self, source_index):
+        """Map an index from the source model to the final proxy output."""
+        for proxy in self.proxy_chain:
+            source_index = proxy.mapFromSource(source_index)
+        return source_index
+
+    def map_index_to_model(self, index):
+        """Map an index from the final proxy output back to the source model."""
+        for proxy in reversed(self.proxy_chain):
+            index = proxy.mapToSource(index)        
+        return index
+
     def set_filters(self, filter_strings):
         """Parse filters and build/update proxy chain dynamically.
         
@@ -211,8 +222,7 @@ class ChainedLogFilterManager:
         # filter_configs is a list of (field, value) tuples in the order they should be applied
         
         # Clear existing proxies
-        self.proxies.clear()
-        self.chain_order.clear()
+        self.proxy_chain = []
         
         # If no filters, use source model directly
         if not filter_configs:
@@ -227,24 +237,21 @@ class ChainedLogFilterManager:
         
         # Create proxies in the order they first appear in filter_configs
         seen_fields = set()
-        proxy_list = []
+        self.proxy_chain = []
         for field, value in filter_configs:
             if field in field_map and field not in seen_fields:
                 seen_fields.add(field)
                 proxy = self.proxy_types[field]()
                 self._apply_filter_to_proxy(proxy, field, field_map[field])
-                
-                self.proxies[field] = proxy
-                self.chain_order.append(field)
-                proxy_list.append(proxy)
+                self.proxy_chain.append(proxy)
         
         # Chain the proxies in order: source -> proxy1 -> proxy2 -> ... -> final
-        if not proxy_list:
+        if not self.proxy_chain:
             self.final_model = self.source_model
             return
             
         current_model = self.source_model
-        for proxy in proxy_list:
+        for proxy in self.proxy_chain:
             proxy.setSourceModel(current_model)
             current_model = proxy
         
