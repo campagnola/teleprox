@@ -1,6 +1,7 @@
 import traceback
 from teleprox import qt
-from .constants import ItemDataRole, LogColumns
+from .constants import ItemDataRole, LogColumns, attrs_not_shown_as_children, ignorable_child_attrs
+from .utils import level_colors, thread_color, level_to_cipher
 
 
 class LogModel(qt.QStandardItemModel):
@@ -8,26 +9,108 @@ class LogModel(qt.QStandardItemModel):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        # Unique ID counter for log entries
+        self._next_log_id = 0
     
+    def append_record(self, rec):
+        """Append a row of log data, handling lazy loading placeholders for expandable records."""
+        # Create items for each column using LogColumns order
+        row_items = []
+        for col_id in range(len(LogColumns.TITLES)):
+            row_items.append(qt.QStandardItem(self._get_column_text(rec, col_id)))
+        
+        # Set colors based on log level
+        level_color = level_colors.get(rec.levelno, "#000000")
+        row_items[LogColumns.LEVEL].setForeground(qt.QColor(level_color))
+        row_items[LogColumns.MESSAGE].setForeground(qt.QColor(level_color))
+        # Set process/thread colors
+        source_color = thread_color(self._get_column_text(rec, LogColumns.SOURCE))
+        row_items[LogColumns.SOURCE].setForeground(qt.QColor(source_color))
+        
+        # Assign unique ID to this log entry
+        log_id = self._next_log_id
+        self._next_log_id += 1
+        
+        # Set all filtering data using centralized method
+        self._set_filter_data_on_items(row_items, rec)
+        
+        # Set data unique to main row items
+        row_items[0].log_record = rec
+        row_items[0].setData(log_id, ItemDataRole.LOG_ID)  # Store unique log ID
+        
+        # Add items to the model
+        self.appendRow(row_items)
+
+        # Check if this record has any expandable information for lazy loading
+        child_attrs = [k for k in rec.__dict__ if (
+            k not in attrs_not_shown_as_children and 
+            not k.startswith('_') and
+            (k not in ignorable_child_attrs or getattr(rec, k) is not None))
+        ]
+        row_items[0].child_attrs = child_attrs  # Store child attributes for later expansion
+
+        if len(child_attrs) > 0:
+            # Add loading placeholder for lazy expansion
+            placeholder = qt.QStandardItem("Loading...")
+            self._set_filter_data_on_item(placeholder, rec)
+            row_items[0].appendRow([placeholder])
+            row_items[0].has_child_placeholder = True
+        else:
+            row_items[0].has_child_placeholder = False
+    
+    def item_expanded(self, item):
+        """An item was expanded in a tree view - check if it has a placeholder."""
+        if getattr(item, 'has_child_placeholder', False):
+            self.replace_placeholder_with_content(item)
+
+    def replace_placeholder_with_content(self, parent_item):
+        """Replace loading placeholder with actual record attribute details."""
+        if not parent_item.has_child_placeholder:
+            return
+        
+        # Get the stored log record
+        log_record = parent_item.log_record
+        if log_record is None:
+            return
+        
+        # Remove the placeholder child
+        parent_item.removeRow(0)
+        parent_item.has_child_placeholder = False
+        
+        # Create and add real record attribute children
+        children = self._create_record_attribute_children(log_record)
+        for child_row in children:
+            parent_item.appendRow(child_row)
+
     def _get_column_count(self):
         """Get the number of columns based on LogColumns TITLES."""
         return len(LogColumns.TITLES)
     
     def _create_record_attribute_children(self, record):
-        """Create child items for all log record attributes (exc_info, stack_info, extra, etc.)."""
+        """Create child items for all log record attributes, routing each to appropriate handler."""
         children = []
-        
-        # Handle exception information
-        exc_children = self._create_exception_children(record)
-        children.extend(exc_children)
-        
-        # Handle stack information
-        stack_children = self._create_stack_children(record)
-        children.extend(stack_children)
-        
-        # Handle extra attributes
-        extra_children = self._create_extra_attribute_children(record)
-        children.extend(extra_children)
+      
+        for attr_name, attr_value in record.__dict__.items():
+            # Skip standard attributes and private attributes
+            if attr_name.startswith('_') or attr_name in attrs_not_shown_as_children: 
+                continue
+            
+            # Route to appropriate handler based on attribute name and/or value
+            if attr_name == 'exc_info' or attr_name.endswith('_exc_info'):
+                # Handle exception attributes
+                attr_children = self._create_exc_info_children(record, attr_name, attr_value)
+            elif attr_name == 'exc_text' or attr_name.endswith('_exc_text'):
+                # Handle pre-formatted exception attributes
+                attr_children = self._create_exc_text_children(record, attr_name, attr_value)
+            elif (attr_name == 'stack_info' or attr_name.endswith('_stack_info') or attr_name.endswith('_stack') or 
+                  attr_name.endswith('_traceback')):
+                # Handle stack/traceback attributes (including remote_stack_info, remote_exc_traceback)
+                attr_children = self._create_stack_children(record, attr_name, attr_value)
+            else:
+                # Handle other extra attributes
+                attr_children = [self._create_single_extra_attribute_child(attr_name, attr_value, record)]
+            children.extend(attr_children)
         
         return children
 
@@ -37,23 +120,7 @@ class LogModel(qt.QStandardItemModel):
         Note: Column 0 (Timestamp) is handled by the category item itself.
         """
         sibling_items = [qt.QStandardItem("") for _ in range(self._get_column_count() - 1)]
-        for sibling_item in sibling_items:
-            sibling_item.setData(record.created, ItemDataRole.NUMERIC_TIMESTAMP)
-            sibling_item.setData(record.processName, ItemDataRole.PROCESS_NAME)
-            sibling_item.setData(record.threadName, ItemDataRole.THREAD_NAME)
-            sibling_item.setData(record.name, ItemDataRole.LOGGER_NAME)
-            sibling_item.setData(record.levelno, ItemDataRole.LEVEL_NUMBER)
-            sibling_item.setData(self._get_level_cipher(record.levelno), ItemDataRole.LEVEL_CIPHER)
-            sibling_item.setData(record.getMessage(), ItemDataRole.MESSAGE_TEXT)
-        
-        # Set display text for new columns so FieldFilterProxy filtering works
-        # Note: sibling_items[0] corresponds to LogColumns.HOST (column 1)
-        #       sibling_items[1] corresponds to LogColumns.PROCESS (column 2)
-        #       sibling_items[2] corresponds to LogColumns.THREAD (column 3)
-        host_name = getattr(record, 'hostName', '') or 'localhost'
-        sibling_items[LogColumns.HOST - 1].setText(host_name)  # -1 because no timestamp column
-        sibling_items[LogColumns.PROCESS - 1].setText(record.processName)
-        sibling_items[LogColumns.THREAD - 1].setText(record.threadName)
+        self._set_filter_data_on_items(sibling_items, record)
         
         return sibling_items
 
@@ -65,95 +132,94 @@ class LogModel(qt.QStandardItemModel):
         item.setData(record.name, ItemDataRole.LOGGER_NAME)
         item.setData(record.levelno, ItemDataRole.LEVEL_NUMBER)
         item.setData(self._get_level_cipher(record.levelno), ItemDataRole.LEVEL_CIPHER)
-        item.setData(record.getMessage(), ItemDataRole.MESSAGE_TEXT)
+        item.setData(self._get_column_text(record, LogColumns.MESSAGE), ItemDataRole.MESSAGE_TEXT)
+        item.setData(self._get_column_text(record, LogColumns.HOST), ItemDataRole.HOST_NAME)
+        item.setData(self._get_column_text(record, LogColumns.SOURCE), ItemDataRole.SOURCE_TEXT)
+        item.setData(self._get_column_text(record, LogColumns.TASK), ItemDataRole.TASK_NAME)
 
-    def _set_filter_data_on_row_items(self, items, record):
-        """Set inherited filter data on a list of row items for Qt-native filtering."""
+    def _set_filter_data_on_items(self, items, record):
+        """Set inherited filter data on a list of items for Qt-native filtering."""
         for item in items:
             self._set_filter_data_on_item(item, record)
 
-    def _create_exception_children(self, record):
-        """Create child items for exception information (exc_info, exc_text)."""
+    def _create_exc_info_children(self, record, attr_name, attr_value):
+        """Create child items for exception information from a specific attribute."""
         children = []
         
-        # Handle exc_info under "Exception: {exc}" category
-        if hasattr(record, 'exc_info') and record.exc_info:
-            exc_type, exc_value, exc_tb = record.exc_info
-            if exc_type and exc_value:
-                # Create exception category item
-                exc_category_name = f"Exception: {exc_value}"
-                exc_category_item = self._create_category_item(exc_category_name, 'exception_category', record)
-                
-                # Add exception details as children of the category
-                exception_children = self._create_exception_details(record)
-                for child_row in exception_children:
-                    exc_category_item.appendRow(child_row)
-                
-                # Create properly initialized sibling items for the exception category row
-                sibling_items = self._create_sibling_items_with_filter_data(record)
-                children.append([exc_category_item] + sibling_items)
+        # Skip if exc_info is None or empty
+        if not attr_value:
+            return children
         
-        # Handle exc_text under exception category if no exc_info
-        elif hasattr(record, 'exc_text') and record.exc_text:
-            exc_category_item = self._create_category_item("Exception Text", 'exception_category', record)
-            
-            lines = record.exc_text.split('\n')
-            for i, line in enumerate(lines):
-                if line.strip():
-                    line_row = self._create_child_row("", line.strip(), {
-                        'type': 'exception_text',
-                        'text': line.strip(),
-                        'line_number': i + 1,
-                        'parent_record': record
-                    }, record)
-                    exc_category_item.appendRow(line_row)
-            
-            # Create properly initialized sibling items for the exception text category row
-            sibling_items = self._create_sibling_items_with_filter_data(record)
-            children.append([exc_category_item] + sibling_items)
+        # Handle exc_info type 
+        exc_type, exc_value, exc_tb = attr_value
+        category_name = f"Exception ({attr_name}): {exc_value}"
+        exc_category_item = self._create_category_item(category_name, record)
+        
+        # Add exception details as children of the category
+        exception_children = self._create_exception_details(attr_value, record)
+        for child_row in exception_children:
+            exc_category_item.appendRow(child_row)
+        
+        # Check if this is a RemoteCallException - add remote children as siblings
+        if exc_value:
+            remote_children = self._create_remote_exception_children(exc_value, record)
+            children.extend(remote_children)
+        
+        sibling_items = self._create_sibling_items_with_filter_data(record)
+        children.append([exc_category_item] + sibling_items)
+
+        return children
+        
+    def _create_exc_text_children(self, record, attr_name, attr_value):
+        """Create child items for pre-formatted exception information from a specific attribute."""
+        children = []
+        
+        # Skip if exc_text is None or empty
+        if not attr_value:
+            return children
+        
+        # Handle exc_text type
+        category_name = f"Exception Text ({attr_name})"
+        exc_category_item = self._create_category_item(category_name, record)
+        
+        lines = attr_value.split('\n')
+        for i, line in enumerate(lines):
+            if line.strip():
+                line_row = self._create_child_row("", line.strip(), {
+                    'type': 'exception_text',
+                    'text': line.strip(),
+                    'line_number': i + 1,
+                    'parent_record': record
+                }, record)
+                exc_category_item.appendRow(line_row)
+        
+        sibling_items = self._create_sibling_items_with_filter_data(record)
+        children.append([exc_category_item] + sibling_items)
         
         return children
 
-    def _create_stack_children(self, record):
-        """Create child items for stack information."""
+    def _create_stack_children(self, record, attr_name, attr_value):
+        """Create child items for stack information from a specific attribute."""
         children = []
         
-        # Handle stack_info under "Log Message Stack" category
-        if hasattr(record, 'stack_info') and record.stack_info:
-            stack_category_item = self._create_category_item("Log Message Stack", 'stack_category', record)
-            
-            # Parse stack info into frames
-            stack_frames = self._parse_stack_info(record.stack_info)
-            for frame_text in stack_frames:
-                # Use centralized frame processing
-                frame_children = self._create_frame_children(frame_text, 'stack_frame', record)
-                for frame_row in frame_children:
-                    stack_category_item.appendRow(frame_row)
-            
-            # Create properly initialized sibling items for the stack category row
-            sibling_items = self._create_sibling_items_with_filter_data(record)
-            children.append([stack_category_item] + sibling_items)
+        # Skip if stack_info is None or empty
+        if not attr_value:
+            return children
         
-        return children
-
-    def _create_extra_attribute_children(self, record):
-        """Create child items for extra log record attributes."""
-        children = []
+        category_name = f"Stack ({attr_name})"
+        stack_category_item = self._create_category_item(category_name, record)
         
-        if hasattr(record, '__dict__'):
-            # Standard LogRecord attributes to exclude
-            standard_attrs = {
-                'name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 'filename',
-                'module', 'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
-                'thread', 'threadName', 'processName', 'process', 'getMessage',
-                'exc_info', 'exc_text', 'stack_info', 'tags', 'taskName'  # exclude our standard ones
-            }
-            
-            for attr_name, attr_value in record.__dict__.items():
-                if attr_name not in standard_attrs and not attr_name.startswith('_'):
-                    attr_child = self._create_single_extra_attribute_child(attr_name, attr_value, record)
-                    if attr_child:
-                        children.append(attr_child)
+        # Parse stack info into frames
+        stack_frames = self._parse_stack_info(attr_value)
+        for frame_text in stack_frames:
+            # Use centralized frame processing
+            frame_children = self._create_frame_children(frame_text, 'stack_frame', record)
+            for frame_row in frame_children:
+                stack_category_item.appendRow(frame_row)
+        
+        # Create properly initialized sibling items for the stack category row
+        sibling_items = self._create_sibling_items_with_filter_data(record)
+        children.append([stack_category_item] + sibling_items)
         
         return children
 
@@ -183,7 +249,7 @@ class LogModel(qt.QStandardItemModel):
             return attr_row
         else:
             # Complex value - create category with children
-            attr_category_item = self._create_category_item(attr_name, 'extra_attribute', record)
+            attr_category_item = self._create_category_item(attr_name, record)
             
             for child_row in attr_children:
                 attr_category_item.appendRow(child_row)
@@ -191,17 +257,10 @@ class LogModel(qt.QStandardItemModel):
             # Create properly initialized sibling items for the category row
             sibling_items = self._create_sibling_items_with_filter_data(record)
             return [attr_category_item] + sibling_items
-        
-        return None
     
-    def _create_category_item(self, name, category_type, parent_record):
+    def _create_category_item(self, text, parent_record):
         """Create a category item for grouping related log attributes."""
-        category_item = qt.QStandardItem(name)
-        category_item.setData({
-            'type': category_type,
-            'name': name,
-            'parent_record': parent_record
-        }, ItemDataRole.PYTHON_DATA)
+        category_item = qt.QStandardItem(text)
         
         # Inherit parent's filter data for Qt-native filtering
         self._set_filter_data_on_item(category_item, parent_record)
@@ -222,12 +281,12 @@ class LogModel(qt.QStandardItemModel):
         
         return category_item
     
-    def _create_exception_details(self, record):
-        """Create the detailed exception information (same as before)."""
+    def _create_exception_details(self, exc_info, record):
+        """Create the detailed exception information."""
         children = []
         
         # Handle exc_info (including chained exceptions)
-        exc_type, exc_value, exc_tb = record.exc_info
+        exc_type, exc_value, exc_tb = exc_info
         if exc_type and exc_value:
             # Process the full exception chain
             exception_chain = self._build_exception_chain(exc_type, exc_value, exc_tb)
@@ -511,120 +570,126 @@ class LogModel(qt.QStandardItemModel):
         """Create a standardized child row for exception details."""
         # For child rows, put all content in the first column since it will span
         # Create items for each column dynamically
-        row_items = [qt.QStandardItem("") for _ in range(self._get_column_count())]
-        row_items[LogColumns.TIMESTAMP].setText(message)  # Put the content in timestamp column
-        
-        # Store data in the first item (timestamp column)
-        row_items[LogColumns.TIMESTAMP].setData(data_dict, ItemDataRole.PYTHON_DATA)
+        item = qt.QStandardItem(message)
         
         # INHERIT PARENT'S FILTER DATA so Qt native filtering includes children
         # This allows children to pass the same filters as their parents
         # Set the same data on ALL items so filtering works regardless of which column is checked
-        self._set_filter_data_on_row_items(row_items, parent_record)
-        
-        # INHERIT PARENT'S DISPLAY TEXT for new columns so FieldFilterProxy filtering works
-        # FieldFilterProxy uses Qt.DisplayRole (display text), not ItemDataRole values
-        host_name = getattr(parent_record, 'hostName', '') or 'localhost'
-        row_items[LogColumns.HOST].setText(host_name)
-        row_items[LogColumns.PROCESS].setText(parent_record.processName)
-        row_items[LogColumns.THREAD].setText(parent_record.threadName)
+        self._set_filter_data_on_item(item, parent_record)
         
         # Set colors to differentiate from main log entries
-        row_items[LogColumns.TIMESTAMP].setForeground(qt.QColor("#444444"))  # Dark gray for child text
+        item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
         
         # Make exception/stack items not selectable
-        for item in row_items:
-            item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
+        item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
         
         # Apply styling to the timestamp column item (where content is now)
         # Apply monospace font for code-like content
-        if data_dict.get('type') in ['traceback_frame', 'stack_frame']:
+        text = data_dict.get('text', '')
+        should_use_monospace = (
+            data_dict.get('type') in ['traceback_frame', 'stack_frame'] or
+            (text.startswith("    ") and not text.strip().startswith("File ")) or  # Code lines starting with 4+ spaces
+            "^^^^" in text  # Lines with error pointer characters
+        )
+        
+        if should_use_monospace:
             # Use monospace font for all code lines
             monospace_font = qt.QFont("Consolas, Monaco, 'Courier New', monospace")
             monospace_font.setStyleHint(qt.QFont.TypeWriter)
-            row_items[LogColumns.TIMESTAMP].setFont(monospace_font)
+            item.setFont(monospace_font)
         
         # Make exception messages bold
         if data_dict.get('type') == 'exception':
-            bold_font = row_items[LogColumns.TIMESTAMP].font()
+            bold_font = item.font()
             bold_font.setBold(True)
-            row_items[LogColumns.TIMESTAMP].setFont(bold_font)
+            item.setFont(bold_font)
         
         # Style chain separators
         if data_dict.get('type') == 'chain_separator':
-            italic_font = row_items[LogColumns.TIMESTAMP].font()
+            italic_font = item.font()
             italic_font.setItalic(True)
-            row_items[LogColumns.TIMESTAMP].setFont(italic_font)
-            row_items[LogColumns.TIMESTAMP].setForeground(qt.QColor("#888888"))  # Lighter gray for separators
+            item.setFont(italic_font)
+            item.setForeground(qt.QColor("#888888"))  # Lighter gray for separators
         
         # Style stack separators
         if data_dict.get('type') == 'stack_separator':
-            italic_font = row_items[LogColumns.TIMESTAMP].font()
+            italic_font = item.font()
             italic_font.setItalic(True)
-            row_items[LogColumns.TIMESTAMP].setFont(italic_font)
-            row_items[LogColumns.TIMESTAMP].setForeground(qt.QColor("#888888"))  # Lighter gray for separators
+            item.setFont(italic_font)
+            item.setForeground(qt.QColor("#888888"))  # Lighter gray for separators
         
-        return row_items
+        return [item]
     
     def _get_level_cipher(self, level_int):
         """Get level cipher for a given level number."""
         from .utils import level_to_cipher
         return level_to_cipher(level_int)
     
-    def add_loading_placeholder(self, parent_item, record):
-        """Add a dummy 'loading...' child to indicate expandable content."""
-        # Create loading placeholder row
-        loading_row = self._create_loading_placeholder_row()
+    def _get_column_text(self, record, col_id):
+        """Get display text for a specific column, with caching."""
+        # Check if we already have cached values for this record
+        if not hasattr(record, '_column_text_cache'):
+            record._column_text_cache = {}
         
-        # Add the placeholder as child
-        parent_item.appendRow(loading_row)
+        if col_id not in record._column_text_cache:
+            # Generate and cache the text for this column
+            import time
+            if col_id == LogColumns.TIMESTAMP:
+                record._column_text_cache[col_id] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created)) + f'{record.created % 1.0:.3f}'.lstrip('0')
+            elif col_id == LogColumns.HOST:
+                record._column_text_cache[col_id] = getattr(record, 'hostName', '') or 'localhost'
+            elif col_id == LogColumns.PROCESS:
+                record._column_text_cache[col_id] = record.processName
+            elif col_id == LogColumns.THREAD:
+                record._column_text_cache[col_id] = record.threadName
+            elif col_id == LogColumns.SOURCE:
+                record._column_text_cache[col_id] = f"{record.processName}/{record.threadName}"
+            elif col_id == LogColumns.LOGGER:
+                record._column_text_cache[col_id] = record.name
+            elif col_id == LogColumns.LEVEL:
+                record._column_text_cache[col_id] = f"{record.levelno} - {record.levelname}"
+            elif col_id == LogColumns.MESSAGE:
+                record._column_text_cache[col_id] = record.getMessage()
+            elif col_id == LogColumns.TASK:
+                record._column_text_cache[col_id] = getattr(record, 'taskName', '')
+            else:
+                record._column_text_cache[col_id] = ""
         
-        # Store the record data in the parent for later expansion
-        parent_item.setData(record, ItemDataRole.PYTHON_DATA)
-        parent_item.setData(True, ItemDataRole.HAS_CHILDREN)
+        return record._column_text_cache[col_id]
     
-    def _create_loading_placeholder_row(self):
-        """Create a dummy 'loading...' row."""
-        row_items = [qt.QStandardItem("") for _ in range(self._get_column_count())]
+    def _create_remote_exception_children(self, exc_value, record):
+        """Create children for remote exception traceback if this is a RemoteCallException."""
+        children = []
         
-        # Set specific content for loading indication
-        row_items[LogColumns.LEVEL].setText("⏳ Loading...")
-        row_items[LogColumns.MESSAGE].setText("Click to expand log details")
+        # Check if this is a RemoteCallException with remote traceback data
+        if hasattr(exc_value, 'remote_stack_info') and exc_value.remote_stack_info:
+            # Create "Remote Stack" category
+            remote_stack_category = self._create_category_item("Remote Stack", record)
+            
+            # Parse remote stack info like we do for regular stack_info
+            stack_frames = self._parse_stack_info(exc_value.remote_stack_info)
+            for frame_text in stack_frames:
+                frame_children = self._create_frame_children(frame_text, 'remote_stack_frame', record)
+                for frame_row in frame_children:
+                    remote_stack_category.appendRow(frame_row)
+            
+            # Create sibling items for the remote stack category
+            sibling_items = self._create_sibling_items_with_filter_data(record)
+            children.append([remote_stack_category] + sibling_items)
         
-        # Mark as loading placeholder
-        row_items[LogColumns.TIMESTAMP].setData(True, ItemDataRole.IS_LOADING_PLACEHOLDER)
+        if hasattr(exc_value, 'remote_exc_traceback') and exc_value.remote_exc_traceback:
+            # Create "Remote Exception" category
+            remote_exc_category = self._create_category_item("Remote Exception", record)
+            
+            # Parse remote exception traceback like we do for regular stack_info
+            exc_frames = self._parse_stack_info(exc_value.remote_exc_traceback)
+            for frame_text in exc_frames:
+                frame_children = self._create_frame_children(frame_text, 'remote_exception_frame', record)
+                for frame_row in frame_children:
+                    remote_exc_category.appendRow(frame_row)
+            
+            # Create sibling items for the remote exception category
+            sibling_items = self._create_sibling_items_with_filter_data(record)
+            children.append([remote_exc_category] + sibling_items)
         
-        # Style the placeholder
-        row_items[LogColumns.LEVEL].setForeground(qt.QColor("#888888"))
-        row_items[LogColumns.MESSAGE].setForeground(qt.QColor("#888888"))
-        row_items[LogColumns.MESSAGE].setFont(qt.QFont("Arial", 8, qt.QFont.StyleItalic))
-        
-        return row_items
-    
-    def has_loading_placeholder(self, parent_item):
-        """Check if item has a loading placeholder child."""
-        if parent_item.rowCount() == 1:
-            child = parent_item.child(0, LogColumns.TIMESTAMP)  # Check timestamp column
-            return child and child.data(ItemDataRole.IS_LOADING_PLACEHOLDER) is True
-        return False
-    
-    def replace_placeholder_with_content(self, parent_item):
-        """Replace loading placeholder with actual record attribute details."""
-        if not self.has_loading_placeholder(parent_item):
-            return
-        
-        # Get the stored log record
-        log_record = parent_item.data(ItemDataRole.PYTHON_DATA)
-        if log_record is None:
-            return
-        
-        # Remove the placeholder child
-        parent_item.removeRow(0)
-        
-        # Create and add real record attribute children
-        children = self._create_record_attribute_children(log_record)
-        for child_row in children:
-            parent_item.appendRow(child_row)
-        
-        # Mark as fetched
-        parent_item.setData(True, ItemDataRole.CHILDREN_FETCHED)
+        return children

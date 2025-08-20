@@ -6,8 +6,8 @@ import time
 import pytest
 from teleprox import start_process
 import teleprox
-from teleprox.log.remote import LogServer, start_log_server
-from teleprox.tests import test_logging
+from teleprox.log.remote import LogServer
+from teleprox.tests.util import RecordingLogHandler
 from teleprox.util import ProcessCleaner, assert_pid_dead
 
 
@@ -55,7 +55,7 @@ def test_daemon_stdio():
             # Start a log server to catch stdout and stderr from child processes    
             logger = logging.getLogger('test_daemon_stdio_logger')
             logger.level = logging.DEBUG
-            handler = test_logging.Handler()
+            handler = RecordingLogHandler()
             logger.addHandler(handler)
             log_server = LogServer(logger)
 
