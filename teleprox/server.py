@@ -300,10 +300,10 @@ class RPCServer(object):
             'type': exc[0].__name__,
             'traceback': exc_str,  # Legacy list of strings for compatibility
             'remote_stack_info': remote_stack_info,  # Stack where exception was caught
-            'remote_exc_traceback': remote_exc_traceback  # Original exception traceback
+            'remote_exc_traceback': remote_exc_traceback,  # Original exception traceback
         }
         self._send_result(caller, req_id, error=error_data)
-    
+
     def _send_result(self, caller, req_id, rval=None, error=None):
         result = {'action': 'return', 'req_id': req_id, 'rval': rval, 'error': error}
         logger.info("RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id'])
