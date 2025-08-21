@@ -367,6 +367,21 @@ class LogViewer(qt.QWidget):
         # Ensure sorting is maintained when adding new data
         self._ensure_chronological_sorting()
     
+    def set_records(self, *recs):
+        """Replace all existing records with new ones, clearing selection and expansion but preserving filters."""
+        # Clear selection before replacing data
+        self.tree.selectionModel().clear()
+        self.highlight_delegate.clear_highlight()
+        
+        # Replace all records in the model
+        self.model.set_records(*recs)
+        
+        # Ensure proper sorting after bulk update
+        self._ensure_chronological_sorting()
+        
+        # Trigger repaint to clear any highlighting
+        self.tree.viewport().update()
+    
     def _set_child_spans(self, parent_item):
         """Set column spans for all children of a parent item to span full width."""
         # Find the LogViewer instance to access the tree view

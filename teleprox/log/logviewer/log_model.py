@@ -15,6 +15,21 @@ class LogModel(qt.QStandardItemModel):
     
     def append_record(self, rec):
         """Append a row of log data, handling lazy loading placeholders for expandable records."""
+        self._create_and_add_record_row(rec)
+
+    def set_records(self, *records):
+        """Clear all existing records and set new ones, preserving ID counter."""
+        # Clear existing data
+        self.clear()
+        # Reset headers since clear() removes them
+        self.setHorizontalHeaderLabels(LogColumns.TITLES)
+        
+        # Add each new record
+        for rec in records:
+            self._create_and_add_record_row(rec)
+
+    def _create_and_add_record_row(self, rec):
+        """Create and add a single record row with lazy loading support."""
         # Create items for each column using LogColumns order
         row_items = []
         for col_id in range(len(LogColumns.TITLES)):

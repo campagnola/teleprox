@@ -153,6 +153,20 @@ class DaemonController(QtWidgets.QWidget):
         log_group = QtWidgets.QGroupBox("Log Viewer")
         log_layout = QtWidgets.QVBoxLayout()
 
+        # Log viewer controls
+        viewer_controls = QtWidgets.QHBoxLayout()
+        
+        self.clear_logs_btn = QtWidgets.QPushButton("Clear Logs")
+        self.clear_logs_btn.clicked.connect(self.clear_logs)
+        viewer_controls.addWidget(self.clear_logs_btn)
+        
+        self.load_sample_logs_btn = QtWidgets.QPushButton("Load Sample Historical Logs")
+        self.load_sample_logs_btn.clicked.connect(self.load_sample_historical_logs)
+        viewer_controls.addWidget(self.load_sample_logs_btn)
+        
+        viewer_controls.addStretch()  # Push buttons to the left
+        log_layout.addLayout(viewer_controls)
+
         self.log_viewer = LogViewer()
         log_layout.addWidget(self.log_viewer)
 
@@ -337,6 +351,107 @@ class DaemonController(QtWidgets.QWidget):
             self.log(f"Connection test successful - daemon PID: {pid}")
         except Exception as e:
             self.log(f"Connection test failed: {e}")
+    
+    def clear_logs(self):
+        """Clear all logs from the viewer using set_records()"""
+        self.log_viewer.set_records()
+        self.log("Cleared all logs from viewer")
+    
+    def load_sample_historical_logs(self):
+        """Load sample historical logs to demonstrate set_records() functionality"""
+        import datetime
+        
+        self.log("Loading sample historical logs...")
+        
+        # Create sample historical log records from a simulated "previous day"
+        base_time = time.time() - (24 * 60 * 60)  # 24 hours ago
+        historical_records = []
+        
+        # Create various types of historical log records
+        for i in range(10):
+            record_time = base_time + (i * 300)  # 5 minutes apart
+            
+            # Create different types of records
+            if i == 0:
+                # System startup record
+                rec = logging.LogRecord(
+                    name='system.startup', 
+                    level=logging.INFO, 
+                    pathname='/app/startup.py', 
+                    lineno=42,
+                    msg="System startup initiated", 
+                    args=(), 
+                    exc_info=None
+                )
+            elif i == 3:
+                # Warning with extra attributes
+                rec = logging.LogRecord(
+                    name='app.performance', 
+                    level=logging.WARNING, 
+                    pathname='/app/monitor.py', 
+                    lineno=156,
+                    msg=f"High memory usage detected: {85.3}%", 
+                    args=(), 
+                    exc_info=None
+                )
+                rec.memory_percent = 85.3
+                rec.process_count = 47
+            elif i == 7:
+                # Error with simulated exception
+                try:
+                    # Simulate an error that would have occurred
+                    raise ConnectionError("Database connection timeout after 30s")
+                except ConnectionError:
+                    exc_info = sys.exc_info()
+                
+                rec = logging.LogRecord(
+                    name='database.connection', 
+                    level=logging.ERROR, 
+                    pathname='/app/db.py', 
+                    lineno=298,
+                    msg="Failed to connect to database", 
+                    args=(), 
+                    exc_info=exc_info
+                )
+            else:
+                # Regular info messages
+                messages = [
+                    "User authentication successful",
+                    "Processing batch job #1247",
+                    "Cache cleanup completed", 
+                    "Scheduled backup started",
+                    "API endpoint /users accessed",
+                    "Configuration file reloaded",
+                    "Network health check passed"
+                ]
+                
+                rec = logging.LogRecord(
+                    name=f'app.module{i}', 
+                    level=logging.INFO, 
+                    pathname=f'/app/module{i}.py', 
+                    lineno=100 + i,
+                    msg=messages[i % len(messages)], 
+                    args=(), 
+                    exc_info=None
+                )
+            
+            # Set the timestamp to our historical time
+            rec.created = record_time
+            rec.msecs = (record_time % 1) * 1000
+            
+            # Set realistic process/thread info for historical records
+            rec.processName = f"HistoricalProcess-{(i % 3) + 1}"
+            rec.threadName = f"Thread-{(i % 2) + 1}"
+            
+            historical_records.append(rec)
+        
+        # Use set_records to replace all current logs with historical ones
+        self.log_viewer.set_records(*historical_records)
+        
+        # Log what we just did (this will appear in the viewer since it's a new record)
+        yesterday = datetime.datetime.fromtimestamp(base_time).strftime("%Y-%m-%d")
+        self.log(f"Loaded {len(historical_records)} historical log records from {yesterday}")
+        self.log("Notice how set_records() replaced all existing logs and preserved filters!")
 
     def closeEvent(self, event):
         """Handle window close event - clean up daemon process"""
