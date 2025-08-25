@@ -376,10 +376,13 @@ class LogViewer(qt.QWidget):
         """Replace all existing records with new ones, clearing selection and expansion but preserving filters."""
         # Clear selection before replacing data
         self.tree.selectionModel().clear()
+        self.model.set_records()
         self.highlight_delegate.clear_highlight()
 
         # Replace all records in the model
-        self.model.set_records(*recs)
+        for rec in recs:
+            self.model.append_record(rec)
+            qt.QApplication.processEvents()
 
         # Ensure proper sorting after bulk update
         self._ensure_chronological_sorting()
