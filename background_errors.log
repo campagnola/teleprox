@@ -1,4 +1,0 @@
-[2025-08-26 12:10:00] Starting background process: github_pr
-[2025-08-26 12:10:00] Starting background process: github_push
-[2025-08-26 12:10:00] Background: Creating or updating PR for view-old-logs-auto-black-formatting
-[2025-08-26 12:10:00] Background: Pushing formatting branch view-old-logs-auto-black-formatting
