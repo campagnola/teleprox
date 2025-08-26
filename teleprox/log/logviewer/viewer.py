@@ -666,10 +666,6 @@ class LogViewer(qt.QWidget):
         if frame_parts and frame_parts.get('has_file_ref'):
             file_path = frame_parts.get('file_path')
             line_number = frame_parts.get('line_number')
-
-            if file_path and line_number:
-                # Emit signal with file path and line number
-                self.code_line_clicked.emit(file_path, line_number)
         else:
             # Fallback to on-demand parsing for older data
             text = data.get('text', '')
@@ -678,8 +674,9 @@ class LogViewer(qt.QWidget):
             file_path = file_info.get('file_path')
             line_number = file_info.get('line_number')
 
-            if file_path and line_number:
-                self.code_line_clicked.emit(file_path, line_number)
+        if file_path and line_number:
+            # Emit signal with file path and line number
+            self.code_line_clicked.emit(file_path, line_number)
 
     def _export_all_to_html(self):
         """Export all log entries to HTML file."""
