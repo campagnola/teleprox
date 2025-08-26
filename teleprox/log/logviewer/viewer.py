@@ -380,9 +380,10 @@ class LogViewer(qt.QWidget):
         self.highlight_delegate.clear_highlight()
 
         # Replace all records in the model
-        for rec in recs:
+        for i, rec in enumerate(recs):
             self.model.append_record(rec)
-            qt.QApplication.processEvents()
+            if i % 20 == 0:
+                qt.QApplication.processEvents()
 
         # Ensure proper sorting after bulk update
         self._ensure_chronological_sorting()
