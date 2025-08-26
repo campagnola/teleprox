@@ -592,11 +592,18 @@ class LogModel(qt.QStandardItemModel):
         # Set the same data on ALL items so filtering works regardless of which column is checked
         self._set_filter_data_on_item(item, parent_record)
         
+        # Store the data dict for click handling
+        item.setData(data_dict, ItemDataRole.PYTHON_DATA)
+        
         # Set colors to differentiate from main log entries
         item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
         
-        # Make exception/stack items not selectable
-        item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
+        # Make traceback/stack frame items clickable for file navigation
+        if data_dict.get('type') in ['traceback_frame', 'stack_frame']:
+            item.setFlags(qt.Qt.ItemIsEnabled | qt.Qt.ItemIsSelectable)  # Allow clicking
+        else:
+            # Make other exception items not selectable
+            item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
         
         # Apply styling to the timestamp column item (where content is now)
         # Apply monospace font for code-like content
