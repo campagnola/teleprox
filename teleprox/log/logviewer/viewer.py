@@ -208,7 +208,17 @@ LEVEL_CSS_CLASSES = {
 
 
 class LogViewer(qt.QWidget):
-    """QWidget for displaying and filtering log messages."""
+    """QWidget for displaying and filtering log messages.
+
+    Arguments
+    ---------
+    logger : str | logging.Logger | None
+        Logger name or instance to attach to. If None, no handler is attached.
+    initial_filters : tuple of str
+        Initial filter expressions to apply. Default is ('level: info',).
+    parent : QWidget | None
+        Parent widget (see Qt documentation).
+    """
 
     # Signal emitted when user clicks on any code line (stack frame, traceback, etc.)
     code_line_clicked = qt.Signal(str, int)  # (file_path, line_number)
@@ -225,9 +235,10 @@ class LogViewer(qt.QWidget):
         # Set up handler to send log records to this widget by signal
         self.handler = QtLogHandler()
         self.handler.new_record.connect(self.new_record)
-        if isinstance(logger, str):
-            logger = logging.getLogger(logger)
-        logger.addHandler(self.handler)
+        if logger is not None:
+            if isinstance(logger, str):
+                logger = logging.getLogger(logger)
+            logger.addHandler(self.handler)
 
         # Set up thread-safe message handling - queued connection ensures GUI thread execution
         self._message_from_thread_signal.connect(self._process_record, qt.Qt.QueuedConnection)
