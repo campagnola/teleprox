@@ -48,6 +48,10 @@ def create_daemon_gui():
             self.auto_log_btn.clicked.connect(self.toggle_auto_log)
             layout.addWidget(self.auto_log_btn)
 
+            self.exception_btn = QtWidgets.QPushButton("Create Exception")
+            self.exception_btn.clicked.connect(self.create_exception)
+            layout.addWidget(self.exception_btn)
+
             self.message_count_label = QtWidgets.QLabel("Messages sent: 0")
             layout.addWidget(self.message_count_label)
 
@@ -93,6 +97,17 @@ def create_daemon_gui():
                 self.auto_timer.start(5000)  # 5 seconds
                 self.auto_log_btn.setText("Stop Auto-Logging")
                 self.auto_logging = True
+
+        def create_exception(self):
+            """Create an exception and log it"""
+            try:
+                # Create a realistic exception scenario
+                data = {"key": "value"}
+                missing_key = data["nonexistent_key"]  # This will raise KeyError
+            except KeyError as e:
+                logging.exception("Exception occurred while accessing data")
+                self.message_count += 1
+                self.message_count_label.setText(f"Messages sent: {self.message_count}")
 
         def show(self):
             super().show()
