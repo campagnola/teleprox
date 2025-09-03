@@ -170,11 +170,12 @@ class LogModel(qt.QStandardItemModel):
 
     def _create_exc_info_children(self, record, attr_name, attr_value):
         """Create child items for exception information from a specific attribute."""
-        children = []
-
         # Skip if exc_info is None or empty
         if not attr_value:
-            return children
+            return []
+        # strings get deserialized from log files as-is
+        if isinstance(attr_value, str):
+            return self._create_exc_text_children(record, attr_name, attr_value)
 
         # Handle exc_info type
         exc_type, exc_value, exc_tb = attr_value
@@ -187,6 +188,8 @@ class LogModel(qt.QStandardItemModel):
             exc_category_item.appendRow(child_row)
 
         # Check if this is a RemoteCallException - add remote children as siblings
+        children = []
+
         if exc_value:
             remote_children = self._create_remote_exception_children(exc_value, record)
             children.extend(remote_children)
