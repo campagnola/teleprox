@@ -8,7 +8,7 @@ import time
 from teleprox import qt
 from .widgets import FilterInputWidget, HighlightDelegate, SearchWidget
 from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
-from .constants import ItemDataRole, LogColumns
+from .constants import ItemDataRole, LogColumns, attrs_not_shown_as_children
 from .log_model import LogModel
 
 
@@ -291,6 +291,10 @@ class LogViewer(qt.QWidget):
         self.tree.setAlternatingRowColors(True)
         self.tree.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)  # Make non-editable
 
+        # Set up right-click context menu
+        self.tree.setContextMenuPolicy(qt.Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._show_row_context_menu)
+
         # Connect search widget to tree view
         self.search_widget.set_tree_view(self.tree)
 
@@ -520,6 +524,179 @@ class LogViewer(qt.QWidget):
     def _toggle_column_visibility(self, column, visible):
         """Toggle visibility of a column."""
         self.tree.setColumnHidden(column, not visible)
+
+    def _show_row_context_menu(self, position):
+        """Show context menu for row operations when right-clicking on a row."""
+        # Get the index at the clicked position
+        index = self.tree.indexAt(position)
+        if not index.isValid():
+            return
+
+        menu = qt.QMenu(self)
+
+        # Add copy action
+        copy_action = qt.QAction("Copy", self)
+        copy_action.setData(position)
+        copy_action.triggered.connect(self._copy_record_to_clipboard)
+        menu.addAction(copy_action)
+
+        # Show the menu at the cursor position
+        menu.popup(self.tree.mapToGlobal(position))
+
+    def _copy_record_to_clipboard(self):
+        """Copy the formatted full record for the selected row to the clipboard."""
+        position = self.sender().data()
+        index = self.tree.indexAt(position)
+        if not index.isValid():
+            return
+
+        # Get the source model item that contains the LogRecord
+        source_index = self.map_index_to_model(index)
+
+        # Always get the timestamp column (column 0) which contains the LogRecord
+        if source_index.column() != LogColumns.TIMESTAMP:
+            source_index = self.model.index(source_index.row(), LogColumns.TIMESTAMP, source_index.parent())
+
+        # If this is a child item, get the parent's LogRecord
+        if index.parent().isValid():
+            parent_source_index = self.map_index_to_model(index.parent())
+            # Ensure parent is also timestamp column
+            if parent_source_index.column() != LogColumns.TIMESTAMP:
+                parent_source_index = self.model.index(parent_source_index.row(), LogColumns.TIMESTAMP, parent_source_index.parent())
+            source_item = self.model.itemFromIndex(parent_source_index)
+            is_child_item = True
+            child_text = self.tree.model().data(index, qt.Qt.DisplayRole) or ""
+        else:
+            source_item = self.model.itemFromIndex(source_index)
+            is_child_item = False
+            child_text = ""
+
+        # Get the LogRecord object with fallback methods
+        log_record = self._get_log_record_from_item(source_item, source_index)
+        if not log_record:
+            return
+
+        # Format the record as text
+        if is_child_item:
+            formatted_text = self._format_child_item_as_text(log_record, child_text)
+        else:
+            formatted_text = self._format_log_record_as_text(log_record, source_item)
+
+        # Copy to clipboard
+        clipboard = qt.QApplication.clipboard()
+        clipboard.setText(formatted_text)
+
+    def _get_log_record_from_item(self, source_item, source_index):
+        """Get LogRecord from item using multiple fallback methods."""
+
+        # Method 1: Direct attribute access (original approach)
+        if hasattr(source_item, 'log_record') and source_item.log_record:
+            return source_item.log_record
+
+        # Method 2: Qt data API with PYTHON_DATA role
+        if source_item:
+            data = source_item.data(ItemDataRole.PYTHON_DATA)
+            if isinstance(data, logging.LogRecord):
+                return data
+
+        # Method 3: Try getting from model data directly
+        if source_index.isValid():
+            model_data = self.model.data(source_index, ItemDataRole.PYTHON_DATA)
+            if isinstance(model_data, logging.LogRecord):
+                return model_data
+
+        return None
+
+    def _format_child_item_as_text(self, log_record, child_text):
+        """Format a child item with its parent LogRecord context."""
+        lines = [
+            f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(log_record.created))}.{log_record.msecs:03.0f}",
+            f"Source: {getattr(log_record, 'processName', 'Unknown')}/{getattr(log_record, 'threadName', 'Unknown')}",
+            f"Logger: {log_record.name}", f"Level: {log_record.levelno} - {log_record.levelname}",
+            f"Message: {log_record.getMessage()}",
+        ]
+
+        # Add optional fields if they exist
+        if hasattr(log_record, 'taskName') and log_record.taskName:
+            lines.append(f"Task: {log_record.taskName}")
+        if hasattr(log_record, 'hostName') and log_record.hostName:
+            lines.append(f"Host: {log_record.hostName}")
+        if hasattr(log_record, 'processName') and log_record.processName:
+            lines.append(f"Process: {log_record.processName}")
+        if hasattr(log_record, 'threadName') and log_record.threadName:
+            lines.append(f"Thread: {log_record.threadName}")
+
+        lines.extend(("", "Child detail:", f"  {child_text}"))
+
+        return '\n'.join(lines)
+
+    def _format_log_record_as_text(self, log_record, source_item):
+        """Format a complete log record with all its children as plain text using LogRecord directly."""
+        lines = [
+            f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(log_record.created))}.{log_record.msecs:03.0f}",
+            f"Source: {getattr(log_record, 'processName', 'Unknown')}/{getattr(log_record, 'threadName', 'Unknown')}",
+            f"Logger: {log_record.name}",
+            f"Level: {log_record.levelno} - {log_record.levelname}",
+            f"Message: {log_record.getMessage()}",
+        ]
+
+        # Add optional fields if they exist
+        if hasattr(log_record, 'taskName') and log_record.taskName:
+            lines.append(f"Task: {log_record.taskName}")
+        if hasattr(log_record, 'hostName') and log_record.hostName:
+            lines.append(f"Host: {log_record.hostName}")
+        if hasattr(log_record, 'processName') and log_record.processName:
+            lines.append(f"Process: {log_record.processName}")
+        if hasattr(log_record, 'threadName') and log_record.threadName:
+            lines.append(f"Thread: {log_record.threadName}")
+
+        # Add children if they exist - use model's existing logic
+        if self._has_expandable_children(log_record, source_item):
+            lines.extend(("", "Details:"))
+
+            # Ensure all lazy content is expanded
+            if getattr(source_item, 'has_child_placeholder', False):
+                self.model.replace_placeholder_with_content(source_item)
+
+            # Use model's existing method to get children
+            children = self.model._create_record_attribute_children(log_record)
+            lines.extend(self._format_record_children_as_text(children, indent_level=1))
+
+        return '\n'.join(lines)
+
+    def _has_expandable_children(self, log_record, source_item):
+        """Check if the log record has expandable children."""
+        # Use same logic as model for consistency
+        return (
+            getattr(source_item, 'has_child_placeholder', False)
+            or any(
+                True
+                for k in log_record.__dict__
+                if (k not in attrs_not_shown_as_children and not k.startswith('_'))
+            )
+        )
+
+    def _format_record_children_as_text(self, children, indent_level=1):
+        """Format record children items as text recursively."""
+        indent = "  " * indent_level
+        lines = []
+
+        for child_row in children:
+            if child_row and len(child_row) > 0:
+                child_item = child_row[0]  # First column contains the text
+                child_text = child_item.text()
+                lines.append(f"{indent}{child_text}")
+
+                # Handle nested children if any exist
+                if child_item.rowCount() > 0:
+                    nested_children = []
+                    for row in range(child_item.rowCount()):
+                        nested_row = [
+                            child_item.child(row, col) for col in range(child_item.columnCount())
+                        ]
+                        nested_children.append(nested_row)
+                    lines.extend(self._format_record_children_as_text(nested_children, indent_level + 1))
+        return lines
 
     def _on_selection_changed(self, selected, deselected):
         """Handle selection changes to highlight related entries."""
