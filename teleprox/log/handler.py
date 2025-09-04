@@ -102,14 +102,16 @@ class RPCLogHandler(logging.StreamHandler):
 
         return header + ' ' + message
 
+        return f'{header} {message}'
+
     def get_thread_header(self, record):
         hid = getattr(record, 'hostName', get_host_name())
         pid = getattr(record, 'processName', get_process_name())
         tid = getattr(record, 'threadName', get_thread_name(record.thread))
         key = (hid, pid, tid)
-        header = self.thread_headers.get(key, None)
+        header = self.thread_headers.get(key)
         if header is None:
-            header = '[%s:%s:%s]' % (hid, pid, tid)
+            header = f'[{hid}:{pid}:{tid}]'
             if HAVE_COLORAMA:
                 color = _thread_color_list[len(self.thread_headers) % len(_thread_color_list)]
                 header = color + header + colorama.Style.RESET_ALL

@@ -7,7 +7,7 @@ qt_available = True
 qt_reason = ""
 
 p = teleprox.start_process('check_qt_process')
-try:    
+try:
     qt = p.client._import('teleprox.qt')
     try:
         app = qt.QApplication([], _timeout=1)
@@ -20,10 +20,10 @@ try:
 except ImportError as exc:
     qt_available = False
     qt_reason = str(exc)
-
 finally:
+    p.stop()
     p.client.close_server()
-    for i in range(10):
+    for _ in range(10):
         if p.poll() is not None:
             break
         time.sleep(0.1)

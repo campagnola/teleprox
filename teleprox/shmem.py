@@ -21,7 +21,7 @@ class SharedNDArray:
     data : ndarray
         A numpy array pointing to the shared memory buffer
     close : bool
-        Whether the shared memory should be closed at exit or when 
+        Whether the shared memory should be closed at exit or when
         close_all() is called.
 
     Notes
@@ -30,10 +30,10 @@ class SharedNDArray:
     (see https://github.com/python/cpython/issues/82300).
     In particular, it uses resource tracking so that shared memory
     won't be leaked on posix systems (whereas windows does this automatically),
-    but the resource tracking doesn't always work correctly. 
+    but the resource tracking doesn't always work correctly.
 
     The practical effects are:
-    - Extra warnings about leaked shared_memory objects appear at exit time 
+    - Extra warnings about leaked shared_memory objects appear at exit time
     - Closing any process that has a shared memory object may cause the shared memory
       to be unlinked, preventing other processes from accessing it.
     """
@@ -52,9 +52,9 @@ class SharedNDArray:
         data = np.ndarray(shape, dtype=dtype, buffer=shmem.buf)
         data.fill(0)
         return cls(shmem, data, close)
-    
+
     @classmethod
-    def copy(cls, arr, close=True):
+    def copy(cls, arr: np.ndarray, close=True):
         """Create a SharedNDArray containing a copy of the given array."""
         shmem = mp_shm.SharedMemory(create=True, size=arr.nbytes)
         data = np.ndarray(arr.shape, dtype=arr.dtype, buffer=shmem.buf)

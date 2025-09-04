@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
-
+import os
 import sys
 import traceback
 import threading
@@ -37,7 +37,7 @@ class RPCServer(object):
     * **Qt event loop**: use :class:`QtRPCServer`. In this mode, messages are polled in 
       a separate thread, but then sent to the Qt event loop by signal and
       processed there. The server is registered as running in the Qt thread.
-    
+
     Parameters
     ----------
     address : URL
@@ -161,7 +161,7 @@ class RPCServer(object):
         # Id of thread that this server is registered to
         self._thread = None
         self._run_thread = None
-        
+
         # Objects that may be retrieved by name using client['obj_name']
         self._namespace = {'self': self}
         
@@ -361,7 +361,7 @@ class RPCServer(object):
             obj = opts['obj']
             fnargs = opts.get('args', ())
             fnkwds = opts.get('kwargs', {})
-            
+
             if len(fnkwds) == 0:  ## need to do this because some functions do not allow keyword arguments.
                 try:
                     result = obj(*fnargs)
@@ -389,7 +389,7 @@ class RPCServer(object):
             name = opts['module']
             fromlist = opts.get('fromlist', [])
             mod = builtins.__import__(name, fromlist=fromlist)
-            
+
             if len(fromlist) == 0:
                 parts = name.lstrip('.').split('.')
                 result = mod
@@ -400,31 +400,36 @@ class RPCServer(object):
         elif action == 'ping':
             result = 'pong'
         elif action == 'close':
-            self._closed = True
-            # Send a disconnect message to all known clients
-            data = {}
-            for client, ser_type in self._clients.items():
-                if client == caller:
-                    # We will send an actual return value to confirm closure
-                    # to the caller.
-                    continue
-                
-                # Select or generate the disconnect message that was serialized
-                # correctly for this client.
-                if ser_type not in data:
-                    ser = self._serializers[ser_type]
-                    data[ser_type] = ser.dumps({'action': 'disconnect'}, server=None, serialize_types=None)
-                data_str = data[ser_type]
-                
-                # Send disconnect message.
-                logger.debug("RPC server sending disconnect message to %r", client)
-                self._socket.send_multipart([client, data_str])
-            RPCServer.unregister_server(self)
-            result = True
+            result = self._perform_close_action(caller)
         else:
-            raise ValueError("Invalid RPC action '%s'" % action)
-        
+            raise ValueError(f"Invalid RPC action '{action}'")
+
         return result
+
+    def _perform_close_action(self, caller):
+        logger.warning(f"RPC server closing {os.getpid()}: {self.address.decode()}")
+        self._closed = True
+        # Send a disconnect message to all known clients
+        data = {}
+        for client, ser_type in self._clients.items():
+            if client == caller:
+                # We will send an actual return value to confirm closure
+                # to the caller.
+                continue
+
+            # Select or generate the disconnect message that was serialized
+            # correctly for this client.
+            if ser_type not in data:
+                ser = self._serializers[ser_type]
+                data[ser_type] = ser.dumps({'action': 'disconnect'}, server=None, serialize_types=None)
+            data_str = data[ser_type]
+
+            # Send disconnect message.
+            logger.debug("RPC server sending disconnect message to %r", client)
+            self._socket.send_multipart([client, data_str])
+
+        RPCServer.unregister_server(self)
+        return True
 
     def _atexit(self):
         # Process is exiting; do any last-minute cleanup if necessary.
@@ -456,8 +461,7 @@ class RPCServer(object):
     def run_forever(self):
         """Read and process RPC requests until the server is asked to close.
         """
-        name = ('%s.%s.%s' % (log.get_host_name(), log.get_process_name(), 
-                              log.get_thread_name()))
+        name = f'{log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}'
 
         logger.info("RPC start server loop: %s@%s", name, self.address.decode())
         RPCServer.register_server(self)
@@ -470,7 +474,7 @@ class RPCServer(object):
         """
         self._run_thread = threading.Thread(target=self.run_forever, daemon=True)
         self._run_thread.start()
-            
+
     def run_lazy(self):
         """Register this server as being active for the current thread, but do
         not actually begin processing requests.
