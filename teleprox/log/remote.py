@@ -338,5 +338,4 @@ class LogServer(threading.Thread):
             if self.filter_by_level and rec.levelno < self.logger.getEffectiveLevel():
                 continue
             self.logger.handle(rec)
-            print("log server handled a message")
         self.socket.close()
