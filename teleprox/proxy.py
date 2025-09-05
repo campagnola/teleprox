@@ -154,8 +154,6 @@ class ObjectProxy(object):
             'type_str': self._type_str,
             'attributes': self._attributes,
             'server_is_lazy': self._server_is_lazy,
-            # TODO: opts DO need to be sent in some cases, like when sending
-            # callbacks.
             'proxy_options': self._proxy_options,
         }
 
