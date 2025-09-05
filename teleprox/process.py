@@ -293,9 +293,11 @@ class DaemonProcess:
 
     def kill(self):
         """Kill the spawned process immediately."""
-        with contextlib.suppress(OSError):
+        try:
             logger.info("Kill daemon process: %d", self.pid)
             kill_pid(self.pid)
+        except OSError:
+            logger.exception("Error killing process %d", self.pid)
 
 
 class ChildProcess:
