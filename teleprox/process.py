@@ -208,7 +208,7 @@ def start_process(
         'stderr': stderr,
         'shell': shell,
     }
-    if daemon:
+    if daemon is True:
         # daemom processes have no stdio
         if log_stdio:
             raise ValueError("Cannot use log_stdio with daemon.")
