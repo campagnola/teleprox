@@ -143,11 +143,13 @@ class RPCClient(object):
         self.address = address
 
         if local_server in ("threaded", "lazy"):
+            self._manage_local_server = True
             self.local_server = RPCServer(
                 serialize_types=serialize_types,
                 _run_thread=(local_server == "threaded"),
             )
         else:
+            self._manage_local_server = False
             self.local_server = local_server
 
         key = (threading.current_thread().ident, address)
@@ -642,6 +644,8 @@ class RPCClient(object):
         # self.send('release_all', return_type=None)
         self._socket.close()
         RPCClient.forget_client(self)
+        if self._manage_local_server:
+            self.local_server.close()
 
     def close_server(self, sync='sync', timeout=1.0, **kwds):
         """Ask the server to close.

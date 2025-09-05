@@ -292,7 +292,7 @@ class ObjectProxy(object):
             raise exc
 
     def __del__(self):
-        if self._proxy_options['auto_delete'] is True:
+        if self.__dict__.get('_proxy_options', {}).get('auto_delete', False):
             self._delete()
 
     def __getattr__(self, attr):
