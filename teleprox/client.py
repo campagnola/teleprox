@@ -714,19 +714,26 @@ class RemoteCallException(Exception):
         self.remote_exc_traceback = remote_exc_traceback
 
     def __str__(self):
-        # Return a concise message instead of the full traceback
+        # Return a concise message instead of the full traceback.
         # Full traceback details are available through structured remote traceback sections
         if self.tb_str and len(self.tb_str) > 0:
-            # Extract just the exception type and message from the last line of traceback
-            last_line = (
-                self.tb_str[-1].strip()
-                if self.tb_str[-1].strip()
-                else (self.tb_str[-2].strip() if len(self.tb_str) > 1 else "")
-            )
+            def find_last_note_index(lines):
+                for i in reversed(range(len(lines))):
+                    if lines[i].startswith("This exception was caused by a remote call to"):
+                        return i
+                return None
+            # ignore notes
+            note_start = find_last_note_index(self.tb_str)
+            last_line = None
+            if note_start is not None:
+                last_line = self.tb_str[note_start - 1].strip()
+            elif self.tb_str[-1].strip():
+                # Extract just the exception type and message from the last line of traceback
+                last_line = self.tb_str[-1].strip()
+            elif len(self.tb_str) > 1:
+                last_line = self.tb_str[-2].strip()
             if last_line and ': ' in last_line:
                 return f"Remote {last_line}"
-            else:
-                return f"Remote {self.type_str}"
         return f"Remote {self.type_str}"
 
 
@@ -766,6 +773,7 @@ class Future(concurrent.futures.Future):
             return super().result()
         except Exception as e:
             e.add_note(
+                # WARNING: this string is used to parse out notes above
                 f"This exception was caused by a remote call to {self.client.address.decode()} with ID"
                 f" {self.call_id}. The call was made from the following stack:\n"
                 f"{''.join(traceback.format_list(self.invocation_stack))}\n==============\n"

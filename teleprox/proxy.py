@@ -94,9 +94,8 @@ class ObjectProxy(object):
         ## can't set attributes directly because setattr is overridden.
 
         self._init_state(
-            rpc_addr, obj_id, ref_id, local_server, type_str, attributes, server_is_lazy
+            rpc_addr, obj_id, ref_id, local_server, type_str, attributes, server_is_lazy, proxy_options=kwds
         )
-        self._set_proxy_options(**kwds)
 
     def _init_state(
         self,
@@ -107,9 +106,22 @@ class ObjectProxy(object):
         type_str,
         attributes,
         server_is_lazy,
+        proxy_options=None,
     ):
         if isinstance(rpc_addr, str):
             rpc_addr = rpc_addr.encode()
+        defaults = {
+            'sync': 'sync',  # 'sync', 'async', 'off'
+            'timeout': 10,  # float
+            'return_type': 'auto',  # 'proxy', 'value', 'auto'
+            'defer_getattr': True,  # True, False
+            'auto_delete': False,
+            'safe_print': True,
+        }
+        if proxy_options is not None:
+            defaults.update(proxy_options)
+        proxy_options = defaults
+
         self.__dict__.update(
             dict(
                 _rpc_addr=rpc_addr,
@@ -122,25 +134,7 @@ class ObjectProxy(object):
                 _client_=None,
                 _local_server=local_server,
                 _server_is_lazy=server_is_lazy,
-                _proxy_options={
-                    'sync': 'sync',  ## 'sync', 'async', 'off'
-                    'timeout': 10,  ## float
-                    'return_type': 'auto',  ## 'proxy', 'value', 'auto'
-                    # 'auto_proxy_args': False, ## bool
-                    'defer_getattr': True,  ## True, False
-                    'no_proxy_types': [
-                        type(None),
-                        str,
-                        int,
-                        float,
-                        tuple,
-                        list,
-                        dict,
-                        ObjectProxy,
-                    ],
-                    'auto_delete': False,
-                    'safe_print': True,
-                },
+                _proxy_options=proxy_options,
             )
         )
 
@@ -160,10 +154,10 @@ class ObjectProxy(object):
             'type_str': self._type_str,
             'attributes': self._attributes,
             'server_is_lazy': self._server_is_lazy,
+            # TODO: opts DO need to be sent in some cases, like when sending
+            # callbacks.
+            'proxy_options': self._proxy_options,
         }
-        # TODO: opts DO need to be sent in some cases, like when sending
-        # callbacks.
-        # state.update(self._proxy_options)
 
     def _client(self):
         if self._client_ is None:
@@ -200,15 +194,14 @@ class ObjectProxy(object):
             If 'value', then attempt to pickle the returned object and
             send it back.
             If 'auto', then the decision is made by consulting the
-            'no_proxy_types' option.
+            server's 'serialize_types' option.
             This option can be overridden by supplying a ``_return_type`` keyword
             argument when calling the method (see :func:`__call__`).
         auto_proxy : bool or None
             If True, arguments to __call__ are
-            automatically converted to proxy unless their type is
-            listed in no_proxy_types (see below). If False, arguments
-            are left untouched. Use proxy(obj) to manually convert
-            arguments before sending.
+            automatically converted to proxy (as 'auto' above). If False, arguments
+            are left untouched. Use proxy(obj) to manually convert arguments before
+            sending.
         timeout : float or None
             Length of time to wait during synchronous
             requests before returning a Request object instead.
@@ -225,9 +218,6 @@ class ObjectProxy(object):
             object. In this case, AttributeError will not be raised
             until an attempt is made to look up the attribute on the
             remote process.
-        no_proxy_types : list
-            List of object types that should *not* be proxied when
-            sent to the remote process.
         auto_delete : bool
             If True, then the proxy will automatically call
             `self._delete()` when it is collected by Python.
@@ -302,7 +292,7 @@ class ObjectProxy(object):
             raise exc
 
     def __del__(self):
-        if self.__dict__.get('_proxy_options', {}).get('auto_delete'):
+        if self._proxy_options['auto_delete'] is True:
             self._delete()
 
     def __getattr__(self, attr):

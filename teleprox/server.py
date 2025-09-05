@@ -257,6 +257,7 @@ class RPCServer(object):
             result = self.process_action(action, opts, return_type, caller)
             exc = None
         except Exception:
+            logger.exception("    => Exception while processing request %d", req_id)
             exc = sys.exc_info()
 
         # Send result or error back to client
@@ -270,7 +271,7 @@ class RPCServer(object):
                 try:
                     self._send_result(caller, req_id, rval=result)
                 except Exception:
-                    logger.warning("    => Failed to send result for %d", req_id)
+                    logger.exception("    => Failed to send result for %d", req_id)
                     exc = sys.exc_info()
                     self._send_error(caller, req_id, exc)
             else:
