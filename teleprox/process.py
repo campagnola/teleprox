@@ -296,8 +296,11 @@ class DaemonProcess:
         try:
             logger.info("Kill daemon process: %d", self.pid)
             kill_pid(self.pid)
+        except ProcessLookupError:
+            # process already gone
+            pass
         except OSError:
-            logger.exception("Error killing process %d", self.pid)
+            logger.info("Error killing process %d", self.pid, exc_info=True)
 
 
 class ChildProcess:
