@@ -73,18 +73,13 @@ class Serializer:
     type = None
 
     def __init__(self, server=None):
-        self.server = server
+        self._server = server
         self._serialize_types = default_serialize_types
         self._proxy_opts = None
 
-    @property
-    def server(self):
-        return self._server
-
-    @server.setter
-    def server(self, server):
-        """Set the server to use for this serializer."""
-        self._server = server
+    def disable_proxying(self):
+        """Disable proxying of unknown object types."""
+        self._server = None
 
     def dumps(self, obj, serialize_types):
         """Convert obj to serialized string.
@@ -107,9 +102,9 @@ class Serializer:
         """
         if not isinstance(obj, self._serialize_types):
             # If this object type is not in server.no_proxy_types, then send by proxy.
-            if self.server is None:
+            if self._server is None:
                 raise TypeError(f"Cannot make proxy to {obj!r} without proxy server.")
-            obj = self.server.get_proxy(obj)
+            obj = self._server.get_proxy(obj)
 
         if HAVE_NUMPY and isinstance(obj, np.ndarray):
             if not obj.flags['C_CONTIGUOUS']:
@@ -191,11 +186,11 @@ class Serializer:
             elif type_name == 'proxy':
                 if 'attributes' in dct:
                     dct['attributes'] = tuple(dct['attributes'])
-                proxy = ObjectProxy(**dct, local_server=self.server)
+                proxy = ObjectProxy(**dct, local_server=self._server)
                 if self._proxy_opts is not None:
                     proxy._set_proxy_options(**self._proxy_opts)
-                if self.server is not None and proxy._rpc_addr == self.server.address:
-                    return self.server.unwrap_proxy(proxy)
+                if self._server is not None and proxy._rpc_addr == self._server.address:
+                    return self._server.unwrap_proxy(proxy)
                 else:
                     return proxy
         return dct

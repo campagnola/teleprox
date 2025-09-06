@@ -54,6 +54,10 @@ class RPCServer(object):
     * RPCServer is not a thread-safe class. Possibly use a :class:`RPCClient` to
         communicate with RPCServer from other threads.
 
+    * Bad things will happen if you try to process requests from multiple threads at the same time.
+        Other than `run_forever`, RPCClients will implicitly process requests if they are given a
+        local_server without a running thread.
+
     Examples
     --------
 
@@ -386,7 +390,7 @@ class RPCServer(object):
                 # correctly for this client.
                 if ser_type not in data:
                     ser = self._serializers[ser_type]
-                    ser.server = None  # no more server
+                    ser.disable_proxying()
                     data[ser_type] = ser.dumps({'action': 'disconnect'}, serialize_types=None)
                 data_str = data[ser_type]
 

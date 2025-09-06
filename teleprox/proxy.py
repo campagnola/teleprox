@@ -158,13 +158,10 @@ class ObjectProxy(object):
         }
 
     def _client(self):
-        if self._client_ is None:
-            from .client import RPCClient
-
-            self.__dict__['_client_'] = RPCClient.get_client(
-                self._rpc_addr, local_server=self._local_server
-            )
-        return self._client_
+        from .client import RPCClient
+        return RPCClient.get_client(
+            self._rpc_addr, local_server=self._local_server
+        )
 
     def _set_proxy_options(self, **kwds):
         """
@@ -237,10 +234,11 @@ class ObjectProxy(object):
 
         If the object is not serializable, then raise an exception.
         """
-        if self._client() is None:
+        client = self._client()
+        if client is None:
             return self._local_server.unwrap_proxy(self)
         try:
-            return self._client().get_obj(self, return_type='value')
+            return client.get_obj(self, return_type='value')
         except TimeoutError as exc:
             if self._server_is_lazy:
                 exc.add_note(
