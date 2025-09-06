@@ -244,8 +244,7 @@ class ObjectProxy(object):
         except TimeoutError as exc:
             if self._server_is_lazy:
                 exc.add_note(
-                    "This proxy object is being accessed synchronously when the server it references "
-                    "prohibits such access."
+                    "This proxy object's server is lazy and therefore may not be currently listening."
                 )
             raise exc
 
@@ -267,8 +266,7 @@ class ObjectProxy(object):
         except TimeoutError as exc:
             if self._server_is_lazy:
                 exc.add_note(
-                    "This proxy object is being accessed synchronously when the server it references "
-                    "prohibits such access."
+                    "This proxy object's server is lazy and therefore may not be currently listening."
                 )
             raise exc
 
@@ -284,8 +282,7 @@ class ObjectProxy(object):
         except TimeoutError as exc:
             if self._server_is_lazy:
                 exc.add_note(
-                    "This proxy object is being deleted synchronously when the server it references "
-                    "prohibits such access."
+                    "This proxy object's server is lazy and therefore may not be currently listening."
                 )
             raise exc
 
@@ -381,8 +378,7 @@ class ObjectProxy(object):
         except TimeoutError as exc:
             if self._server_is_lazy:
                 exc.add_note(
-                    "This proxy object is being accessed asynchronously when the server it references "
-                    "prohibits such access."
+                    "This proxy object's server is lazy and therefore may not be currently listening."
                 )
             raise exc
 
