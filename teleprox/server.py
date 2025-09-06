@@ -2,19 +2,19 @@
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
-import sys
-import traceback
-import threading
-import builtins
-import zmq
-import logging
 import atexit
+import builtins
+import logging
+import sys
+import threading
+import traceback
 
+import zmq
+
+from . import log
 from . import serializer
 from .proxy import ObjectProxy
 from .timer import Timer
-from . import log
-
 
 logger = logging.getLogger(__name__)
 
@@ -25,19 +25,6 @@ class RPCServer(object):
     RPCServer instances are automatically created when using :class:`start_process`.
     It is rarely necessary for the user to interact directly with RPCServer.
 
-    There may be at most one RPCServer per thread. RPCServers can be run in a
-    few different modes:
-
-    * **Exclusive event loop**: call `run_forever()` to cause the server to listen
-      indefinitely for incoming request messages.
-    * **Lazy event loop**: call `run_lazy()` to register the server with the current
-      thread. The server's socket will be polled whenever an RPCClient is waiting
-      for a response (this allows reentrant function calls). You can also manually
-      listen for requests with `_read_and_process_one()` in this mode.
-    * **Qt event loop**: use :class:`QtRPCServer`. In this mode, messages are polled in
-      a separate thread, but then sent to the Qt event loop by signal and
-      processed there. The server is registered as running in the Qt thread.
-
     Parameters
     ----------
     address : URL
@@ -45,17 +32,31 @@ class RPCServer(object):
 
         **Note:** binding RPCServer to a public IP address is a potential
         security hazard.
+    serialize_types : Enumerable of types | None
+        List of types that should not be wrapped in an ObjectProxy when
+        sent to a remote client. This is used to avoid wrapping objects
+        that are already proxies, or that are not safe to proxy.
+        Default is `serializer.default_serialize_types`.
+    run_thread : bool
+        If True, then the server will process messages in a separate thread. If False, then you
+        must either call `run_forever()` to block and process requests, or you must process
+        messages individually by calling `read_and_process_one()`. Default is True.
 
     Notes
     -----
 
-    **RPCServer is not a secure server.** It is intended to be used only on trusted
-    networks; anyone with tcp access to the server can execute arbitrary code
-    on the server.
+    * use :class:`QtRPCServer` to proxy into a qt-enabled process.
 
-    RPCServer is not a thread-safe class. Only use :class:`RPCClient` to communicate
-    with RPCServer from other threads.
+    * **RPCServer is not a secure server.** It is intended to be used only on trusted
+        networks; anyone with tcp access to the server can execute arbitrary code
+        on the server.
 
+    * RPCServer is not a thread-safe class. Possibly use a :class:`RPCClient` to
+        communicate with RPCServer from other threads.
+
+    * Bad things will happen if you try to process requests from multiple threads at the same time.
+        Other than `run_forever`, RPCClients will implicitly process requests if they are given a
+        local_server without a running thread.
 
     Examples
     --------
@@ -88,51 +89,8 @@ class RPCServer(object):
 
     """
 
-    servers_by_thread = {}
-    servers_by_thread_lock = threading.Lock()
-
-    @staticmethod
-    def get_server():
-        """Return the server running in this thread, or None if there is no server."""
-        with RPCServer.servers_by_thread_lock:
-            return RPCServer.servers_by_thread.get(threading.current_thread().ident, None)
-
-    @staticmethod
-    def register_server(srv):
-        """Register a server as the (only) server running in this thread.
-
-        This static method fails if another server is already registered for
-        this thread.
-        """
-        key = threading.current_thread().ident
-        if srv._thread == key:
-            return
-        assert srv._thread is None, "Server has already been registered."
-        with RPCServer.servers_by_thread_lock:
-            if key in RPCServer.servers_by_thread:
-                raise KeyError("An RPCServer is already running in this thread.")
-            RPCServer.servers_by_thread[key] = srv
-        srv._thread = key
-
-    @staticmethod
-    def unregister_server(srv):
-        """Unregister a server from this thread."""
-        key = srv._thread
-        with RPCServer.servers_by_thread_lock:
-            assert RPCServer.servers_by_thread[key] is srv
-            RPCServer.servers_by_thread.pop(key)
-
-    @staticmethod
-    def local_client():
-        """Return the RPCClient used for accessing the server running in the
-        current thread.
-        """
-        from .client import RPCClient
-
-        srv = RPCServer.get_server()
-        return RPCClient.get_client(srv.address)
-
-    def __init__(self, address="tcp://127.0.0.1:*", serialize_types=None):
+    def __init__(self, address="tcp://127.0.0.1:*", serialize_types=None, run_thread=True):
+        """Initialize the RPC server."""
         self._socket = zmq.Context.instance().socket(zmq.ROUTER)
 
         self._serialize_types = serialize_types
@@ -151,14 +109,12 @@ class RPCServer(object):
         # have one of each ready.
         self._serializers = {}
         for ser in serializer.all_serializers.values():
-            self._serializers[ser.type] = ser()
+            self._serializers[ser.type] = ser(self)
 
         # keep track of all clients we have seen so that we can inform them
         # when the server exits.
         self._clients = {}  # {socket_id: serializer_type}
 
-        # Id of thread that this server is registered to
-        self._thread = None
         self._run_thread = None
 
         # Objects that may be retrieved by name using client['obj_name']
@@ -181,9 +137,21 @@ class RPCServer(object):
 
         # Make sure we inform clients of closure
         atexit.register(self._atexit)
+        if run_thread:
+            self._run_in_thread()
+
+    @property
+    def is_lazy(self):
+        """Boolean indicating whether the server is running in "lazy" mode.
+
+        In lazy mode, the server will only process requests when
+        `read_and_process_one()` is called (such as when a client calls
+        `client_should_handle_requests()` to take over request processing).
+        """
+        return self._run_thread is None or not self._run_thread.is_alive()
 
     def __repr__(self):
-        return "<RPCServer %s>" % self.address.decode()
+        return f"<RPCServer {self.address.decode()}>"
 
     @property
     def serialize_types(self):
@@ -198,7 +166,16 @@ class RPCServer(object):
         self._next_ref_id += 1
         oid = self._get_object_id(obj)
         type_str = str(type(obj))
-        proxy = ObjectProxy(self.address, oid, rid, type_str, attributes=(), **kwds)
+        proxy = ObjectProxy(
+            self.address,
+            oid,
+            rid,
+            self,
+            type_str,
+            attributes=(),
+            server_is_lazy=self.is_lazy,
+            **kwds,
+        )
         proxy_ref = self._proxy_refs.setdefault(oid, [obj, set()])
         proxy_ref[1].add(rid)
         # logger.debug("server %s add proxy %d: %s", self.address, oid, obj)
@@ -217,11 +194,11 @@ class RPCServer(object):
         try:
             oid = proxy._obj_id
             obj = self._proxy_refs[oid][0]
-        except KeyError:
+        except KeyError as e:
             raise KeyError(
-                "Invalid proxy object ID %r. The object may have "
-                "been released already." % proxy.obj_id
-            )
+                f"Invalid proxy object ID {proxy.obj_id!r}."
+                " The object may have been released already."
+            ) from e
         for attr in proxy._attributes:
             obj = getattr(obj, attr)
         # logger.debug("server %s unwrap proxy %d: %s", self.address, oid, obj)
@@ -237,6 +214,8 @@ class RPCServer(object):
     @staticmethod
     def _read_one(socket):
         parts = socket.recv_multipart()
+        if len(parts) != 6:
+            raise ValueError(f"Invalid RPC message: expected 6 parts, got {len(parts)}: {parts}")
         name, req_id, action, return_type, ser_type, opts = parts
 
         msg = {
@@ -248,7 +227,7 @@ class RPCServer(object):
         }
         return name, msg
 
-    def _read_and_process_one(self):
+    def read_and_process_one(self):
         """Read one message from the rpc socket and invoke the requested
         action.
         """
@@ -276,9 +255,9 @@ class RPCServer(object):
         # Attempt to read message and invoke requested action
         try:
             try:
-                serializer = self._serializers[ser_type]
-            except KeyError:
-                raise ValueError("Unsupported serializer '%s'" % ser_type)
+                ser = self._serializers[ser_type]
+            except KeyError as e:
+                raise ValueError(f"Unsupported serializer '{ser_type}'") from e
             opts = msg.pop('opts', None)
 
             logger.debug("RPC recv '%s' from %s [req_id=%s]", action, caller.decode(), req_id)
@@ -286,18 +265,18 @@ class RPCServer(object):
             if opts == b'':
                 opts = None
             else:
-                opts = serializer.loads(opts, server=self, proxy_opts={})
+                opts = ser.loads(opts, proxy_opts={})
             logger.debug("    => opts: %s", opts)
 
             result = self.process_action(action, opts, return_type, caller)
             exc = None
-        except:
+        except Exception:
+            logger.exception("    => Exception while processing request %d", req_id)
             exc = sys.exc_info()
 
         # Send result or error back to client
         if req_id >= 0:
             if exc is None:
-                # print "returnValue:", returnValue, result
                 if return_type == 'auto':
                     result = self.auto_proxy(result, self.serialize_types)
                 elif return_type == 'proxy':
@@ -305,8 +284,8 @@ class RPCServer(object):
 
                 try:
                     self._send_result(caller, req_id, rval=result)
-                except:
-                    logger.warning("    => Failed to send result for %d", req_id)
+                except Exception:
+                    logger.exception("    => Failed to send result for %d", req_id)
                     exc = sys.exc_info()
                     self._send_error(caller, req_id, exc)
             else:
@@ -346,10 +325,10 @@ class RPCServer(object):
         logger.debug("    => %s", result)
 
         # Select the correct serializer for this client
-        serializer = self._serializers[self._clients[caller]]
+        ser = self._serializers[self._clients[caller]]
 
         # Serialize and return the result
-        data = serializer.dumps(result, server=self, serialize_types=self.serialize_types)
+        data = ser.dumps(result, serialize_types=self.serialize_types)
         self._socket.send_multipart([caller, data])
 
     def process_action(self, action, opts, return_type, caller):
@@ -359,12 +338,11 @@ class RPCServer(object):
             fnargs = opts.get('args', ())
             fnkwds = opts.get('kwargs', {})
 
-            if (
-                len(fnkwds) == 0
-            ):  ## need to do this because some functions do not allow keyword arguments.
+            # need to do this because some functions do not allow keyword arguments.
+            if len(fnkwds) == 0:
                 try:
                     result = obj(*fnargs)
-                except:
+                except Exception:
                     logger.warning("Failed to call object %s: %d, %s", obj, len(fnargs), fnargs[1:])
                     raise
             else:
@@ -412,39 +390,30 @@ class RPCServer(object):
                 # correctly for this client.
                 if ser_type not in data:
                     ser = self._serializers[ser_type]
-                    data[ser_type] = ser.dumps(
-                        {'action': 'disconnect'}, server=None, serialize_types=None
-                    )
+                    ser.disable_proxying()
+                    data[ser_type] = ser.dumps({'action': 'disconnect'}, serialize_types=None)
                 data_str = data[ser_type]
 
                 # Send disconnect message.
                 logger.debug("RPC server sending disconnect message to %r", client)
                 self._socket.send_multipart([client, data_str])
-            RPCServer.unregister_server(self)
             result = True
         else:
-            raise ValueError("Invalid RPC action '%s'" % action)
+            raise ValueError(f"Invalid RPC action '{action}'")
 
         return result
 
     def _atexit(self):
         # Process is exiting; do any last-minute cleanup if necessary.
-        if self._closed is not True:
+        if not self._closed:
             logger.warning("RPCServer exiting without close()!")
             self.close()
 
     def close(self):
-        """Ask the server to close.
-
-        This method is thread-safe.
+        """Ask the server to close immediately. Pending requests will be ignored, and the currently active request
+        may not send its return value.
         """
-        from .client import RPCClient
-
-        cli = RPCClient.get_client(self.address)
-        if cli is None:
-            self.process_action('close', None, None, None)
-        else:
-            cli.close_server(sync='sync')
+        self.process_action('close', None, None, None)
 
     def _final_close(self):
         # Called after the server has closed and sent its disconnect messages.
@@ -452,36 +421,32 @@ class RPCServer(object):
 
     def running(self):
         """Boolean indicating whether the server is still running."""
-        return self._closed is False
+        return not self._closed
 
     def run_forever(self):
         """Read and process RPC requests until the server is asked to close."""
-        name = '%s.%s.%s' % (log.get_host_name(), log.get_process_name(), log.get_thread_name())
-
-        logger.info("RPC start server loop: %s@%s", name, self.address.decode())
-        RPCServer.register_server(self)
+        self._run_thread = threading.current_thread()
+        logger.info(
+            f"RPC start server loop: {log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}"
+            f"@{self.address.decode()}"
+        )
         while self.running():
             name, msg = self._read_one(self._socket)
             self._process_one(name, msg)
 
-    def run_in_thread(self):
+    def _run_in_thread(self):
         """Call run_forever in a new thread."""
         self._run_thread = threading.Thread(target=self.run_forever, daemon=True)
         self._run_thread.start()
 
-    def run_lazy(self):
-        """Register this server as being active for the current thread, but do
-        not actually begin processing requests.
-
-        RPCClients in the same thread will allow the server to process requests
-        while they are waiting for responses.
-        """
-        name = '%s.%s.%s' % (log.get_host_name(), log.get_process_name(), log.get_thread_name())
-        logger.info("RPC lazy-start server: %s@%s", name, self.address.decode())
-        RPCServer.register_server(self)
+    def client_should_handle_requests(self):
+        """Return whether a client is allowed to take over the server's request handling."""
+        if self.is_lazy and self.running():
+            return True
+        return threading.current_thread().ident == self._run_thread.ident
 
     def auto_proxy(self, obj, no_proxy_types):
-        ## Return object wrapped in LocalObjectProxy _unless_ its type is in noProxyTypes.
+        # Return object wrapped in ObjectProxy _unless_ its type is in no_proxy_types.
         for typ in no_proxy_types:
             if isinstance(obj, typ):
                 return obj
@@ -492,8 +457,8 @@ class RPCServer(object):
 
         Parameters
         ----------
-        callback : callable
-            Callable object to invoke. This must either be an ObjectProxy or
+        callback : Callable
+            A Callable object to invoke. This must either be an ObjectProxy or
             an object that is safe to call from the server's thread.
         interval : float
             Minimum time to wait between callback invocations (start to start).

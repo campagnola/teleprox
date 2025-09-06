@@ -1,5 +1,5 @@
-# ABOUTME: Qt proxy model implementations for chained log filtering
-# ABOUTME: Contains FieldFilterProxy and LevelCipherFilterProxy for advanced filtering chains
+# Qt proxy model implementations for chained log filtering
+# Contains FieldFilterProxy and LevelCipherFilterProxy for advanced filtering chains
 
 from teleprox import qt
 from .utils import parse_level_value, level_threshold_to_cipher_regex
