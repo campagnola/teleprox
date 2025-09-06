@@ -1,36 +1,37 @@
 import datetime
 import base64
 import json
+import logging
 import pickle
 import multiprocessing.shared_memory
 
 from . import qt_util
+from .proxy import ObjectProxy
 from .shmem import SharedNDArray
 
 try:
     import numpy as np
+
     HAVE_NUMPY = True
 except ImportError:
     HAVE_NUMPY = False
 
 try:
     import msgpack
+
     HAVE_MSGPACK = True
 except ImportError:
     HAVE_MSGPACK = False
 
-from .proxy import ObjectProxy
-from .shmem import SharedNDArray
 
+logger = logging.getLogger(__name__)
 
 #: dict containing {name : SerializerSubclass} for all supported serializers
 all_serializers = {}  # type_str: class
 
-
 # Any type that is not supported by json/msgpack must be encoded as a dict.
 # To distinguish these from plain dicts, we include a unique key in them:
 encode_key = '___type_name___'
-
 
 # Object types to be serialized by default. This applies when passing
 # arguments to a remote procedure and when returning results. All other
@@ -39,7 +40,7 @@ encode_key = '___type_name___'
 default_serialize_types = (
     ObjectProxy, type(None), str, bytes, int, float, tuple, list, dict, bool,
     datetime.datetime, datetime.date,
-    multiprocessing.shared_memory.SharedMemory, SharedNDArray, 
+    multiprocessing.shared_memory.SharedMemory, SharedNDArray,
 )
 
 if HAVE_NUMPY:
@@ -47,8 +48,9 @@ if HAVE_NUMPY:
 
 if qt_util.HAVE_QT:
     from . import qt
+
     default_serialize_types += (
-        qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform, 
+        qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform,
         qt.QVector3D, qt.QVector4D, qt.QQuaternion,
         qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
         qt.QPointF, qt.QSizeF, qt.QRectF,
@@ -67,25 +69,24 @@ class Serializer:
     remotely (this requires that the object be known to an RPC server).
     
     """
-    def __init__(self):
-        self._server = None
+
+    type = None
+
+    def __init__(self, server=None):
+        self._server = server
         self._serialize_types = default_serialize_types
         self._proxy_opts = None
-    
-    @property
-    def server(self):
-        if self._server is None:
-            # get the current server for this thread, if one exists
-            from .server import RPCServer
-            self._server = RPCServer.get_server()
-        return self._server
-    
-    def dumps(self, obj, server, serialize_types):
+
+    def disable_proxying(self):
+        """Disable proxying of unknown object types."""
+        self._server = None
+
+    def dumps(self, obj, serialize_types):
         """Convert obj to serialized string.
         """
         raise NotImplementedError()
 
-    def loads(self, msg, server, proxy_opts):
+    def loads(self, msg, proxy_opts):
         """Convert from serialized string to python object.
         
         Proxies that reference objects owned by the server are converted back
@@ -101,14 +102,14 @@ class Serializer:
         """
         if not isinstance(obj, self._serialize_types):
             # If this object type is not in server.no_proxy_types, then send by proxy.
-            if self.server is None:
+            if self._server is None:
                 raise TypeError(f"Cannot make proxy to {obj!r} without proxy server.")
-            obj = self.server.get_proxy(obj)
+            obj = self._server.get_proxy(obj)
 
         if HAVE_NUMPY and isinstance(obj, np.ndarray):
             if not obj.flags['C_CONTIGUOUS']:
                 obj = np.ascontiguousarray(obj)
-            assert(obj.flags['C_CONTIGUOUS'])
+            assert (obj.flags['C_CONTIGUOUS'])
             return {encode_key: 'ndarray',
                     'data': obj.tobytes(),
                     'dtype': str(obj.dtype),
@@ -135,7 +136,7 @@ class Serializer:
             elif isinstance(obj, np.floating):
                 val = float(obj)
             else:
-                raise TypeError("Unhandled numpy scalar type: %s" % type(obj))
+                raise TypeError(f"Unhandled numpy scalar type: {type(obj)}")
 
             return {
                 encode_key: 'np_number',
@@ -165,9 +166,9 @@ class Serializer:
                     raise ImportError("numpy is required to deserialize ndarray.")
                 dt = dct['dtype']
                 if dt.startswith('['):
-                    #small hack to have a list
+                    # small hack to have a list
                     d = {}
-                    exec('dtype='+dt, None, d)
+                    exec(f'dtype={dt}', None, d)
                     dt = d['dtype']
                 return np.frombuffer(dct['data'], dtype=dt).reshape(dct['shape'])
             elif type_name == 'pickle':
@@ -185,11 +186,11 @@ class Serializer:
             elif type_name == 'proxy':
                 if 'attributes' in dct:
                     dct['attributes'] = tuple(dct['attributes'])
-                proxy = ObjectProxy(**dct)
+                proxy = ObjectProxy(**dct, local_server=self._server)
                 if self._proxy_opts is not None:
                     proxy._set_proxy_options(**self._proxy_opts)
-                if self.server is not None and proxy._rpc_addr == self.server.address:
-                    return self.server.unwrap_proxy(proxy)
+                if self._server is not None and proxy._rpc_addr == self._server.address:
+                    return self._server.unwrap_proxy(proxy)
                 else:
                     return proxy
         return dct
@@ -228,48 +229,46 @@ class MsgpackSerializer(Serializer):
     Note that tuples are converted to lists in transit. See:
     https://github.com/msgpack/msgpack-python/issues/98
     """
-    
+
     # used to tell server how to unserialize messages
     type = 'msgpack'
-    
-    def __init__(self):
+
+    def __init__(self, *args, **kwargs):
         assert HAVE_MSGPACK
-        Serializer.__init__(self)
-    
-    def dumps(self, obj, server, serialize_types):
+        Serializer.__init__(self, *args, **kwargs)
+
+    def dumps(self, obj, serialize_types):
         """Convert obj to msgpack string.
         """
-        self._server = server
         self._serialize_types = serialize_types or default_serialize_types
         return msgpack.dumps(obj, use_bin_type=True, default=self.encode, strict_types=True)
 
-    def loads(self, msg, server, proxy_opts):
+    def loads(self, msg, proxy_opts):
         """Convert from msgpack string to python object.
         
         Proxies that reference objects owned by the server are converted back
         into the local object. All other proxies are left as-is.
         """
-        self._server = server
         self._proxy_opts = proxy_opts
         ## use_list=False because we are more likely to care about transmitting
         ## tuples correctly (because they are used as dict keys).
-        #return msgpack.loads(msg, encoding='utf8', use_list=False, object_hook=self.decode)
+        # return msgpack.loads(msg, encoding='utf8', use_list=False, object_hook=self.decode)
 
-        #Return lists/tuples as lists because json can't be configured otherwise
+        # Return lists/tuples as lists because json can't be configured otherwise
         return msgpack.loads(msg, object_hook=self.decode)
+
 
 if HAVE_MSGPACK:
     all_serializers[MsgpackSerializer.type] = MsgpackSerializer
 
 
 class JsonSerializer(Serializer):
-    
     # used to tell server how to unserialize messages
     type = 'json'
-    
-    def __init__(self):
-        Serializer.__init__(self)
-        
+
+    def __init__(self, *args, **kwargs):
+        Serializer.__init__(self, *args, **kwargs)
+
         # We require a custom class to overrode json encode behavior.
         class EnhancedJSONEncoder(json.JSONEncoder):
             def default(self2, obj):
@@ -278,15 +277,14 @@ class JsonSerializer(Serializer):
                     return json.JSONEncoder.default(self, obj)
                 else:
                     return obj2
+
         self.EnhancedJSONEncoder = EnhancedJSONEncoder
-    
-    def dumps(self, obj, server, serialize_types):
-        self._server = server
+
+    def dumps(self, obj, serialize_types):
         self._serialize_types = serialize_types or default_serialize_types
         return json.dumps(obj, cls=self.EnhancedJSONEncoder).encode()
-    
-    def loads(self, msg, server, proxy_opts):
-        self._server = server
+
+    def loads(self, msg, proxy_opts):
         self._proxy_opts = proxy_opts
         return json.loads(msg.decode(), object_hook=self.decode)
 
@@ -295,7 +293,7 @@ class JsonSerializer(Serializer):
             # JSON doesn't support bytes, so we use base64 encoding instead:
             if not obj.flags['C_CONTIGUOUS']:
                 obj = np.ascontiguousarray(obj)
-            assert(obj.flags['C_CONTIGUOUS'])
+            assert (obj.flags['C_CONTIGUOUS'])
             return {encode_key: 'ndarray',
                     'data': base64.b64encode(obj.data).decode(),
                     'dtype': str(obj.dtype),
@@ -309,17 +307,18 @@ class JsonSerializer(Serializer):
         return Serializer.encode(self, obj)
 
     def decode(self, dct):
-        if isinstance(dct, dict):
-            type_name = dct.get(encode_key, None)
-            if type_name == 'ndarray':
-                if not HAVE_NUMPY:
-                    raise ImportError("numpy is required to deserialize ndarray.")
-                data = base64.b64decode(dct['data'])
-                return np.frombuffer(data, dct['dtype']).reshape(dct['shape'])
-            elif type_name == 'bytes':
-                return base64.b64decode(dct['data'])
-            
-            return Serializer.decode(self, dct)
-        return dct
+        if not isinstance(dct, dict):
+            return dct
+        type_name = dct.get(encode_key, None)
+        if type_name == 'ndarray':
+            if not HAVE_NUMPY:
+                raise ImportError("numpy is required to deserialize ndarray.")
+            data = base64.b64decode(dct['data'])
+            return np.frombuffer(data, dct['dtype']).reshape(dct['shape'])
+        elif type_name == 'bytes':
+            return base64.b64decode(dct['data'])
+
+        return Serializer.decode(self, dct)
+
 
 all_serializers[JsonSerializer.type] = JsonSerializer

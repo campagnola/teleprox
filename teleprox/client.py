@@ -2,22 +2,23 @@
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
-import re
-import socket
-import sys
-import time
-import weakref
 import concurrent.futures
-import threading
-from teleprox.util import check_tcp_port
-import zmq
+import contextlib
 import logging
+import re
+import sys
+import threading
+import time
+import traceback
+import weakref
 
-from .serializer import all_serializers
-from .server import RPCServer
-from .qt_server import QtRPCServer
+import zmq
+
+from teleprox.util import check_tcp_port
 from . import log
-
+from .qt_server import QtRPCServer
+from .serializer import all_serializers, Serializer
+from .server import RPCServer
 
 logger = logging.getLogger(__name__)
 
@@ -35,47 +36,65 @@ class RPCClient(object):
     ----------
     address : URL
         Address of RPC server to connect to.
-    reentrant : bool
-        If True, then this client will allow the server running in the same
-        thread (if any) to process requests whenever the client is waiting
-        for a response. This is necessary to avoid deadlocks in case of
-        reentrant RPC requests (eg, server A calls server B, which then calls
-        server A again). Default is True.
-    start_local_server : bool
-        If True, start an RPCServer in this thread (or reuse an existing server) and
-        call run_lazy() so that it can receive requests whenever this client is waiting
-        on a result. This would be needed, for example, if you send a callback function
-        to the remote server--in order to invoke your callback, there must also be a local
-        server to carry out that callback. Default is False.
+    local_server : "threaded" | "lazy" | RPCServer | None
+        None (default):
+            Do not proxy through a local RPCServer. This means that the client will not be able
+            to proxy objects to the remote server, and will only be able to send simple,
+            serializable data types (see ``serialize_types``).
+        "threaded":
+            Start a dedicated RPCServer in a thread that will proxy data send through this
+            client in an asynchronous manner. This allows the client to send callbacks and
+            persistent objects safely. It means that processing will happen in a separate thread,
+            and therefore thread-safe practices will need to be followed when using this client.
+        "lazy":
+            Start a dedicated RPCServer that is not actively processing requests, but will
+            process them when this client is used. This allows the client to proxy objects
+            intended for use during the individual remote calls, but not outside of them.
+            Violation of this contract will most likely result in timeouts. Because responses
+            from a remote server can themselves be proxied, it may seem like a reference should
+            be pointed at a local object directly, but if it lives inside such a remote proxy,
+            then it will sneakily not be the case.
+        RPCServer:
+            Use the given RPCServer instance to handle proxying data sent to the remote server.
+            This can be used to share a server between multiple clients.
     serializer : str
         Type of serializer to use when communicating with the remote server.
         Default is 'msgpack'.
     serialize_types : tuple | None
-        A typle of types that may be serialized when sending request arguments to the remote server.
+        A tuple of types that may be serialized when sending request arguments to the remote server.
         If a local server is running, then types not in this list will be sent by proxy.
         Otherwise, a TypeError is raised.
         If None, then ``serializer.default_serialize_types`` is used instead.
-        This is also used in the construction of the local RPCServer if start_local_server is True.
+        This is also used in the construction of the local RPCServer if local_server is dedicated.
 
-
-    Raises ConnectionRefusedError if no server is running at the given address.
-
+    Raises
+    ------
+    ConnectionRefusedError if no server is running at the given address.
+    TimeoutError if the server cannot be reached within the default timeout.
     """
 
     clients_by_thread = {}  # (thread_id, rpc_addr): client
     clients_by_thread_lock = threading.Lock()
 
     @staticmethod
-    def get_client(address):
+    def get_client(address, create=True, **kwargs):
         """Return the RPC client for this thread and a given server address.
 
         If no client exists already, then a new one will be created. If the
         server is running in the current thread, then return None.
 
+        Parameters
+        ----------
+        create : bool
+            If True, then create a new RPCClient instance if one does not already exist.
+
+        All other parameters are FOR INTERNAL USE ONLY (and are passed to the RPCClient
+        constructor).
+
         See also
         --------
 
-        RPCServer.address
+        ``RPCServer.address``
         """
         if isinstance(address, str):
             address = address.encode()
@@ -84,9 +103,17 @@ class RPCClient(object):
         # Return an existing client if there is one
         with RPCClient.clients_by_thread_lock:
             if key in RPCClient.clients_by_thread:
-                return RPCClient.clients_by_thread[key]
+                client = RPCClient.clients_by_thread[key]
+                local_server = kwargs.pop('local_server', client._local_server)
+                if kwargs or local_server is not client._local_server:
+                    raise ValueError(
+                        "Cannot pass arguments to get_client() if it already exists for this address."
+                    )
+                return client
 
-        return RPCClient(address)
+        if create:
+            return RPCClient(address, **kwargs)
+        return None
 
     @staticmethod
     def forget_client(client):
@@ -98,19 +125,16 @@ class RPCClient(object):
     def __init__(
         self,
         address,
-        reentrant=True,
-        start_local_server=False,
+        local_server=None,
         serializer='msgpack',
         serialize_types=None,
     ):
+        """Initialize a new RPCClient."""
         if isinstance(address, str):
             address = address.encode()
 
         # pick a unique name: host.pid.tid:rpc_addr
-        self.name = (
-            "%s.%s.%s:%s"
-            % (log.get_host_name(), log.get_process_name(), log.get_thread_name(), address.decode())
-        ).encode()
+        self.name = f"{log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}:{address.decode()}".encode()
 
         self.serialize_types = serialize_types
 
@@ -118,11 +142,15 @@ class RPCClient(object):
             logger.warning(f"RPC server address {address} is likely to cause trouble on windows")
         self.address = address
 
-        if start_local_server and RPCServer.get_server() is None:
-            self._local_server = RPCServer(serialize_types=serialize_types)
-            self._local_server.run_lazy()
+        if local_server in ("threaded", "lazy"):
+            self._manage_local_server = True
+            self._local_server = RPCServer(
+                serialize_types=serialize_types,
+                run_thread=(local_server == "threaded"),
+            )
         else:
-            self._local_server = None
+            self._manage_local_server = False
+            self._local_server = local_server
 
         key = (threading.current_thread().ident, address)
         with RPCClient.clients_by_thread_lock:
@@ -148,11 +176,6 @@ class RPCClient(object):
             # it has closed. (default is -1, which can cause processes to hang
             # on exit)
             self._socket.linger = 1000
-
-            # If this thread is running a server, then we need to allow the
-            # server to process requests when the client is blocking.
-            assert reentrant in (True, False)
-            self._reentrant = reentrant
             self._poller = None
 
             logger.info("RPC connect to %s", address.decode())
@@ -167,16 +190,16 @@ class RPCClient(object):
             self.establishing_connect = False
             self._disconnected = False
 
-            # For unserializing results returned from servers. This cannot be
-            # used to send proxies of local objects unless there is also a server
-            # for this thread..
+            # For serializing requests sent to servers and unserializing the responses.
+            # When sending requests, this serializer can only generate proxies if it is
+            # associated with a local server.
             try:
-                self.serializer = all_serializers[serializer]()
-            except KeyError:
-                raise ValueError(f"Unsupported serializer type '{serializer}'")
+                self.serializer: Serializer = all_serializers[serializer](self._local_server)
+            except KeyError as e:
+                raise ValueError(f"Unsupported serializer type '{serializer}'") from e
 
             self.ensure_connection()
-        except:
+        except Exception:
             RPCClient.clients_by_thread.pop(key, None)
             raise
 
@@ -205,19 +228,17 @@ class RPCClient(object):
         # This poller is responsible for ensuring that the RPC server in this
         # thread is able to process requests while we are blocked waiting
         # for responses from other servers.
-        if not self._reentrant:
-            return None
-
         if self._poller is None:
-            server = RPCServer.get_server()
-            if server is None:
+            if self._local_server is None:
                 return None
-            if isinstance(server, QtRPCServer):
+            elif isinstance(self._local_server, QtRPCServer):
                 self._poller = 'qt'
-            else:
+            elif self._local_server.client_should_handle_requests():
                 self._poller = zmq.Poller()
                 self._poller.register(self._socket, zmq.POLLIN)
-                self._poller.register(server._socket, zmq.POLLIN)
+                self._poller.register(self._local_server._socket, zmq.POLLIN)
+            else:
+                return None
         return self._poller
 
     def disconnected(self):
@@ -233,7 +254,14 @@ class RPCClient(object):
 
         return self._disconnected
 
-    def send(self, action, opts=None, return_type='auto', sync='sync', timeout=10.0):
+    def send(
+        self,
+        action,
+        opts=None,
+        return_type='auto',
+        sync='sync',
+        timeout=10.0,
+    ):
         """Send a request to the remote process.
 
         It is not necessary to call this method directly; instead use
@@ -304,12 +332,16 @@ class RPCClient(object):
         if opts is None:
             opts_str = b''
         else:
-            opts_str = self.serializer.dumps(
-                opts, server=None, serialize_types=self.serialize_types
-            )
+            opts_str = self.serializer.dumps(opts, serialize_types=self.serialize_types)
         ser_type = self.serializer.type.encode()
 
-        msg = [str(req_id).encode(), action.encode(), return_type.encode(), ser_type, opts_str]
+        msg = [
+            str(req_id).encode(),
+            action.encode(),
+            return_type.encode(),
+            ser_type,
+            opts_str,
+        ]
         self._socket.send_multipart(msg)
 
         if sync == 'off':
@@ -326,7 +358,7 @@ class RPCClient(object):
         elif sync == 'sync':
             return fut.result(timeout=timeout)
         else:
-            raise ValueError('Invalid sync value: %s' % sync)
+            raise ValueError(f'Invalid sync value: {sync}')
 
     def call_obj(self, obj, args=None, kwargs=None, **kwds):
         """Invoke a remote callable object.
@@ -493,23 +525,16 @@ class RPCClient(object):
                 from .qt import QApplication
 
                 QApplication.processEvents()
-                try:
+                with contextlib.suppress(TimeoutError):
                     self._read_and_process_one(timeout=0.05)
-                except TimeoutError:
-                    pass
             else:
                 # Poll for input on both the client's socket and the server's
-                # socket. This is necessary to avoid deadlocks.
+                # socket. This is for lazy or same-thread servers.
                 socks = [x[0] for x in poller.poll(itimeout)]
                 if self._socket in socks:
                     self._read_and_process_one(timeout=0)
-                elif len(socks) > 0:
-                    server = RPCServer.get_server()
-                    if server is None:
-                        # this can happen after server has unregistered itself
-                        # at exit
-                        continue
-                    server._read_and_process_one()
+                if self._local_server._socket in socks:
+                    self._local_server.read_and_process_one()
 
     def _read_and_process_one(self, timeout):
         """Read a single message from the remote server and process it by
@@ -534,7 +559,7 @@ class RPCClient(object):
             # seems to work for now.
             self._socket.setsockopt(zmq.RCVTIMEO, timeout)
             msg = self._socket.recv()
-            msg = self.serializer.loads(msg, server=None, proxy_opts=self.default_proxy_options)
+            msg = self.serializer.loads(msg, proxy_opts=self.default_proxy_options)
         except zmq.error.Again as exc:
             raise TimeoutError("Timeout waiting for Future result.") from None
 
@@ -555,9 +580,11 @@ class RPCClient(object):
         Future instances.
         """
         logger.debug(
-            "RPC recv result from %s [req_id=%s]", self.address.decode(), msg.get('req_id', None)
+            "RPC recv result from %s [req_id=%s]",
+            self.address.decode(),
+            msg.get('req_id', None),
         )
-        logger.debug("    => %s" % msg)
+        logger.debug(f"    => {msg}")
         if msg['action'] == 'return':
             req_id = msg['req_id']
             fut = self.futures.pop(req_id, None)
@@ -577,7 +604,7 @@ class RPCClient(object):
         elif msg['action'] == 'disconnect':
             self._server_disconnected()
         else:
-            raise ValueError("Invalid action '%s'" % msg['action'])
+            raise ValueError(f"Invalid action '{msg['action']}'")
 
     def _close_request_returned(self, fut):
         try:
@@ -617,6 +644,8 @@ class RPCClient(object):
         # self.send('release_all', return_type=None)
         self._socket.close()
         RPCClient.forget_client(self)
+        if self._manage_local_server:
+            self._local_server.close()
 
     def close_server(self, sync='sync', timeout=1.0, **kwds):
         """Ask the server to close.
@@ -689,19 +718,26 @@ class RemoteCallException(Exception):
         self.remote_exc_traceback = remote_exc_traceback
 
     def __str__(self):
-        # Return a concise message instead of the full traceback
+        # Return a concise message instead of the full traceback.
         # Full traceback details are available through structured remote traceback sections
         if self.tb_str and len(self.tb_str) > 0:
-            # Extract just the exception type and message from the last line of traceback
-            last_line = (
-                self.tb_str[-1].strip()
-                if self.tb_str[-1].strip()
-                else (self.tb_str[-2].strip() if len(self.tb_str) > 1 else "")
-            )
+            def find_last_note_index(lines):
+                for i in reversed(range(len(lines))):
+                    if lines[i].startswith("This exception was caused by a remote call to"):
+                        return i
+                return None
+            # ignore notes
+            note_start = find_last_note_index(self.tb_str)
+            last_line = None
+            if note_start is not None:
+                last_line = self.tb_str[note_start - 1].strip()
+            elif self.tb_str[-1].strip():
+                # Extract just the exception type and message from the last line of traceback
+                last_line = self.tb_str[-1].strip()
+            elif len(self.tb_str) > 1:
+                last_line = self.tb_str[-2].strip()
             if last_line and ': ' in last_line:
                 return f"Remote {last_line}"
-            else:
-                return f"Remote {self.type_str}"
         return f"Remote {self.type_str}"
 
 
@@ -725,6 +761,7 @@ class Future(concurrent.futures.Future):
         concurrent.futures.Future.__init__(self)
         self.client = client
         self.call_id = call_id
+        self.invocation_stack = traceback.extract_stack()
 
     def cancel(self):
         return False
@@ -735,5 +772,14 @@ class Future(concurrent.futures.Future):
         If the result is not yet available, then this call will block until
         the result has arrived or the timeout elapses.
         """
-        self.client.process_until_future(self, timeout=timeout)
-        return concurrent.futures.Future.result(self)
+        try:
+            self.client.process_until_future(self, timeout=timeout)
+            return super().result()
+        except Exception as e:
+            e.add_note(
+                # WARNING: this string is used to parse out notes above
+                f"This exception was caused by a remote call to {self.client.address.decode()} with ID"
+                f" {self.call_id}. The call was made from the following stack:\n"
+                f"{''.join(traceback.format_list(self.invocation_stack))}\n==============\n"
+            )
+            raise e

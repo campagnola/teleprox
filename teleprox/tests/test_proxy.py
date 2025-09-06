@@ -1,4 +1,6 @@
 import pytest
+import numpy as np
+
 import teleprox
 from teleprox.util import ProcessCleaner
 
@@ -78,3 +80,26 @@ def test_proxy_del_infinite_recursion():
     assert (
         not has_recursion
     ), f"Detected infinite recursion in stderr - the bug still exists: {stderr_output[:1000]}..."
+
+
+def test_numpy_numbers():
+    """Test that numpy number proxies behave correctly without causing infinite recursion."""
+    with ProcessCleaner() as cleaner:
+        proc = teleprox.start_process(name='test_numpy_numbers')
+        cleaner.add(proc)
+
+        remote_np = proc.client._import('numpy')
+
+        # Create a numpy scalar on the remote side
+        remote_scalar = remote_np.float32(42.42)
+
+        assert remote_scalar <= 43
+        assert remote_scalar != 43
+        assert remote_scalar < 50
+        assert remote_scalar > 40
+        assert remote_scalar >= 42
+        assert np.isclose(remote_scalar, 42.42)
+        assert np.isclose(remote_np.sqrt(remote_scalar), np.sqrt(42.42))
+        assert np.isclose(remote_np.log(remote_scalar), np.log(42.42))
+
+        proc.stop()

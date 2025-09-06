@@ -6,6 +6,7 @@ import sys
 import json
 import subprocess
 import atexit
+import contextlib
 from teleprox.log.remote import get_process_name, set_thread_name
 from teleprox.log.stdio import StdioLogSender
 from teleprox.util import kill_pid
@@ -19,6 +20,7 @@ from .log import get_logger_address, LogSender
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 # used to make all (grand)children of this process easier to identify
@@ -37,7 +39,7 @@ def start_process(
     shell=False,
     conda_env=None,
     serializer='msgpack',
-    start_local_server=False,
+    local_server=None,
     daemon=False,
     stdin=None,
     stdout=None,
@@ -67,10 +69,12 @@ def start_process(
         enabled by default.
     log_level : int | str | None
         Optional initial log level to assign to the root logger in the new
-        process.
+        process. INFO by default. (Can also be set via
+        `teleprox.process.logger.setLevel()`.)
     log_stdio : bool | None
         If True, then the new process's stdout and stderr will be captured and
-        forwarded as log records. By default, this is True if log_addr is set.
+        forwarded as log records. By default, this is True if log_addr is set. stdout
+        will be logged at INFO level, stderr at WARNING level.
     executable : str | None
         Optional python executable to invoke. The default value is `sys.executable`.
     shell : bool
@@ -80,10 +84,8 @@ def start_process(
         executable.
     serializer : str
         Serialization format to use for RPC communication. Default is 'msgpack'.
-    start_local_server : bool
-        If True, then start a local RPCServer in the current process. (See RPCClient)
-        This allows sending objects by proxy to the child process (for example, callback
-        functions). Default is False.
+    local_server : "threaded" | "lazy" | RPCServer | None
+        See RPCClient documentation for details. Default is None.
     daemon : bool
         If True, then the new process will be detached from the parent process, allowing
         it to run indefinitely in the background, even after the parent closes.
@@ -124,29 +126,29 @@ def start_process(
 
     """
     # logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
-    assert daemon in (True, False), f"daemon must be bool; got {repr(daemon)}"
-    assert qt in (True, False), f"qt must be bool; got {repr(qt)}"
-    assert isinstance(address, (str, bytes)), f"address must be str or bytes; got {repr(address)}"
-    assert name is None or isinstance(name, str), f"name must be str or None; got {repr(name)}"
-    assert log_addr is None or isinstance(
-        log_addr, (str, bytes)
-    ), f"log_addr must be str or None; got {repr(log_addr)}"
+    if not isinstance(daemon, bool):
+        raise TypeError(f"daemon must be bool; got {repr(daemon)}")
+    if not isinstance(qt, bool):
+        raise TypeError(f"qt must be bool; got {repr(qt)}")
+    if not isinstance(address, (str, bytes)):
+        raise TypeError(f"address must be str or bytes; got {repr(address)}")
+    if name is not None and not isinstance(name, str):
+        raise TypeError(f"name must be str or None; got {repr(name)}")
+    if log_addr is not None and not isinstance(log_addr, (str, bytes)):
+        raise TypeError(f"log_addr must be str or None; got {repr(log_addr)}")
     if log_addr is None and not daemon:
         log_addr = get_logger_address()
-    assert log_level is None or isinstance(
-        log_level, (int, str)
-    ), f"log_level must be int, str, or None; got {repr(log_level)}"
+    if log_level is not None and not isinstance(log_level, (int, str)):
+        raise TypeError(f"log_level must be int, str, or None; got {repr(log_level)}")
     if log_level is None:
         log_level = logger.getEffectiveLevel()
     elif isinstance(log_level, str):
         log_level = getattr(logging, log_level.upper())
-    assert log_stdio in (
-        True,
-        False,
-        None,
-    ), f'log_stdio must be True, False, or None; got {repr(log_stdio)}'
+    if log_stdio not in (True, False, None):
+        raise TypeError(f'log_stdio must be True, False, or None; got {repr(log_stdio)}')
     if log_stdio is True:
-        assert stdout is None and stderr is None, "Cannot use log_stdio with stdout/stderr."
+        if not (stdout is None and stderr is None):
+            raise ValueError("Cannot use log_stdio with stdout/stderr.")
     # If we have a log server and stdio/stderr have not been explicitly set, then
     # turn on stdio logging by default.
     if log_stdio is None and stdout is None and stderr is None and daemon is False:
@@ -211,17 +213,19 @@ def start_process(
     }
     if daemon is True:
         # daemom processes have no stdio
-        assert log_stdio is not True, "Cannot use log_stdio with daemon."
-        assert (
-            stdin is None and stdout is None and stderr is None
-        ), "Cannot use stdin/stdout/stderr with daemon."
+        if log_stdio:
+            raise ValueError("Cannot use log_stdio with daemon.")
+        if stdin is not None or stdout is not None or stderr is not None:
+            raise ValueError("Cannot use stdin/stdout/stderr with daemon.")
         popen_kwargs['stdin'] = subprocess.DEVNULL
         popen_kwargs['stdout'] = subprocess.DEVNULL
         popen_kwargs['stderr'] = subprocess.DEVNULL
         # use DETACH_PROCESS to prevent the child from being killed when the parent is killed
         # use CREATE_NEW_PROCESS_GROUP to prevent the child from receiving signals from the parent
         if sys.platform == 'win32':
-            popen_kwargs['creationflags'] = (
+            popen_kwargs[
+                'creationflags'
+            ] = (
                 subprocess.CREATE_NEW_PROCESS_GROUP
             )  # subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
@@ -263,9 +267,7 @@ def start_process(
     if 'address' in status:
         address = status['address']
         #: An RPCClient instance that is connected to the RPCServer in the remote process
-        client = RPCClient(
-            address.encode(), serializer=serializer, start_local_server=start_local_server
-        )
+        client = RPCClient(address.encode(), serializer=serializer, local_server=local_server)
     else:
         err = ''.join(status['error'])
         if proc is not None and proc.poll() is not None:
@@ -289,15 +291,19 @@ class DaemonProcess:
         """Stop the spawned process by asking its RPC server to close."""
         logger.info(f"Close daemon process: {self.client.address}")
         closed = self.client.close_server()
-        assert closed is True, f"Server refused to close. (reply: {closed})"
+        if not closed:
+            raise RuntimeError(f"Server refused to close. (reply: {closed})")
 
     def kill(self):
         """Kill the spawned process immediately."""
         try:
             logger.info("Kill daemon process: %d", self.pid)
             kill_pid(self.pid)
-        except (OSError, ProcessLookupError):
+        except ProcessLookupError:
+            # process already gone
             pass
+        except OSError:
+            logger.info("Error killing process %d", self.pid, exc_info=True)
 
 
 class ChildProcess:
@@ -356,7 +362,8 @@ class ChildProcess:
             return
         logger.info(f"Close process: {self.client.address}")
         closed = self.client.close_server(timeout=timeout)
-        assert closed is True, f"Server refused to close. (reply: {closed})"
+        if not closed:
+            raise RuntimeError(f"Server refused to close. (reply: {closed})")
 
         return self.wait(timeout)
 
