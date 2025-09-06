@@ -21,6 +21,15 @@ class QtRPCServer(RPCServer):
     QtRPCServer may be started in newly spawned processes using
     ``start_process(qt=True)``.
     
+    Parameters
+    ----------
+    address : str
+        See `RPCServer`.
+    quit_on_close : bool
+        If True, then call `QApplication.quit()` when the server is closed.
+
+    Other parameters are the same as for `RPCServer`.
+
     Examples
     --------
     
@@ -41,19 +50,10 @@ class QtRPCServer(RPCServer):
         # returns immediately).
         server = QtRPCServer()
     """
-    def __init__(self, address="tcp://127.0.0.1:*", quit_on_close=True, _run_thread=True):
-        """Initialize a new QtRPCServer.
-
-        Parameters
-        ----------
-        quit_on_close : bool
-            If True, then call `QApplication.quit()` when the server is closed.
-
-        Other parameters are the same as for `RPCServer`.
-        """
+    def __init__(self, address="tcp://127.0.0.1:*", quit_on_close=True, **kwargs):
         self.poll_thread = None
         self.quit_on_close = quit_on_close
-        RPCServer.__init__(self, address, _run_thread=_run_thread)
+        RPCServer.__init__(self, address, **kwargs)
         # only import Qt if requested
         from .qt_poll_thread import QtPollThread
         self.poll_thread = QtPollThread(self)
