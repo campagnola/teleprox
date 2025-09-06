@@ -191,7 +191,6 @@ class Serializer:
             elif type_name == 'proxy':
                 if 'attributes' in dct:
                     dct['attributes'] = tuple(dct['attributes'])
-                logger.info(f"Unwrapping proxy, also connecting it to {self.server}", )
                 proxy = ObjectProxy(**dct, local_server=self.server)
                 if self._proxy_opts is not None:
                     proxy._set_proxy_options(**self._proxy_opts)

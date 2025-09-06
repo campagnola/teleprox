@@ -146,7 +146,7 @@ class RPCClient(object):
             self._manage_local_server = True
             self.local_server = RPCServer(
                 serialize_types=serialize_types,
-                _run_thread=(local_server == "threaded"),
+                run_thread=(local_server == "threaded"),
             )
         else:
             self._manage_local_server = False
@@ -534,7 +534,7 @@ class RPCClient(object):
                 if self._socket in socks:
                     self._read_and_process_one(timeout=0)
                 if self.local_server._socket in socks:
-                    self.local_server._read_and_process_one()
+                    self.local_server.read_and_process_one()
 
     def _read_and_process_one(self, timeout):
         """Read a single message from the remote server and process it by

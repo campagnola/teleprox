@@ -37,9 +37,10 @@ class RPCServer(object):
         sent to a remote client. This is used to avoid wrapping objects
         that are already proxies, or that are not safe to proxy.
         Default is `serializer.default_serialize_types`.
-    _run_thread : bool
-        INTERNAL USE ONLY. If True, then the server will run in a separate
-        thread.
+    run_thread : bool
+        If True, then the server will process messages in a separate thread. If False, then you
+        must either call `run_forever()` to block and process requests, or you must process
+        messages individually by calling `read_and_process_one()`. Default is True.
 
     Notes
     -----
@@ -84,7 +85,7 @@ class RPCServer(object):
 
     """
 
-    def __init__(self, address="tcp://127.0.0.1:*", serialize_types=None, _run_thread=True):
+    def __init__(self, address="tcp://127.0.0.1:*", serialize_types=None, run_thread=True):
         """Initialize the RPC server."""
         self._socket = zmq.Context.instance().socket(zmq.ROUTER)
 
@@ -111,7 +112,6 @@ class RPCServer(object):
         self._clients = {}  # {socket_id: serializer_type}
 
         self._run_thread = None
-        self.is_lazy = not _run_thread
 
         # Objects that may be retrieved by name using client['obj_name']
         self._namespace = {'self': self}
@@ -133,8 +133,18 @@ class RPCServer(object):
 
         # Make sure we inform clients of closure
         atexit.register(self._atexit)
-        if _run_thread:
+        if run_thread:
             self._run_in_thread()
+
+    @property
+    def is_lazy(self):
+        """Boolean indicating whether the server is running in "lazy" mode.
+
+        In lazy mode, the server will only process requests when
+        `read_and_process_one()` is called (such as when a client calls
+        `client_should_handle_requests()` to take over request processing).
+        """
+        return self._run_thread is None or not self._run_thread.is_alive()
 
     def __repr__(self):
         return f"<RPCServer {self.address.decode()}>"
@@ -213,7 +223,7 @@ class RPCServer(object):
         }
         return name, msg
 
-    def _read_and_process_one(self):
+    def read_and_process_one(self):
         """Read one message from the rpc socket and invoke the requested
         action.
         """
@@ -411,7 +421,6 @@ class RPCServer(object):
 
     def run_forever(self):
         """Read and process RPC requests until the server is asked to close."""
-        self.is_lazy = False
         self._run_thread = threading.current_thread()
         logger.info(
             f"RPC start server loop: {log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}"

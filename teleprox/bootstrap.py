@@ -88,7 +88,7 @@ logger.info('Bootstrapping new process "{procname}" {class_name}({listen_addr}) 
 try:
     # Create server
     server_class = getattr(teleprox, conf['class_name'])
-    server = server_class(conf['listen_addr'], _run_thread=False)  # we will run manually
+    server = server_class(conf['listen_addr'], run_thread=False)  # we will run manually
     status = {'address': server.address.decode(), 'pid': os.getpid()}
 except Exception:
     logger.error("Error starting {class_name} with args: {args}:".format(**conf))
