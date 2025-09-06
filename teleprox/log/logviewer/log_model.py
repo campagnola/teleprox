@@ -15,6 +15,21 @@ class LogModel(qt.QStandardItemModel):
 
     def append_record(self, rec):
         """Append a row of log data, handling lazy loading placeholders for expandable records."""
+        self._create_and_add_record_row(rec)
+
+    def set_records(self, *records):
+        """Clear all existing records and set new ones, preserving ID counter."""
+        # Clear existing data
+        self.clear()
+        # Reset headers since clear() removes them
+        self.setHorizontalHeaderLabels(LogColumns.TITLES)
+
+        # Add each new record
+        for rec in records:
+            self._create_and_add_record_row(rec)
+
+    def _create_and_add_record_row(self, rec):
+        """Create and add a single record row with lazy loading support."""
         # Create items for each column using LogColumns order
         row_items = []
         for col_id in range(len(LogColumns.TITLES)):
@@ -38,6 +53,7 @@ class LogModel(qt.QStandardItemModel):
         # Set data unique to main row items
         row_items[0].log_record = rec
         row_items[0].setData(log_id, ItemDataRole.LOG_ID)  # Store unique log ID
+        row_items[0].setData(rec, ItemDataRole.PYTHON_DATA)  # Also store LogRecord in Qt data for consistency
 
         # Add items to the model
         self.appendRow(row_items)
@@ -154,11 +170,12 @@ class LogModel(qt.QStandardItemModel):
 
     def _create_exc_info_children(self, record, attr_name, attr_value):
         """Create child items for exception information from a specific attribute."""
-        children = []
-
         # Skip if exc_info is None or empty
         if not attr_value:
-            return children
+            return []
+        # strings get deserialized from log files as-is
+        if isinstance(attr_value, str):
+            return self._create_exc_text_children(record, attr_name, attr_value)
 
         # Handle exc_info type
         exc_type, exc_value, exc_tb = attr_value
@@ -171,6 +188,8 @@ class LogModel(qt.QStandardItemModel):
             exc_category_item.appendRow(child_row)
 
         # Check if this is a RemoteCallException - add remote children as siblings
+        children = []
+
         if exc_value:
             remote_children = self._create_remote_exception_children(exc_value, record)
             children.extend(remote_children)
@@ -617,20 +636,28 @@ class LogModel(qt.QStandardItemModel):
         # Set the same data on ALL items so filtering works regardless of which column is checked
         self._set_filter_data_on_item(item, parent_record)
 
+        # Store the data dict for click handling
+        item.setData(data_dict, ItemDataRole.PYTHON_DATA)
+
         # Set colors to differentiate from main log entries
         item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
 
-        # Make exception/stack items not selectable
-        item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
+        # Make traceback/stack frame items clickable for file navigation
+        if data_dict.get('type') in ['traceback_frame', 'stack_frame']:
+            item.setFlags(qt.Qt.ItemIsEnabled | qt.Qt.ItemIsSelectable)  # Allow clicking
+        else:
+            # Make other exception items not selectable
+            item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
 
         # Apply styling to the timestamp column item (where content is now)
         # Apply monospace font for code-like content
         text = data_dict.get('text', '')
         should_use_monospace = (
             data_dict.get('type') in ['traceback_frame', 'stack_frame']
-            or (text.startswith("    ") and not text.strip().startswith("File "))
-            or "^^^^"  # Code lines starting with 4+ spaces
-            in text  # Lines with error pointer characters
+            or (
+                text.startswith("    ") and not text.strip().startswith("File ")
+            )  # Code lines starting with 4+ spaces
+            or "^^^^" in text  # Lines with error pointer characters
         )
 
         if should_use_monospace:

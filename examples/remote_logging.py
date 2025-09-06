@@ -1,11 +1,10 @@
-import sys
 import logging
 import sys
+
 from teleprox import start_process
 from teleprox.log import set_process_name, set_thread_name, start_log_server
 from teleprox.log.handler import RPCLogHandler
 from teleprox.log.logviewer import LogViewer
-
 
 # Get the python root logger and set its level to DEBUG
 logger = logging.getLogger()

@@ -301,7 +301,7 @@ class LogServer(threading.Thread):
     allows loggers in a remote process to become part of the local logging hierarchy.
 
     However, this also breaks the normal behavior of loggers inheriting their level
-    from their parents. Ordinarily once can set the level of the root logger and
+    from their parents. Ordinarily one can set the level of the root logger and
     expect most upstream loggers to inherit this level. Remote loggers, on the other
     hand, have their own level which could cause low-level messages to be handled
     in the main process even if the local logger's level is set higher. To avoid this,
