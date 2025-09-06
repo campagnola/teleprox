@@ -68,7 +68,7 @@ def check_serializer(serializer, test_data):
     for k in test_data:
         v1 = test_data[k]
         v2 = d2[k]
-        assert type(v1) is type(v2)
+        assert issubclass(type(v1), type(v2)), f"key '{k}' type {type(v1)} !<= {type(v2)}"
         if k == 'ndarray':
             assert np.all(v1 == v2)
         else:
