@@ -20,12 +20,17 @@ class CustomType:
         return type(a) == type(self) and a.x == self.x and a.y == self.y
 
 
+class SerializableSubclass(np.float64):
+    pass
+
+
 @pytest.fixture(scope='module')
 def test_data():
     yield {
         'int': 1,
         'float': 1.0,
         'str': 'abc',
+        'subclass': SerializableSubclass(1.0),
         'bytes': b'abc',
         'ndarray': np.arange(8).reshape(2, 4).astype('float64'),
         'datetime': datetime.datetime(2015, 1, 1, 12, 00, 00),
@@ -68,11 +73,3 @@ def check_serializer(serializer, test_data):
             assert np.all(v1 == v2)
         else:
             assert v1 == v2
-
-
-# if __name__ == '__main__':
-#     p = start_process('test_serializer_fixture_process', serializer='json', local_server="lazy)
-#     try:
-#         p.client.serializer.loads(p.client.serializer.dumps(CustomType(), None), None)
-#     finally:
-#         p.stop()

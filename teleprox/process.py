@@ -20,6 +20,7 @@ from .log import get_logger_address, LogSender
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 # used to make all (grand)children of this process easier to identify
@@ -68,10 +69,12 @@ def start_process(
         enabled by default.
     log_level : int | str | None
         Optional initial log level to assign to the root logger in the new
-        process.
+        process. INFO by default. (Can also be set via
+        `teleprox.process.logger.setLevel()`.)
     log_stdio : bool | None
         If True, then the new process's stdout and stderr will be captured and
-        forwarded as log records. By default, this is True if log_addr is set.
+        forwarded as log records. By default, this is True if log_addr is set. stdout
+        will be logged at INFO level, stderr at WARNING level.
     executable : str | None
         Optional python executable to invoke. The default value is `sys.executable`.
     shell : bool

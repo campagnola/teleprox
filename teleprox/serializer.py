@@ -105,7 +105,7 @@ class Serializer:
         Provides support for ndarray, datetime, date, and None. Other types
         are converted to proxies.
         """
-        if type(obj) not in self._serialize_types:
+        if not isinstance(obj, self._serialize_types):
             # If this object type is not in server.no_proxy_types, then send by proxy.
             if self.server is None:
                 raise TypeError(f"Cannot make proxy to {obj!r} without proxy server.")
@@ -313,18 +313,18 @@ class JsonSerializer(Serializer):
         return Serializer.encode(self, obj)
 
     def decode(self, dct):
-        if isinstance(dct, dict):
-            type_name = dct.get(encode_key, None)
-            if type_name == 'ndarray':
-                if not HAVE_NUMPY:
-                    raise ImportError("numpy is required to deserialize ndarray.")
-                data = base64.b64decode(dct['data'])
-                return np.frombuffer(data, dct['dtype']).reshape(dct['shape'])
-            elif type_name == 'bytes':
-                return base64.b64decode(dct['data'])
+        if not isinstance(dct, dict):
+            return dct
+        type_name = dct.get(encode_key, None)
+        if type_name == 'ndarray':
+            if not HAVE_NUMPY:
+                raise ImportError("numpy is required to deserialize ndarray.")
+            data = base64.b64decode(dct['data'])
+            return np.frombuffer(data, dct['dtype']).reshape(dct['shape'])
+        elif type_name == 'bytes':
+            return base64.b64decode(dct['data'])
 
-            return Serializer.decode(self, dct)
-        return dct
+        return Serializer.decode(self, dct)
 
 
 all_serializers[JsonSerializer.type] = JsonSerializer
