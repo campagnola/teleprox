@@ -438,68 +438,21 @@ class LogViewer(qt.QWidget):
         if not index.isValid():
             return
 
-        # Get the source model item that contains the LogRecord
-        source_index = self.map_index_to_model(index)
-
-        # Always get the timestamp column (column 0) which contains the LogRecord
-        if source_index.column() != LogColumns.TIMESTAMP:
-            source_index = self.model.index(
-                source_index.row(), LogColumns.TIMESTAMP, source_index.parent()
-            )
-
-        # If this is a child item, get the parent's LogRecord
-        if index.parent().isValid():
-            parent_source_index = self.map_index_to_model(index.parent())
-            # Ensure parent is also timestamp column
-            if parent_source_index.column() != LogColumns.TIMESTAMP:
-                parent_source_index = self.model.index(
-                    parent_source_index.row(), LogColumns.TIMESTAMP, parent_source_index.parent()
-                )
-            source_item = self.model.itemFromIndex(parent_source_index)
-            is_child_item = True
-            child_text = self.tree.model().data(index, qt.Qt.DisplayRole) or ""
-        else:
-            source_item = self.model.itemFromIndex(source_index)
-            is_child_item = False
-            child_text = ""
-
-        # Get the LogRecord object with fallback methods
-        log_record = self._get_log_record_from_item(source_item, source_index)
+        # If this is a child item, get the parent's index
+        while index.parent().isValid():
+            index = index.parent()
+        index = self.map_index_to_model(index)
+        index = self.model.index(
+            index.row(), LogColumns.TIMESTAMP, index.parent()
+        )
+        log_record = self.model.data(index, ItemDataRole.PYTHON_DATA)
         if not log_record:
             return
 
-        # Format the record as text
-        if is_child_item:
-            formatted_text = format_log_record_as_text(log_record, child_text=child_text)
-        else:
-            formatted_text = format_log_record_as_text(
-                log_record, model=self.model, source_item=source_item
-            )
+        formatted_text = format_log_record_as_text(log_record)
 
-        # Copy to clipboard
         clipboard = qt.QApplication.clipboard()
         clipboard.setText(formatted_text)
-
-    def _get_log_record_from_item(self, source_item, source_index):
-        """Get LogRecord from item using multiple fallback methods."""
-
-        # Method 1: Direct attribute access (original approach)
-        if hasattr(source_item, 'log_record') and source_item.log_record:
-            return source_item.log_record
-
-        # Method 2: Qt data API with PYTHON_DATA role
-        if source_item:
-            data = source_item.data(ItemDataRole.PYTHON_DATA)
-            if isinstance(data, logging.LogRecord):
-                return data
-
-        # Method 3: Try getting from model data directly
-        if source_index.isValid():
-            model_data = self.model.data(source_index, ItemDataRole.PYTHON_DATA)
-            if isinstance(model_data, logging.LogRecord):
-                return model_data
-
-        return None
 
     def _on_selection_changed(self, selected, deselected):
         """Handle selection changes to highlight related entries."""
