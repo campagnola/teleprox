@@ -273,25 +273,97 @@ def format_log_record_as_text(log_record, model=None, source_item=None, child_te
 
 def format_log_record_header(log_record):
     """Format the common header information for a log record."""
-    lines = [
-        f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(log_record.created))}.{log_record.msecs:03.0f}",
-        f"Source: {getattr(log_record, 'processName', 'Unknown')}/{getattr(log_record, 'threadName', 'Unknown')}",
-        f"Logger: {log_record.name}",
-        f"Level: {log_record.levelno} - {log_record.levelname}",
-        f"Message: {log_record.getMessage()}",
+    lines = []
+
+    # Core fields always shown first
+    lines.append(
+        f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(log_record.created))}.{log_record.msecs:03.0f}"
+    )
+    lines.append(
+        f"Source: {getattr(log_record, 'processName', 'Unknown')}/{getattr(log_record, 'threadName', 'Unknown')}"
+    )
+    lines.append(f"Logger: {log_record.name}")
+    lines.append(f"Level: {log_record.levelno} - {log_record.levelname}")
+    lines.append(f"Message: {log_record.getMessage()}")
+
+    # Show raw message format string if different from formatted message
+    if hasattr(log_record, 'msg') and log_record.msg != log_record.getMessage():
+        lines.append(f"Message Format: {log_record.msg}")
+
+    # Standard LogRecord fields (excluding core ones already shown)
+    standard_fields = [
+        'args',
+        'filename',
+        'funcName',
+        'lineno',
+        'module',
+        'pathname',
+        'process',
+        'relativeCreated',
+        'stack_info',
+        'thread',
+        'exc_info',
+        'exc_text',
     ]
 
-    # Add optional fields if they exist
-    optional_fields = [
-        ('taskName', 'Task'),
-        ('hostName', 'Host'),
-        ('processName', 'Process'),
-        ('threadName', 'Thread'),
-    ]
+    for field in standard_fields:
+        if hasattr(log_record, field):
+            value = getattr(log_record, field)
+            if value is not None and value != () and value != '':  # Skip empty/None values
+                # Format certain fields specially
+                if field == 'args':
+                    if value:  # Only show non-empty args
+                        lines.append(f"Args: {value}")
+                elif field == 'relativeCreated':
+                    lines.append(f"Relative Created: {value:.3f}ms")
+                elif field in ('exc_info', 'stack_info'):
+                    if value:  # Only show if there's actual exception/stack info
+                        lines.append(f"{field.replace('_', ' ').title()}: {value}")
+                elif field == 'exc_text':
+                    if value and value.strip():  # Only show non-empty exception text
+                        lines.append(f"Exception Text: {value}")
+                else:
+                    # Generic field formatting
+                    display_name = field.replace('_', ' ').title()
+                    lines.append(f"{display_name}: {value}")
 
-    for attr_name, display_name in optional_fields:
-        if hasattr(log_record, attr_name) and getattr(log_record, attr_name):
-            lines.append(f"{display_name}: {getattr(log_record, attr_name)}")
+    # Add any extra fields not in standard LogRecord fields
+    standard_field_set = {
+        'name',
+        'msg',
+        'args',
+        'pathname',
+        'filename',
+        'module',
+        'lineno',
+        'funcName',
+        'created',
+        'msecs',
+        'relativeCreated',
+        'thread',
+        'threadName',
+        'process',
+        'processName',
+        'levelname',
+        'levelno',
+        'exc_info',
+        'exc_text',
+        'stack_info',
+        'getMessage',  # This is a method, not an attribute
+    }
+
+    extra_fields = {}
+    for attr_name in log_record.__dict__:
+        if attr_name not in standard_field_set and not attr_name.startswith('_'):
+            value = getattr(log_record, attr_name)
+            if value is not None and value != () and value != '':
+                extra_fields[attr_name] = value
+
+    # Sort extra fields for consistent output
+    for attr_name in sorted(extra_fields.keys()):
+        value = extra_fields[attr_name]
+        display_name = attr_name.replace('_', ' ').title()
+        lines.append(f"{display_name}: {value}")
 
     return lines
 
