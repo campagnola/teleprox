@@ -2,11 +2,10 @@
 # Contains LogViewer widget, QtLogHandler, and main GUI functionality
 
 import logging
-import time
 
 from teleprox import qt
-from .constants import ItemDataRole, LogColumns, attrs_not_shown_as_children
-from .export import export_logs_to_html
+from .constants import ItemDataRole, LogColumns
+from .export import export_logs_to_html, format_log_record_as_text
 from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .log_model import LogModel
 from .widgets import FilterInputWidget, HighlightDelegate, SearchWidget
@@ -471,9 +470,11 @@ class LogViewer(qt.QWidget):
 
         # Format the record as text
         if is_child_item:
-            formatted_text = self._format_log_record_as_text(log_record, child_text=child_text)
+            formatted_text = format_log_record_as_text(log_record, child_text=child_text)
         else:
-            formatted_text = self._format_log_record_as_text(log_record, source_item=source_item)
+            formatted_text = format_log_record_as_text(
+                log_record, model=self.model, source_item=source_item
+            )
 
         # Copy to clipboard
         clipboard = qt.QApplication.clipboard()
@@ -499,84 +500,6 @@ class LogViewer(qt.QWidget):
                 return model_data
 
         return None
-
-    def _format_log_record_as_text(self, log_record, source_item=None, child_text=None):
-        """Format a log record as plain text, optionally including child detail or full children."""
-        lines = self._format_log_record_header(log_record)
-
-        if child_text is not None:
-            # This is a child item - add child detail section
-            lines.extend(("", "Child detail:", f"  {child_text}"))
-        elif source_item is not None and self._has_expandable_children(log_record, source_item):
-            # This is a full record with expandable children - add details section
-            lines.extend(("", "Details:"))
-
-            # Ensure all lazy content is expanded
-            if getattr(source_item, 'has_child_placeholder', False):
-                self.model.replace_placeholder_with_content(source_item)
-
-            # Use model's existing method to get children
-            children = self.model._create_record_attribute_children(log_record)
-            lines.extend(self._format_record_children_as_text(children, indent_level=1))
-
-        return '\n'.join(lines)
-
-    def _format_log_record_header(self, log_record):
-        """Format the common header information for a log record."""
-        lines = [
-            f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(log_record.created))}.{log_record.msecs:03.0f}",
-            f"Source: {getattr(log_record, 'processName', 'Unknown')}/{getattr(log_record, 'threadName', 'Unknown')}",
-            f"Logger: {log_record.name}",
-            f"Level: {log_record.levelno} - {log_record.levelname}",
-            f"Message: {log_record.getMessage()}",
-        ]
-
-        # Add optional fields if they exist
-        optional_fields = [
-            ('taskName', 'Task'),
-            ('hostName', 'Host'),
-            ('processName', 'Process'),
-            ('threadName', 'Thread'),
-        ]
-
-        for attr_name, display_name in optional_fields:
-            if hasattr(log_record, attr_name) and getattr(log_record, attr_name):
-                lines.append(f"{display_name}: {getattr(log_record, attr_name)}")
-
-        return lines
-
-    def _has_expandable_children(self, log_record, source_item):
-        """Check if the log record has expandable children."""
-        # Use same logic as model for consistency
-        return getattr(source_item, 'has_child_placeholder', False) or any(
-            True
-            for k in log_record.__dict__
-            if (k not in attrs_not_shown_as_children and not k.startswith('_'))
-        )
-
-    def _format_record_children_as_text(self, children, indent_level=1):
-        """Format record children items as text recursively."""
-        indent = "  " * indent_level
-        lines = []
-
-        for child_row in children:
-            if child_row and len(child_row) > 0:
-                child_item = child_row[0]  # First column contains the text
-                child_text = child_item.text()
-                lines.append(f"{indent}{child_text}")
-
-                # Handle nested children if any exist
-                if child_item.rowCount() > 0:
-                    nested_children = []
-                    for row in range(child_item.rowCount()):
-                        nested_row = [
-                            child_item.child(row, col) for col in range(child_item.columnCount())
-                        ]
-                        nested_children.append(nested_row)
-                    lines.extend(
-                        self._format_record_children_as_text(nested_children, indent_level + 1)
-                    )
-        return lines
 
     def _on_selection_changed(self, selected, deselected):
         """Handle selection changes to highlight related entries."""
