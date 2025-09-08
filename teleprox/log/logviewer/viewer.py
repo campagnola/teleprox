@@ -508,9 +508,9 @@ class LogViewer(qt.QWidget):
 
         # Format the record as text
         if is_child_item:
-            formatted_text = self._format_child_item_as_text(log_record, child_text)
+            formatted_text = self._format_log_record_as_text(log_record, child_text=child_text)
         else:
-            formatted_text = self._format_log_record_as_text(log_record, source_item)
+            formatted_text = self._format_log_record_as_text(log_record, source_item=source_item)
 
         # Copy to clipboard
         clipboard = qt.QApplication.clipboard()
@@ -537,52 +537,15 @@ class LogViewer(qt.QWidget):
 
         return None
 
-    def _format_child_item_as_text(self, log_record, child_text):
-        """Format a child item with its parent LogRecord context."""
-        lines = [
-            f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(log_record.created))}.{log_record.msecs:03.0f}",
-            f"Source: {getattr(log_record, 'processName', 'Unknown')}/{getattr(log_record, 'threadName', 'Unknown')}",
-            f"Logger: {log_record.name}",
-            f"Level: {log_record.levelno} - {log_record.levelname}",
-            f"Message: {log_record.getMessage()}",
-        ]
+    def _format_log_record_as_text(self, log_record, source_item=None, child_text=None):
+        """Format a log record as plain text, optionally including child detail or full children."""
+        lines = self._format_log_record_header(log_record)
 
-        # Add optional fields if they exist
-        if hasattr(log_record, 'taskName') and log_record.taskName:
-            lines.append(f"Task: {log_record.taskName}")
-        if hasattr(log_record, 'hostName') and log_record.hostName:
-            lines.append(f"Host: {log_record.hostName}")
-        if hasattr(log_record, 'processName') and log_record.processName:
-            lines.append(f"Process: {log_record.processName}")
-        if hasattr(log_record, 'threadName') and log_record.threadName:
-            lines.append(f"Thread: {log_record.threadName}")
-
-        lines.extend(("", "Child detail:", f"  {child_text}"))
-
-        return '\n'.join(lines)
-
-    def _format_log_record_as_text(self, log_record, source_item):
-        """Format a complete log record with all its children as plain text using LogRecord directly."""
-        lines = [
-            f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(log_record.created))}.{log_record.msecs:03.0f}",
-            f"Source: {getattr(log_record, 'processName', 'Unknown')}/{getattr(log_record, 'threadName', 'Unknown')}",
-            f"Logger: {log_record.name}",
-            f"Level: {log_record.levelno} - {log_record.levelname}",
-            f"Message: {log_record.getMessage()}",
-        ]
-
-        # Add optional fields if they exist
-        if hasattr(log_record, 'taskName') and log_record.taskName:
-            lines.append(f"Task: {log_record.taskName}")
-        if hasattr(log_record, 'hostName') and log_record.hostName:
-            lines.append(f"Host: {log_record.hostName}")
-        if hasattr(log_record, 'processName') and log_record.processName:
-            lines.append(f"Process: {log_record.processName}")
-        if hasattr(log_record, 'threadName') and log_record.threadName:
-            lines.append(f"Thread: {log_record.threadName}")
-
-        # Add children if they exist - use model's existing logic
-        if self._has_expandable_children(log_record, source_item):
+        if child_text is not None:
+            # This is a child item - add child detail section
+            lines.extend(("", "Child detail:", f"  {child_text}"))
+        elif source_item is not None and self._has_expandable_children(log_record, source_item):
+            # This is a full record with expandable children - add details section
             lines.extend(("", "Details:"))
 
             # Ensure all lazy content is expanded
@@ -594,6 +557,30 @@ class LogViewer(qt.QWidget):
             lines.extend(self._format_record_children_as_text(children, indent_level=1))
 
         return '\n'.join(lines)
+
+    def _format_log_record_header(self, log_record):
+        """Format the common header information for a log record."""
+        lines = [
+            f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(log_record.created))}.{log_record.msecs:03.0f}",
+            f"Source: {getattr(log_record, 'processName', 'Unknown')}/{getattr(log_record, 'threadName', 'Unknown')}",
+            f"Logger: {log_record.name}",
+            f"Level: {log_record.levelno} - {log_record.levelname}",
+            f"Message: {log_record.getMessage()}",
+        ]
+
+        # Add optional fields if they exist
+        optional_fields = [
+            ('taskName', 'Task'),
+            ('hostName', 'Host'),
+            ('processName', 'Process'),
+            ('threadName', 'Thread'),
+        ]
+
+        for attr_name, display_name in optional_fields:
+            if hasattr(log_record, attr_name) and getattr(log_record, attr_name):
+                lines.append(f"{display_name}: {getattr(log_record, attr_name)}")
+
+        return lines
 
     def _has_expandable_children(self, log_record, source_item):
         """Check if the log record has expandable children."""

@@ -53,7 +53,9 @@ class LogModel(qt.QStandardItemModel):
         # Set data unique to main row items
         row_items[0].log_record = rec
         row_items[0].setData(log_id, ItemDataRole.LOG_ID)  # Store unique log ID
-        row_items[0].setData(rec, ItemDataRole.PYTHON_DATA)  # Also store LogRecord in Qt data for consistency
+        row_items[0].setData(
+            rec, ItemDataRole.PYTHON_DATA
+        )  # Also store LogRecord in Qt data for consistency
 
         # Add items to the model
         self.appendRow(row_items)
@@ -116,29 +118,53 @@ class LogModel(qt.QStandardItemModel):
             if attr_name.startswith('_') or attr_name in attrs_not_shown_as_children:
                 continue
 
-            # Route to appropriate handler based on attribute name and/or value
-            if attr_name == 'exc_info' or attr_name.endswith('_exc_info'):
-                # Handle exception attributes
-                attr_children = self._create_exc_info_children(record, attr_name, attr_value)
-            elif attr_name == 'exc_text' or attr_name.endswith('_exc_text'):
-                # Handle pre-formatted exception attributes
-                attr_children = self._create_exc_text_children(record, attr_name, attr_value)
-            elif (
-                attr_name == 'stack_info'
-                or attr_name.endswith('_stack_info')
-                or attr_name.endswith('_stack')
-                or attr_name.endswith('_traceback')
-            ):
-                # Handle stack/traceback attributes (including remote_stack_info, remote_exc_traceback)
-                attr_children = self._create_stack_children(record, attr_name, attr_value)
-            else:
-                # Handle other extra attributes
-                attr_children = [
-                    self._create_single_extra_attribute_child(attr_name, attr_value, record)
-                ]
+            # Route to appropriate handler based on attribute name
+            handler = self._get_attribute_handler(attr_name)
+            attr_children = handler(record, attr_name, attr_value)
             children.extend(attr_children)
 
         return children
+
+    def _get_attribute_handler(self, attr_name):
+        """Get the appropriate handler function for an attribute based on its name."""
+        # Handler patterns in priority order
+        handlers = [
+            # Exception info handlers
+            (
+                ['exc_info'],
+                lambda name: name == 'exc_info' or name.endswith('_exc_info'),
+                self._create_exc_info_children,
+            ),
+            # Exception text handlers
+            (
+                ['exc_text'],
+                lambda name: name == 'exc_text' or name.endswith('_exc_text'),
+                self._create_exc_text_children,
+            ),
+            # Stack/traceback handlers
+            (
+                ['stack_info', 'stack', 'traceback'],
+                lambda name: (
+                    name == 'stack_info'
+                    or name.endswith('_stack_info')
+                    or name.endswith('_stack')
+                    or name.endswith('_traceback')
+                ),
+                self._create_stack_children,
+            ),
+        ]
+
+        # Check each handler pattern
+        for keywords, matcher, handler_func in handlers:
+            if matcher(attr_name):
+                return handler_func
+
+        # Default handler for other attributes
+        return self._create_generic_attribute_children
+
+    def _create_generic_attribute_children(self, record, attr_name, attr_value):
+        """Handle generic attributes that don't match specific patterns."""
+        return [self._create_single_extra_attribute_child(attr_name, attr_value, record)]
 
     def _create_sibling_items_with_filter_data(self, record):
         """Create sibling items (columns 1-8) with inherited filter data for Qt-native filtering.
