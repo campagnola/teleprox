@@ -246,7 +246,7 @@ class LogViewer(qt.QWidget):
 
         self.tree.setSortingEnabled(True)
         # Ensure chronological sorting from the start
-        self._ensure_chronological_sorting()
+        self.ensure_chronological_sorting()
 
         # Set up selection handling for highlighting
         self.tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
@@ -292,7 +292,7 @@ class LogViewer(qt.QWidget):
         if self._should_autoscroll:
             self.tree.scrollToBottom()
 
-    def new_record(self, rec):
+    def new_record(self, rec, sort=True):
         # Check if we're running in the Qt main thread
         current_thread = qt.QThread.currentThread()
         main_thread = qt.QApplication.instance().thread()
@@ -303,14 +303,14 @@ class LogViewer(qt.QWidget):
             return
 
         # Process the record in the GUI thread
-        self._process_record(rec)
+        self._process_record(rec, sort=sort)
 
-    def _process_record(self, rec):
+    def _process_record(self, rec, sort=True):
         """Process a log record in the GUI thread."""
         self.model.append_record(rec)
 
-        # Ensure sorting is maintained when adding new data
-        self._ensure_chronological_sorting()
+        if sort:
+            self.ensure_chronological_sorting()
 
     def set_records(self, *recs):
         """Replace all existing records with new ones, clearing selection and expansion but preserving filters."""
@@ -326,7 +326,7 @@ class LogViewer(qt.QWidget):
                 qt.QApplication.processEvents()
 
         # Ensure proper sorting after bulk update
-        self._ensure_chronological_sorting()
+        self.ensure_chronological_sorting()
 
         # Trigger repaint to clear any highlighting
         self.tree.viewport().update()
@@ -379,17 +379,13 @@ class LogViewer(qt.QWidget):
         # Remember the current filter strings
         self._last_filter_strings = filter_strings[:]
 
-    def _ensure_chronological_sorting(self):
+    def ensure_chronological_sorting(self):
         """Ensure the tree view is sorted chronologically by timestamp."""
         current_model = self.tree.model()
 
         # Set sort role to use numeric timestamp from ItemDataRole.NUMERIC_TIMESTAMP
         if hasattr(current_model, 'setSortRole'):
             current_model.setSortRole(ItemDataRole.NUMERIC_TIMESTAMP)
-
-        # Apply sorting
-        # if hasattr(current_model, 'sort'):
-        # current_model.sort(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
 
         self.tree.sortByColumn(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
 
