@@ -415,8 +415,8 @@ class HighlightDelegate(qt.QStyledItemDelegate):
             if highlight_type:
                 highlight_color = self._get_highlight_color(highlight_type, is_child=False, palette=option.palette)
                 painter.fillRect(option.rect, highlight_color)
-        except:
-            # If anything fails, just paint normally
+        except (AttributeError, IndexError, RuntimeError):
+            # If model access fails, just paint normally
             pass
             
         # Paint the item content

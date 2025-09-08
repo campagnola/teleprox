@@ -1,7 +1,9 @@
+import re
 import traceback
+
 from teleprox import qt
 from .constants import ItemDataRole, LogColumns, attrs_not_shown_as_children, ignorable_child_attrs
-from .utils import level_colors, thread_color, level_to_cipher
+from .utils import level_colors, thread_color
 
 
 class LogModel(qt.QStandardItemModel):
@@ -31,9 +33,10 @@ class LogModel(qt.QStandardItemModel):
     def _create_and_add_record_row(self, rec):
         """Create and add a single record row with lazy loading support."""
         # Create items for each column using LogColumns order
-        row_items = []
-        for col_id in range(len(LogColumns.TITLES)):
-            row_items.append(qt.QStandardItem(self._get_column_text(rec, col_id)))
+        row_items = [
+            qt.QStandardItem(self._get_column_text(rec, col_id))
+            for col_id in range(len(LogColumns.TITLES))
+        ]
 
         # Set colors based on log level
         level_color = level_colors.get(rec.levelno, "#000000")
@@ -288,31 +291,7 @@ class LogModel(qt.QStandardItemModel):
         # Check if this is a simple value that can be displayed inline
         attr_children = self._create_attribute_children(attr_value, record)
 
-        if not attr_children:
-            # Simple value - display as "attribute: value"
-            try:
-                value_str = str(attr_value)
-            except:
-                try:
-                    value_str = repr(attr_value)
-                except:
-                    value_str = f"<{type(attr_value).__name__} object>"
-
-            inline_display = f"{attr_name}: {value_str}"
-            attr_row = self._create_child_row(
-                "",
-                inline_display,
-                {
-                    'type': 'simple_attribute',
-                    'text': inline_display,
-                    'attr_name': attr_name,
-                    'attr_value': attr_value,
-                    'parent_record': record,
-                },
-                record,
-            )
-            return attr_row
-        else:
+        if attr_children:
             # Complex value - create category with children
             attr_category_item = self._create_category_item(attr_name, record)
 
@@ -322,6 +301,29 @@ class LogModel(qt.QStandardItemModel):
             # Create properly initialized sibling items for the category row
             sibling_items = self._create_sibling_items_with_filter_data(record)
             return [attr_category_item] + sibling_items
+
+        # Simple value - display as "attribute: value"
+        try:
+            value_str = str(attr_value)
+        except (TypeError, ValueError, RuntimeError):
+            try:
+                value_str = repr(attr_value)
+            except (TypeError, ValueError, RuntimeError):
+                value_str = f"<{type(attr_value).__name__} object>"
+
+        inline_display = f"{attr_name}: {value_str}"
+        return self._create_child_row(
+            "",
+            inline_display,
+            {
+                'type': 'simple_attribute',
+                'text': inline_display,
+                'attr_name': attr_name,
+                'attr_value': attr_value,
+                'parent_record': record,
+            },
+            record,
+        )
 
     def _create_category_item(self, text, parent_record):
         """Create a category item for grouping related log attributes."""
@@ -361,7 +363,7 @@ class LogModel(qt.QStandardItemModel):
                 # Add traceback frames for this exception
                 if chain_item['traceback']:
                     tb_lines = traceback.format_tb(chain_item['traceback'])
-                    for j, line in enumerate(tb_lines):
+                    for line in tb_lines:
                         # Use centralized frame processing
                         frame_children = self._create_frame_children(
                             line, 'traceback_frame', record
@@ -396,7 +398,6 @@ class LogModel(qt.QStandardItemModel):
 
     def _create_attribute_children(self, value, parent_record):
         """Recursively create children for an attribute value."""
-        import types
 
         children = []
 
@@ -415,12 +416,11 @@ class LogModel(qt.QStandardItemModel):
         elif hasattr(value, '__traceback__') and value.__traceback__:
             # Handle exception with traceback
             tb_lines = traceback.format_tb(value.__traceback__)
-            for i, line in enumerate(tb_lines):
+            for line in tb_lines:
                 # Use centralized frame processing
                 frame_children = self._create_frame_children(line, 'traceback_frame', parent_record)
                 children.extend(frame_children)
 
-        # Handle lists, tuples
         elif isinstance(value, (list, tuple)):
             for i, item in enumerate(value):
                 item_children = self._create_attribute_children(item, parent_record)
@@ -437,10 +437,9 @@ class LogModel(qt.QStandardItemModel):
                         index_item[0].appendRow(child_row)
                     children.append(index_item)
                 else:
-                    # Simple value, show inline
                     try:
                         item_str = str(item)
-                    except:
+                    except (TypeError, ValueError):
                         item_str = repr(item)
                     item_row = self._create_child_row(
                         "",
@@ -450,7 +449,6 @@ class LogModel(qt.QStandardItemModel):
                     )
                     children.append(item_row)
 
-        # Handle dictionaries
         elif isinstance(value, dict):
             for key, dict_value in value.items():
                 dict_children = self._create_attribute_children(dict_value, parent_record)
@@ -469,7 +467,7 @@ class LogModel(qt.QStandardItemModel):
                     # Simple value, show inline
                     try:
                         value_str = str(dict_value)
-                    except:
+                    except (TypeError, ValueError):
                         value_str = repr(dict_value)
                     key_row = self._create_child_row(
                         "",
@@ -479,7 +477,6 @@ class LogModel(qt.QStandardItemModel):
                     )
                     children.append(key_row)
 
-        # Handle simple values - return empty list to indicate it should be inline
         else:
             # Don't create children for simple values - they'll be handled inline
             pass
@@ -609,43 +606,21 @@ class LogModel(qt.QStandardItemModel):
 
     def _split_traceback_line(self, text):
         """Split a traceback line into parts to identify the clickable file portion."""
-        import re
-
         # Pattern to match the file path and line number portion
         # Example: 'File "/path/to/file.py", line 123, in function_name'
         # We want to identify: '/path/to/file.py", line 123'
-        file_pattern = r'File "([^"]+)", line (\d+)'
-        match = re.search(file_pattern, text)
-
-        if match:
-            file_path = match.group(1)
-            line_number = int(match.group(2))
-            # Find the start and end positions of the clickable part
-            start_pos = match.start()
-            end_pos = match.end()
-
-            return {
-                'has_file_ref': True,
-                'file_path': file_path,
-                'line_number': line_number,
-                'clickable_start': start_pos,
-                'clickable_end': end_pos,
-                'full_text': text,
-            }
-
         # Also check for simple path:line format like '/path/file.py:123'
-        simple_pattern = r'([^:]+):(\d+)'
-        match = re.search(simple_pattern, text)
+        match = re.search(r'File "([^"]+)", line (\d+)', text) or re.search(r'([^:]+):(\d+)', text)
+
         if match:
             file_path = match.group(1)
             line_number = int(match.group(2))
-
             return {
                 'has_file_ref': True,
                 'file_path': file_path,
                 'line_number': line_number,
-                'clickable_start': match.start(),
-                'clickable_end': match.end(),
+                'clickable_start': (match.start()),
+                'clickable_end': (match.end()),
                 'full_text': text,
             }
 
@@ -698,15 +673,8 @@ class LogModel(qt.QStandardItemModel):
             bold_font.setBold(True)
             item.setFont(bold_font)
 
-        # Style chain separators
-        if data_dict.get('type') == 'chain_separator':
-            italic_font = item.font()
-            italic_font.setItalic(True)
-            item.setFont(italic_font)
-            item.setForeground(qt.QColor("#888888"))  # Lighter gray for separators
-
-        # Style stack separators
-        if data_dict.get('type') == 'stack_separator':
+        # Style stack and chain separators
+        if data_dict.get('type') in ('stack_separator', 'chain_separator'):
             italic_font = item.font()
             italic_font.setItalic(True)
             item.setFont(italic_font)

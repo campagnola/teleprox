@@ -6,7 +6,7 @@ import time
 
 from teleprox import qt
 from .constants import ItemDataRole, LogColumns, attrs_not_shown_as_children
-from .export import export_logs_to_html, expand_all_content_for_export
+from .export import export_logs_to_html
 from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .log_model import LogModel
 from .widgets import FilterInputWidget, HighlightDelegate, SearchWidget
@@ -332,47 +332,10 @@ class LogViewer(qt.QWidget):
         # Trigger repaint to clear any highlighting
         self.tree.viewport().update()
 
-    def _set_child_spans(self, parent_item):
-        """Set column spans for all children of a parent item to span full width."""
-        # Find the LogViewer instance to access the tree view
-        viewer = None
-        current = parent_item
-        while current:
-            if hasattr(current, 'model') and hasattr(current.model(), 'parent'):
-                model_parent = current.model().parent()
-                if isinstance(model_parent, LogViewer):
-                    viewer = model_parent
-                    break
-            # Try to find the model and work backwards
-            if hasattr(current, 'model'):
-                model = current.model()
-                # Look for LogViewer in the model's parent chain
-                test_obj = model
-                while test_obj:
-                    if isinstance(test_obj, LogViewer):
-                        viewer = test_obj
-                        break
-                    test_obj = (
-                        getattr(test_obj, 'parent', lambda: None)()
-                        if hasattr(test_obj, 'parent')
-                        else None
-                    )
-                    if test_obj is None:
-                        break
-            break
-
-        # If we can't find the viewer through the model, we'll need to set spans later
-        # This will be called from the LogViewer class
-        pass
-
     def apply_filters(self, filter_strings):
         """Apply the given filter strings to the proxy model."""
-        old_final_model = self.proxy_model.final_model if USE_CHAINED_FILTERING else None
-
         # Save expansion state before changing filters
         expanded_paths = self.expansion_manager.save_state()
-        # print(f"Saved expansion state: {expanded_paths}")
-
         invalid_filters = self.proxy_model.set_filters(filter_strings)
 
         # Update filter input widget with invalid filter feedback
@@ -696,9 +659,8 @@ class LogViewer(qt.QWidget):
 
         # Get the unique log ID from the timestamp column
         try:
-            log_id = model.data(model.index(row, LogColumns.TIMESTAMP), ItemDataRole.LOG_ID)
-            return log_id
-        except:
+            return model.data(model.index(row, LogColumns.TIMESTAMP), ItemDataRole.LOG_ID)
+        except (AttributeError, IndexError, RuntimeError):
             return None
 
     def _restore_selection(self, selected_log_id):
@@ -720,7 +682,7 @@ class LogViewer(qt.QWidget):
                     )
                     self.tree.scrollTo(index)  # Scroll to show the selected item
                     break
-            except:
+            except (AttributeError, IndexError, RuntimeError):
                 continue
 
     def _parse_code_line_info(self, text):
