@@ -1,15 +1,15 @@
 # Core LogViewer implementation with Qt integration and log handling
 # Contains LogViewer widget, QtLogHandler, and main GUI functionality
 
-import html
 import logging
 import time
 
 from teleprox import qt
-from .widgets import FilterInputWidget, HighlightDelegate, SearchWidget
-from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .constants import ItemDataRole, LogColumns, attrs_not_shown_as_children
+from .export import export_logs_to_html, expand_all_content_for_export
+from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .log_model import LogModel
+from .widgets import FilterInputWidget, HighlightDelegate, SearchWidget
 
 
 class ExpansionStateManager:
@@ -131,80 +131,6 @@ class ExpansionStateManager:
             # Recursively set spans for grandchildren
             if current_model.rowCount(index) > 0:
                 self._set_spans_recursive(index, current_model)
-
-
-# HTML export template constants
-HTML_EXPORT_HEADER = """<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>{title}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        .log-table {{ border-collapse: collapse; width: 100%; }}
-        .log-table th, .log-table td {{ padding: 8px; text-align: left; }}
-        .log-table th {{ background-color: #f2f2f2; font-weight: bold; }}
-        .log-entry {{ border-bottom: 2px solid #ccc; }}
-        .child-entry {{ background-color: #f9f9f9; font-family: monospace; }}
-        .exception {{ color: #d9534f; font-weight: bold; }}
-        .traceback {{ color: #555; }}
-        .timestamp {{ white-space: nowrap; }}
-        .level-debug {{ color: #6c757d; }}
-        .level-info {{ color: #17a2b8; }}
-        .level-warning {{ color: #ffc107; }}
-        .level-error {{ color: #dc3545; }}
-        .level-critical {{ color: #dc3545; font-weight: bold; }}
-    </style>
-</head>
-<body>
-    <h1>{title}</h1>
-    <p>Generated on {timestamp}</p>"""
-
-HTML_FILTER_CRITERIA_SECTION = """
-    <div style="background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff;">
-        <h3 style="margin: 0 0 8px 0; color: #495057;">Applied Filters:</h3>
-        <ul style="margin: 0; padding-left: 20px;">
-{filter_items}
-        </ul>
-    </div>"""
-
-HTML_FILTER_ITEM = (
-    """            <li style="font-family: monospace; margin: 2px 0;">{filter_expr}</li>"""
-)
-
-HTML_NO_FILTERS = """
-    <div style="background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff;">
-        <h3 style="margin: 0 0 8px 0; color: #495057;">Applied Filters:</h3>
-        <p style="margin: 0; font-style: italic; color: #6c757d;">No filters applied</p>
-    </div>"""
-
-HTML_TABLE_HEADER = """
-    <table class="log-table">
-        <thead>
-            <tr>
-                <th>Timestamp</th>
-                <th>Source</th>
-                <th>Logger</th>
-                <th>Level</th>
-                <th>Message</th>
-            </tr>
-        </thead>
-        <tbody>"""
-
-HTML_EXPORT_FOOTER = """        </tbody>
-    </table>
-</body>
-</html>"""
-
-# Level to CSS class mapping for HTML export
-LEVEL_CSS_CLASSES = {
-    'DEBUG': 'level-debug',
-    'INFO': 'level-info',
-    'WARNING': 'level-warning',
-    'WARN': 'level-warning',
-    'ERROR': 'level-error',
-    'CRITICAL': 'level-critical',
-}
 
 
 class LogViewer(qt.QWidget):
@@ -555,14 +481,18 @@ class LogViewer(qt.QWidget):
 
         # Always get the timestamp column (column 0) which contains the LogRecord
         if source_index.column() != LogColumns.TIMESTAMP:
-            source_index = self.model.index(source_index.row(), LogColumns.TIMESTAMP, source_index.parent())
+            source_index = self.model.index(
+                source_index.row(), LogColumns.TIMESTAMP, source_index.parent()
+            )
 
         # If this is a child item, get the parent's LogRecord
         if index.parent().isValid():
             parent_source_index = self.map_index_to_model(index.parent())
             # Ensure parent is also timestamp column
             if parent_source_index.column() != LogColumns.TIMESTAMP:
-                parent_source_index = self.model.index(parent_source_index.row(), LogColumns.TIMESTAMP, parent_source_index.parent())
+                parent_source_index = self.model.index(
+                    parent_source_index.row(), LogColumns.TIMESTAMP, parent_source_index.parent()
+                )
             source_item = self.model.itemFromIndex(parent_source_index)
             is_child_item = True
             child_text = self.tree.model().data(index, qt.Qt.DisplayRole) or ""
@@ -612,7 +542,8 @@ class LogViewer(qt.QWidget):
         lines = [
             f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(log_record.created))}.{log_record.msecs:03.0f}",
             f"Source: {getattr(log_record, 'processName', 'Unknown')}/{getattr(log_record, 'threadName', 'Unknown')}",
-            f"Logger: {log_record.name}", f"Level: {log_record.levelno} - {log_record.levelname}",
+            f"Logger: {log_record.name}",
+            f"Level: {log_record.levelno} - {log_record.levelname}",
             f"Message: {log_record.getMessage()}",
         ]
 
@@ -667,13 +598,10 @@ class LogViewer(qt.QWidget):
     def _has_expandable_children(self, log_record, source_item):
         """Check if the log record has expandable children."""
         # Use same logic as model for consistency
-        return (
-            getattr(source_item, 'has_child_placeholder', False)
-            or any(
-                True
-                for k in log_record.__dict__
-                if (k not in attrs_not_shown_as_children and not k.startswith('_'))
-            )
+        return getattr(source_item, 'has_child_placeholder', False) or any(
+            True
+            for k in log_record.__dict__
+            if (k not in attrs_not_shown_as_children and not k.startswith('_'))
         )
 
     def _format_record_children_as_text(self, children, indent_level=1):
@@ -695,7 +623,9 @@ class LogViewer(qt.QWidget):
                             child_item.child(row, col) for col in range(child_item.columnCount())
                         ]
                         nested_children.append(nested_row)
-                    lines.extend(self._format_record_children_as_text(nested_children, indent_level + 1))
+                    lines.extend(
+                        self._format_record_children_as_text(nested_children, indent_level + 1)
+                    )
         return lines
 
     def _on_selection_changed(self, selected, deselected):
@@ -869,173 +799,24 @@ class LogViewer(qt.QWidget):
 
     def _export_all_to_html(self):
         """Export all log entries to HTML file."""
-        self._export_to_html(
-            dialog_title="Export All Logs to HTML",
+        export_logs_to_html(
+            self.model,
+            "All Log Entries",
+            filter_criteria=None,
+            parent_widget=self,
             default_filename="all_logs.html",
-            export_title="All Log Entries",
-            use_filtered_model=False,
         )
 
     def _export_filtered_to_html(self):
         """Export currently filtered log entries to HTML file."""
-        self._export_to_html(
-            dialog_title="Export Filtered Logs to HTML",
+        filter_criteria = self.filter_input_widget.get_filter_strings()
+        export_logs_to_html(
+            self.tree.model(),
+            "Filtered Log Entries",
+            filter_criteria=filter_criteria,
+            parent_widget=self,
             default_filename="filtered_logs.html",
-            export_title="Filtered Log Entries",
-            use_filtered_model=True,
         )
-
-    def _export_to_html(self, dialog_title, default_filename, export_title, use_filtered_model):
-        """Common export logic for both all and filtered exports."""
-        filename, _ = qt.QFileDialog.getSaveFileName(
-            self, dialog_title, default_filename, "HTML Files (*.html)"
-        )
-
-        if filename:
-            # Always expand all content in the source model first
-            self._expand_all_content_for_export(self.model)
-
-            if use_filtered_model:
-                # Export filtered logs - get filter criteria and use current tree model
-                filter_criteria = self.filter_input_widget.get_filter_strings()
-                model_to_export = self.tree.model()
-            else:
-                # Export all logs - no filter criteria, use source model
-                filter_criteria = None
-                model_to_export = self.model
-
-            self._export_model_to_html(model_to_export, filename, export_title, filter_criteria)
-
-    def _expand_all_content_for_export(self, model):
-        """Expand all lazy-loaded content in the model for export."""
-
-        def expand_recursive(parent_item):
-            # If this item has a loading placeholder, replace it with content
-            if getattr(parent_item, 'has_child_placeholder', False):
-                model.replace_placeholder_with_content(parent_item)
-
-            # Recursively expand all children
-            for row in range(parent_item.rowCount()):
-                child_item = parent_item.child(row, 0)
-                if child_item:
-                    expand_recursive(child_item)
-
-        # Expand all top-level items
-        for row in range(model.rowCount()):
-            top_level_item = model.item(row, 0)
-            if top_level_item:
-                expand_recursive(top_level_item)
-
-    def _export_model_to_html(self, model, filename, title, filter_criteria=None):
-        """Export the given model data to HTML file."""
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                # Write HTML header
-                f.write(
-                    HTML_EXPORT_HEADER.format(
-                        title=title, timestamp=time.strftime('%Y-%m-%d %H:%M:%S')
-                    )
-                )
-
-                # Add filter criteria summary if this is a filtered export
-                if filter_criteria is not None:
-                    if filter_criteria:
-                        filter_items = '\n'.join(
-                            HTML_FILTER_ITEM.format(filter_expr=html.escape(filter_expr))
-                            for filter_expr in filter_criteria
-                        )
-                        f.write(HTML_FILTER_CRITERIA_SECTION.format(filter_items=filter_items))
-                    else:
-                        f.write(HTML_NO_FILTERS)
-
-                f.write(HTML_TABLE_HEADER)
-
-                # Write log entries
-                self._write_model_rows_to_html(f, model, qt.QModelIndex())
-
-                # Write HTML footer
-                f.write(HTML_EXPORT_FOOTER)
-
-            # Success - no popup needed
-
-        except Exception as e:
-            # Show error message
-            qt.QMessageBox.critical(self, "Export Error", f"Failed to export logs:\\n{str(e)}")
-
-    def _write_model_rows_to_html(self, file, model, parent_index, indent_level=0):
-        """Recursively write model rows to HTML file."""
-        import html
-
-        row_count = model.rowCount(parent_index)
-        for row in range(row_count):
-            # Get data from each column
-            timestamp_index = model.index(row, LogColumns.TIMESTAMP, parent_index)
-            source_index = model.index(row, LogColumns.SOURCE, parent_index)
-            logger_index = model.index(row, LogColumns.LOGGER, parent_index)
-            level_index = model.index(row, LogColumns.LEVEL, parent_index)
-            message_index = model.index(row, LogColumns.MESSAGE, parent_index)
-
-            timestamp = model.data(timestamp_index, qt.Qt.DisplayRole) or ""
-            source = model.data(source_index, qt.Qt.DisplayRole) or ""
-            logger = model.data(logger_index, qt.Qt.DisplayRole) or ""
-            level = model.data(level_index, qt.Qt.DisplayRole) or ""
-            message = model.data(message_index, qt.Qt.DisplayRole) or ""
-
-            # Determine CSS class based on content and level
-            css_class = "child-entry" if indent_level > 0 else "log-entry"
-
-            # Add level-specific CSS class
-            level_upper = level.upper()
-            for level_name, css_suffix in LEVEL_CSS_CLASSES.items():
-                if level_name in level_upper:
-                    css_class += f" {css_suffix}"
-                    break
-
-            # Check if this is an exception or traceback line
-            python_data = model.data(timestamp_index, qt.Qt.UserRole)
-            if python_data and isinstance(python_data, dict):
-                data_type = python_data.get('type', '')
-                if data_type == 'exception':
-                    css_class += " exception"
-                elif data_type in ['traceback_frame', 'stack_frame']:
-                    css_class += " traceback"
-
-            # Write the row with column span for child entries
-            if indent_level > 0:
-                # Child entries span all columns
-                base_indent = "&nbsp;" * (indent_level * 4)  # Base hierarchy indentation
-
-                # Use the timestamp column content as the main content for child entries
-                content = timestamp if timestamp.strip() else message
-
-                # Add extra indentation for code lines (lines that start with 4+ spaces)
-                extra_indent = ""
-                if content.startswith("    ") and not content.strip().startswith("File "):
-                    # This is a code line, add extra indentation
-                    extra_indent = "&nbsp;" * 8
-
-                file.write(
-                    f"""            <tr class="{css_class}">
-                <td colspan="5">{base_indent}{extra_indent}{html.escape(content)}</td>
-            </tr>
-"""
-                )
-            else:
-                # Top-level entries use all columns
-                file.write(
-                    f"""            <tr class="{css_class}">
-                <td class="timestamp">{html.escape(timestamp)}</td>
-                <td>{html.escape(source)}</td>
-                <td>{html.escape(logger)}</td>
-                <td>{html.escape(level)}</td>
-                <td>{html.escape(message)}</td>
-            </tr>
-"""
-                )
-
-            # Recursively write child rows
-            if model.rowCount(timestamp_index) > 0:
-                self._write_model_rows_to_html(file, model, timestamp_index, indent_level + 1)
 
 
 class QtLogHandlerSignals(qt.QObject):
