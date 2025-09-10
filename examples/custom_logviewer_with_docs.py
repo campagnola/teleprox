@@ -86,6 +86,21 @@ class CustomLogModel(LogModel):
 
         return child_row
 
+    def _create_remote_exception_children(self, exc_value, record):
+        """Override to add docs support for exceptions that have getattr(exc, 'docs', [])."""
+        # Get the standard remote exception children first
+        children = super()._create_remote_exception_children(exc_value, record)
+
+        # Check if this exception has docs attribute
+        if hasattr(exc_value, 'docs'):
+            docs_attr = getattr(exc_value, 'docs', None)
+            if docs_attr:
+                # Use our docs handler to create documentation children
+                docs_children = self._create_docs_children(record, 'exception_docs', docs_attr)
+                children.extend(docs_children)
+
+        return children
+
 
 class CustomLogViewer(LogViewer):
     """Custom LogViewer that handles documentation link clicks."""
@@ -165,6 +180,14 @@ class CustomLogViewer(LogViewer):
             print(f"Failed to open documentation link {url}: {e}")
 
 
+class CustomExceptionWithDocs(Exception):
+    """Custom exception that includes documentation links."""
+
+    def __init__(self, message, docs=None):
+        super().__init__(message)
+        self.docs = docs or []
+
+
 def create_sample_log_records():
     """Create sample log records with documentation links for testing."""
     records = []
@@ -230,6 +253,34 @@ def create_sample_log_records():
     )
     records.append(record4)
 
+    # Sample 5: Record with exception that has docs attribute
+    try:
+        # Create and raise a custom exception with docs
+        exc_with_docs = CustomExceptionWithDocs(
+            "Database connection failed",
+            docs=[
+                'https://docs.example.com/database.html#connection-errors',
+                'https://support.example.com/kb/troubleshooting-db-connections',
+                'https://docs.example.com/database.html#connection-pooling',
+            ],
+        )
+        raise exc_with_docs
+    except CustomExceptionWithDocs:
+        import sys
+
+        exc_info = sys.exc_info()  # Get the current exception info
+        record5 = logger.makeRecord(
+            name='example.app.database',
+            level=logging.ERROR,
+            fn='db.py',
+            lno=200,
+            msg='Database error with documentation links in exception',
+            args=(),
+            exc_info=exc_info,  # Pass the actual exc_info tuple
+            extra={},
+        )
+        records.append(record5)
+
     return records
 
 
@@ -267,6 +318,7 @@ def main():
     print("- Clickable documentation links in log details")
     print("- Automatic browser opening for documentation")
     print("- Support for single or multiple doc links")
+    print("- Exception documentation links via getattr(exc, 'docs', [])")
     print()
     print("Instructions:")
     print("1. Expand any log entry that has documentation links")
