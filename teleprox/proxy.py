@@ -1,6 +1,10 @@
-# -*- coding: utf-8 -*-
-# Copyright (c) 2016, French National Center for Scientific Research (CNRS)
-# Distributed under the (new) BSD License. See LICENSE for more info.
+import weakref
+
+
+def _make_key(kwds):
+    if not isinstance(kwds, dict):
+        return kwds
+    return tuple(sorted((k, _make_key(v)) for k, v in kwds.items() if k != 'ref_id'))
 
 
 class ObjectProxy(object):
@@ -78,6 +82,20 @@ class ObjectProxy(object):
         remote_object.set_callback(proxy(callback))
     """
 
+    __proxy_cache = {}
+
+    @classmethod
+    def get_object_proxy(cls, **kwds):
+        """Return a proxy to an object, possibly reusing an existing proxy."""
+        if kwds.get('force_new', False):
+            return cls(**kwds)
+        key = _make_key(kwds)
+        if key not in cls.__proxy_cache or cls.__proxy_cache[key]() is None:
+            proxy = cls(**kwds)
+            cls.__proxy_cache[key] = weakref.ref(proxy)
+            return proxy
+        return cls.__proxy_cache[key]()
+
     def __init__(
         self,
         rpc_addr,
@@ -87,14 +105,23 @@ class ObjectProxy(object):
         type_str='',
         attributes=(),
         server_is_lazy=False,
+        force_new=False,
         **kwds,
     ):
+        """Don't create objects directly; use ObjectProxy.get_object_proxy() instead."""
         object.__init__(self)
 
-        ## can't set attributes directly because setattr is overridden.
-
+        # can't set attributes directly because setattr is overridden.
         self._init_state(
-            rpc_addr, obj_id, ref_id, local_server, type_str, attributes, server_is_lazy, proxy_options=kwds
+            rpc_addr,
+            obj_id,
+            ref_id,
+            local_server,
+            type_str,
+            attributes,
+            server_is_lazy,
+            force_new,
+            proxy_options=kwds,
         )
 
     def _init_state(
@@ -106,6 +133,7 @@ class ObjectProxy(object):
         type_str,
         attributes,
         server_is_lazy,
+        force_new,
         proxy_options=None,
     ):
         if isinstance(rpc_addr, str):
@@ -134,6 +162,7 @@ class ObjectProxy(object):
                 _client_=None,
                 _local_server=local_server,
                 _server_is_lazy=server_is_lazy,
+                _force_new=force_new,
                 _proxy_options=proxy_options,
             )
         )
@@ -159,9 +188,8 @@ class ObjectProxy(object):
 
     def _client(self):
         from .client import RPCClient
-        return RPCClient.get_client(
-            self._rpc_addr, local_server=self._local_server
-        )
+
+        return RPCClient.get_client(self._rpc_addr, local_server=self._local_server)
 
     def _set_proxy_options(self, **kwds):
         """
@@ -227,6 +255,9 @@ class ObjectProxy(object):
             if k not in self._proxy_options:
                 raise KeyError(f"Unrecognized proxy option '{k}'")
         self._proxy_options.update(kwds)
+        # update cache
+        key = _make_key(self.__getstate__() | {'local_server': self._local_server})
+        self.__class__.__proxy_cache[key] = weakref.ref(self)
 
     def _get_value(self):
         """
@@ -312,13 +343,14 @@ class ObjectProxy(object):
         """
         opts = self._proxy_options.copy()
         opts.update(kwds)
-        proxy = ObjectProxy(
-            self._rpc_addr,
-            self._obj_id,
-            self._ref_id,
-            self._local_server,
-            self._type_str,
-            self._attributes + (attr,),
+        proxy = ObjectProxy.get_object_proxy(
+            rpc_addr=self._rpc_addr,
+            obj_id=self._obj_id,
+            ref_id=self._ref_id,
+            local_server=self._local_server,
+            type_str=self._type_str,
+            attributes=self._attributes + (attr,),
+            force_new=self._force_new,
             **opts,
         )
         # Keep a reference to the parent proxy so that the remote object cannot be
@@ -385,9 +417,7 @@ class ObjectProxy(object):
         hashes.
         """
         if self._hash is None:
-            self.__dict__['_hash'] = hash(
-                (self._rpc_addr, self._obj_id, self._attributes)
-            )
+            self.__dict__['_hash'] = hash((self._rpc_addr, self._obj_id, self._attributes))
         return self._hash
 
     # Explicitly proxy special methods. Is there a better way to do this??
