@@ -203,7 +203,7 @@ class LogModel(qt.QStandardItemModel):
         if not attr_value:
             return []
         # strings get deserialized from log files as-is
-        if isinstance(attr_value, str):
+        if isinstance(attr_value, (str, list)):
             return self._create_exc_text_children(record, attr_name, attr_value)
 
         # Handle exc_info type
@@ -240,7 +240,9 @@ class LogModel(qt.QStandardItemModel):
         category_name = f"Exception Text ({attr_name})"
         exc_category_item = self._create_category_item(category_name, record)
 
-        lines = attr_value.split('\n')
+        lines = attr_value
+        if isinstance(attr_value, str):
+            lines = attr_value.split('\n')
         for i, line in enumerate(lines):
             if line.strip():
                 line_row = self._create_child_row(
