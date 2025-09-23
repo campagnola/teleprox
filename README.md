@@ -19,6 +19,7 @@ Examples
 
 ```python
 from teleprox import start_process
+import time
 
 # start a new process
 proc = start_process()
@@ -43,9 +44,3 @@ proc.stop()
 ```
 
 Teleprox was originally developed as pyacq.core.rpc by the French National Center for Scientific Research (CNRS).
-
-
-
-
-
-
