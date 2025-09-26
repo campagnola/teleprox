@@ -86,9 +86,7 @@ def test_rpc():
 
     # check equality with duplicate proxy
     obj2 = client['my_object']
-    assert obj == obj2
-    assert obj._obj_id == obj2._obj_id
-    assert obj._ref_id != obj2._ref_id
+    assert obj is obj2
 
     # check hashability
     assert obj in {obj2: None}
