@@ -1,18 +1,8 @@
 import logging
 import sys
 from unittest.mock import Mock
-from teleprox.log.logviewer.viewer import LogViewer
-from teleprox.log.logviewer.constants import ItemDataRole
-from teleprox import qt
 
-try:
-    import pytest
-except ImportError:
-    # Mock pytest for basic functionality
-    class MockPytest:
-        def fixture(self, func):
-            return func
-    pytest = MockPytest()
+from teleprox.log.logviewer.viewer import LogViewer
 
 
 class TestCodeLineClicking:

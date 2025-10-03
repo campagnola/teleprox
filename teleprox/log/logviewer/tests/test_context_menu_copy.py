@@ -1,19 +1,11 @@
 import logging
-import sys
 from unittest.mock import Mock, patch
-from teleprox.log.logviewer.viewer import LogViewer
-from teleprox.log.logviewer.constants import LogColumns
+
+import pytest
+
 from teleprox import qt
-
-try:
-    import pytest
-except ImportError:
-    # Mock pytest for basic functionality
-    class MockPytest:
-        def fixture(self, func):
-            return func
-
-    pytest = MockPytest()
+from teleprox.log.logviewer.constants import LogColumns
+from teleprox.log.logviewer.viewer import LogViewer
 
 
 class TestContextMenuCopy:
