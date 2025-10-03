@@ -1,7 +1,9 @@
+import re
 import traceback
+
 from teleprox import qt
 from .constants import ItemDataRole, LogColumns, attrs_not_shown_as_children, ignorable_child_attrs
-from .utils import level_colors, thread_color, level_to_cipher
+from .utils import level_colors, thread_color
 
 
 class LogModel(qt.QStandardItemModel):
@@ -15,10 +17,26 @@ class LogModel(qt.QStandardItemModel):
 
     def append_record(self, rec):
         """Append a row of log data, handling lazy loading placeholders for expandable records."""
+        self._create_and_add_record_row(rec)
+
+    def set_records(self, *records):
+        """Clear all existing records and set new ones, preserving ID counter."""
+        # Clear existing data
+        self.clear()
+        # Reset headers since clear() removes them
+        self.setHorizontalHeaderLabels(LogColumns.TITLES)
+
+        # Add each new record
+        for rec in records:
+            self._create_and_add_record_row(rec)
+
+    def _create_and_add_record_row(self, rec):
+        """Create and add a single record row with lazy loading support."""
         # Create items for each column using LogColumns order
-        row_items = []
-        for col_id in range(len(LogColumns.TITLES)):
-            row_items.append(qt.QStandardItem(self._get_column_text(rec, col_id)))
+        row_items = [
+            qt.QStandardItem(self._get_column_text(rec, col_id))
+            for col_id in range(len(LogColumns.TITLES))
+        ]
 
         # Set colors based on log level
         level_color = level_colors.get(rec.levelno, "#000000")
@@ -100,29 +118,53 @@ class LogModel(qt.QStandardItemModel):
             if attr_name.startswith('_') or attr_name in attrs_not_shown_as_children:
                 continue
 
-            # Route to appropriate handler based on attribute name and/or value
-            if attr_name == 'exc_info' or attr_name.endswith('_exc_info'):
-                # Handle exception attributes
-                attr_children = self._create_exc_info_children(record, attr_name, attr_value)
-            elif attr_name == 'exc_text' or attr_name.endswith('_exc_text'):
-                # Handle pre-formatted exception attributes
-                attr_children = self._create_exc_text_children(record, attr_name, attr_value)
-            elif (
-                attr_name == 'stack_info'
-                or attr_name.endswith('_stack_info')
-                or attr_name.endswith('_stack')
-                or attr_name.endswith('_traceback')
-            ):
-                # Handle stack/traceback attributes (including remote_stack_info, remote_exc_traceback)
-                attr_children = self._create_stack_children(record, attr_name, attr_value)
-            else:
-                # Handle other extra attributes
-                attr_children = [
-                    self._create_single_extra_attribute_child(attr_name, attr_value, record)
-                ]
+            # Route to appropriate handler based on attribute name
+            handler = self._get_attribute_handler(attr_name)
+            attr_children = handler(record, attr_name, attr_value)
             children.extend(attr_children)
 
         return children
+
+    def _get_attribute_handler(self, attr_name):
+        """Get the appropriate handler function for an attribute based on its name."""
+        # Handler patterns in priority order
+        handlers = [
+            # Exception info handlers
+            (
+                ['exc_info'],
+                lambda name: name == 'exc_info' or name.endswith('_exc_info'),
+                self._create_exc_info_children,
+            ),
+            # Exception text handlers
+            (
+                ['exc_text'],
+                lambda name: name == 'exc_text' or name.endswith('_exc_text'),
+                self._create_exc_text_children,
+            ),
+            # Stack/traceback handlers
+            (
+                ['stack_info', 'stack', 'traceback'],
+                lambda name: (
+                    name == 'stack_info'
+                    or name.endswith('_stack_info')
+                    or name.endswith('_stack')
+                    or name.endswith('_traceback')
+                ),
+                self._create_stack_children,
+            ),
+        ]
+
+        # Check each handler pattern
+        for keywords, matcher, handler_func in handlers:
+            if matcher(attr_name):
+                return handler_func
+
+        # Default handler for other attributes
+        return self._create_generic_attribute_children
+
+    def _create_generic_attribute_children(self, record, attr_name, attr_value):
+        """Handle generic attributes that don't match specific patterns."""
+        return [self._create_single_extra_attribute_child(attr_name, attr_value, record)]
 
     def _create_sibling_items_with_filter_data(self, record):
         """Create sibling items (columns 1-8) with inherited filter data for Qt-native filtering.
@@ -154,11 +196,12 @@ class LogModel(qt.QStandardItemModel):
 
     def _create_exc_info_children(self, record, attr_name, attr_value):
         """Create child items for exception information from a specific attribute."""
-        children = []
-
         # Skip if exc_info is None or empty
         if not attr_value:
-            return children
+            return []
+        # strings get deserialized from log files as-is
+        if isinstance(attr_value, (str, list)):
+            return self._create_exc_text_children(record, attr_name, attr_value)
 
         # Handle exc_info type
         exc_type, exc_value, exc_tb = attr_value
@@ -171,6 +214,8 @@ class LogModel(qt.QStandardItemModel):
             exc_category_item.appendRow(child_row)
 
         # Check if this is a RemoteCallException - add remote children as siblings
+        children = []
+
         if exc_value:
             remote_children = self._create_remote_exception_children(exc_value, record)
             children.extend(remote_children)
@@ -192,7 +237,9 @@ class LogModel(qt.QStandardItemModel):
         category_name = f"Exception Text ({attr_name})"
         exc_category_item = self._create_category_item(category_name, record)
 
-        lines = attr_value.split('\n')
+        lines = attr_value
+        if isinstance(attr_value, str):
+            lines = attr_value.split('\n')
         for i, line in enumerate(lines):
             if line.strip():
                 line_row = self._create_child_row(
@@ -243,31 +290,7 @@ class LogModel(qt.QStandardItemModel):
         # Check if this is a simple value that can be displayed inline
         attr_children = self._create_attribute_children(attr_value, record)
 
-        if not attr_children:
-            # Simple value - display as "attribute: value"
-            try:
-                value_str = str(attr_value)
-            except:
-                try:
-                    value_str = repr(attr_value)
-                except:
-                    value_str = f"<{type(attr_value).__name__} object>"
-
-            inline_display = f"{attr_name}: {value_str}"
-            attr_row = self._create_child_row(
-                "",
-                inline_display,
-                {
-                    'type': 'simple_attribute',
-                    'text': inline_display,
-                    'attr_name': attr_name,
-                    'attr_value': attr_value,
-                    'parent_record': record,
-                },
-                record,
-            )
-            return attr_row
-        else:
+        if attr_children:
             # Complex value - create category with children
             attr_category_item = self._create_category_item(attr_name, record)
 
@@ -277,6 +300,29 @@ class LogModel(qt.QStandardItemModel):
             # Create properly initialized sibling items for the category row
             sibling_items = self._create_sibling_items_with_filter_data(record)
             return [attr_category_item] + sibling_items
+
+        # Simple value - display as "attribute: value"
+        try:
+            value_str = str(attr_value)
+        except (TypeError, ValueError, RuntimeError):
+            try:
+                value_str = repr(attr_value)
+            except (TypeError, ValueError, RuntimeError):
+                value_str = f"<{type(attr_value).__name__} object>"
+
+        inline_display = f"{attr_name}: {value_str}"
+        return self._create_child_row(
+            "",
+            inline_display,
+            {
+                'type': 'simple_attribute',
+                'text': inline_display,
+                'attr_name': attr_name,
+                'attr_value': attr_value,
+                'parent_record': record,
+            },
+            record,
+        )
 
     def _create_category_item(self, text, parent_record):
         """Create a category item for grouping related log attributes."""
@@ -316,7 +362,7 @@ class LogModel(qt.QStandardItemModel):
                 # Add traceback frames for this exception
                 if chain_item['traceback']:
                     tb_lines = traceback.format_tb(chain_item['traceback'])
-                    for j, line in enumerate(tb_lines):
+                    for line in tb_lines:
                         # Use centralized frame processing
                         frame_children = self._create_frame_children(
                             line, 'traceback_frame', record
@@ -351,7 +397,6 @@ class LogModel(qt.QStandardItemModel):
 
     def _create_attribute_children(self, value, parent_record):
         """Recursively create children for an attribute value."""
-        import types
 
         children = []
 
@@ -370,12 +415,11 @@ class LogModel(qt.QStandardItemModel):
         elif hasattr(value, '__traceback__') and value.__traceback__:
             # Handle exception with traceback
             tb_lines = traceback.format_tb(value.__traceback__)
-            for i, line in enumerate(tb_lines):
+            for line in tb_lines:
                 # Use centralized frame processing
                 frame_children = self._create_frame_children(line, 'traceback_frame', parent_record)
                 children.extend(frame_children)
 
-        # Handle lists, tuples
         elif isinstance(value, (list, tuple)):
             for i, item in enumerate(value):
                 item_children = self._create_attribute_children(item, parent_record)
@@ -392,10 +436,9 @@ class LogModel(qt.QStandardItemModel):
                         index_item[0].appendRow(child_row)
                     children.append(index_item)
                 else:
-                    # Simple value, show inline
                     try:
                         item_str = str(item)
-                    except:
+                    except (TypeError, ValueError):
                         item_str = repr(item)
                     item_row = self._create_child_row(
                         "",
@@ -405,7 +448,6 @@ class LogModel(qt.QStandardItemModel):
                     )
                     children.append(item_row)
 
-        # Handle dictionaries
         elif isinstance(value, dict):
             for key, dict_value in value.items():
                 dict_children = self._create_attribute_children(dict_value, parent_record)
@@ -424,7 +466,7 @@ class LogModel(qt.QStandardItemModel):
                     # Simple value, show inline
                     try:
                         value_str = str(dict_value)
-                    except:
+                    except (TypeError, ValueError):
                         value_str = repr(dict_value)
                     key_row = self._create_child_row(
                         "",
@@ -434,7 +476,6 @@ class LogModel(qt.QStandardItemModel):
                     )
                     children.append(key_row)
 
-        # Handle simple values - return empty list to indicate it should be inline
         else:
             # Don't create children for simple values - they'll be handled inline
             pass
@@ -564,43 +605,21 @@ class LogModel(qt.QStandardItemModel):
 
     def _split_traceback_line(self, text):
         """Split a traceback line into parts to identify the clickable file portion."""
-        import re
-
         # Pattern to match the file path and line number portion
         # Example: 'File "/path/to/file.py", line 123, in function_name'
         # We want to identify: '/path/to/file.py", line 123'
-        file_pattern = r'File "([^"]+)", line (\d+)'
-        match = re.search(file_pattern, text)
-
-        if match:
-            file_path = match.group(1)
-            line_number = int(match.group(2))
-            # Find the start and end positions of the clickable part
-            start_pos = match.start()
-            end_pos = match.end()
-
-            return {
-                'has_file_ref': True,
-                'file_path': file_path,
-                'line_number': line_number,
-                'clickable_start': start_pos,
-                'clickable_end': end_pos,
-                'full_text': text,
-            }
-
         # Also check for simple path:line format like '/path/file.py:123'
-        simple_pattern = r'([^:]+):(\d+)'
-        match = re.search(simple_pattern, text)
+        match = re.search(r'File "([^"]+)", line (\d+)', text) or re.search(r'([^:]+):(\d+)', text)
+
         if match:
             file_path = match.group(1)
             line_number = int(match.group(2))
-
             return {
                 'has_file_ref': True,
                 'file_path': file_path,
                 'line_number': line_number,
-                'clickable_start': match.start(),
-                'clickable_end': match.end(),
+                'clickable_start': (match.start()),
+                'clickable_end': (match.end()),
                 'full_text': text,
             }
 
@@ -617,20 +636,28 @@ class LogModel(qt.QStandardItemModel):
         # Set the same data on ALL items so filtering works regardless of which column is checked
         self._set_filter_data_on_item(item, parent_record)
 
+        # Store the data dict for click handling
+        item.data_dict = data_dict
+
         # Set colors to differentiate from main log entries
         item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
 
-        # Make exception/stack items not selectable
-        item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
+        # Make traceback/stack frame items clickable for file navigation
+        if data_dict.get('type') in ['traceback_frame', 'stack_frame']:
+            item.setFlags(qt.Qt.ItemIsEnabled | qt.Qt.ItemIsSelectable)  # Allow clicking
+        else:
+            # Make other exception items not selectable
+            item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
 
         # Apply styling to the timestamp column item (where content is now)
         # Apply monospace font for code-like content
         text = data_dict.get('text', '')
         should_use_monospace = (
             data_dict.get('type') in ['traceback_frame', 'stack_frame']
-            or (text.startswith("    ") and not text.strip().startswith("File "))
-            or "^^^^"  # Code lines starting with 4+ spaces
-            in text  # Lines with error pointer characters
+            or (
+                text.startswith("    ") and not text.strip().startswith("File ")
+            )  # Code lines starting with 4+ spaces
+            or "^^^^" in text  # Lines with error pointer characters
         )
 
         if should_use_monospace:
@@ -645,15 +672,8 @@ class LogModel(qt.QStandardItemModel):
             bold_font.setBold(True)
             item.setFont(bold_font)
 
-        # Style chain separators
-        if data_dict.get('type') == 'chain_separator':
-            italic_font = item.font()
-            italic_font.setItalic(True)
-            item.setFont(italic_font)
-            item.setForeground(qt.QColor("#888888"))  # Lighter gray for separators
-
-        # Style stack separators
-        if data_dict.get('type') == 'stack_separator':
+        # Style stack and chain separators
+        if data_dict.get('type') in ('stack_separator', 'chain_separator'):
             italic_font = item.font()
             italic_font.setItalic(True)
             item.setFont(italic_font)

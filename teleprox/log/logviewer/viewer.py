@@ -1,15 +1,14 @@
 # Core LogViewer implementation with Qt integration and log handling
 # Contains LogViewer widget, QtLogHandler, and main GUI functionality
 
-import html
 import logging
-import time
 
 from teleprox import qt
-from .widgets import FilterInputWidget, HighlightDelegate, SearchWidget
-from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .constants import ItemDataRole, LogColumns
+from .export import export_logs_to_html, format_log_record_as_text
+from .filtering import LogFilterProxyModel, USE_CHAINED_FILTERING
 from .log_model import LogModel
+from .widgets import FilterInputWidget, HighlightDelegate, SearchWidget
 
 
 class ExpansionStateManager:
@@ -133,82 +132,18 @@ class ExpansionStateManager:
                 self._set_spans_recursive(index, current_model)
 
 
-# HTML export template constants
-HTML_EXPORT_HEADER = """<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>{title}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        .log-table {{ border-collapse: collapse; width: 100%; }}
-        .log-table th, .log-table td {{ padding: 8px; text-align: left; }}
-        .log-table th {{ background-color: #f2f2f2; font-weight: bold; }}
-        .log-entry {{ border-bottom: 2px solid #ccc; }}
-        .child-entry {{ background-color: #f9f9f9; font-family: monospace; }}
-        .exception {{ color: #d9534f; font-weight: bold; }}
-        .traceback {{ color: #555; }}
-        .timestamp {{ white-space: nowrap; }}
-        .level-debug {{ color: #6c757d; }}
-        .level-info {{ color: #17a2b8; }}
-        .level-warning {{ color: #ffc107; }}
-        .level-error {{ color: #dc3545; }}
-        .level-critical {{ color: #dc3545; font-weight: bold; }}
-    </style>
-</head>
-<body>
-    <h1>{title}</h1>
-    <p>Generated on {timestamp}</p>"""
-
-HTML_FILTER_CRITERIA_SECTION = """
-    <div style="background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff;">
-        <h3 style="margin: 0 0 8px 0; color: #495057;">Applied Filters:</h3>
-        <ul style="margin: 0; padding-left: 20px;">
-{filter_items}
-        </ul>
-    </div>"""
-
-HTML_FILTER_ITEM = (
-    """            <li style="font-family: monospace; margin: 2px 0;">{filter_expr}</li>"""
-)
-
-HTML_NO_FILTERS = """
-    <div style="background-color: #f8f9fa; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff;">
-        <h3 style="margin: 0 0 8px 0; color: #495057;">Applied Filters:</h3>
-        <p style="margin: 0; font-style: italic; color: #6c757d;">No filters applied</p>
-    </div>"""
-
-HTML_TABLE_HEADER = """
-    <table class="log-table">
-        <thead>
-            <tr>
-                <th>Timestamp</th>
-                <th>Source</th>
-                <th>Logger</th>
-                <th>Level</th>
-                <th>Message</th>
-            </tr>
-        </thead>
-        <tbody>"""
-
-HTML_EXPORT_FOOTER = """        </tbody>
-    </table>
-</body>
-</html>"""
-
-# Level to CSS class mapping for HTML export
-LEVEL_CSS_CLASSES = {
-    'DEBUG': 'level-debug',
-    'INFO': 'level-info',
-    'WARNING': 'level-warning',
-    'WARN': 'level-warning',
-    'ERROR': 'level-error',
-    'CRITICAL': 'level-critical',
-}
-
-
 class LogViewer(qt.QWidget):
-    """QWidget for displaying and filtering log messages."""
+    """QWidget for displaying and filtering log messages.
+
+    Arguments
+    ---------
+    logger : str | logging.Logger | None
+        Logger name or instance to attach to. If None, no handler is attached.
+    initial_filters : tuple of str
+        Initial filter expressions to apply. Default is ('level: info',).
+    parent : QWidget | None
+        Parent widget (see Qt documentation).
+    """
 
     # Signal emitted when user clicks on any code line (stack frame, traceback, etc.)
     code_line_clicked = qt.Signal(str, int)  # (file_path, line_number)
@@ -225,9 +160,10 @@ class LogViewer(qt.QWidget):
         # Set up handler to send log records to this widget by signal
         self.handler = QtLogHandler()
         self.handler.new_record.connect(self.new_record)
-        if isinstance(logger, str):
-            logger = logging.getLogger(logger)
-        logger.addHandler(self.handler)
+        if logger is not None:
+            if isinstance(logger, str):
+                logger = logging.getLogger(logger)
+            logger.addHandler(self.handler)
 
         # Set up thread-safe message handling - queued connection ensures GUI thread execution
         self._message_from_thread_signal.connect(self._process_record, qt.Qt.QueuedConnection)
@@ -280,6 +216,10 @@ class LogViewer(qt.QWidget):
         self.tree.setAlternatingRowColors(True)
         self.tree.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)  # Make non-editable
 
+        # Set up right-click context menu
+        self.tree.setContextMenuPolicy(qt.Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._show_row_context_menu)
+
         # Connect search widget to tree view
         self.search_widget.set_tree_view(self.tree)
 
@@ -306,7 +246,7 @@ class LogViewer(qt.QWidget):
 
         self.tree.setSortingEnabled(True)
         # Ensure chronological sorting from the start
-        self._ensure_chronological_sorting()
+        self.ensure_chronological_sorting()
 
         # Set up selection handling for highlighting
         self.tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
@@ -352,7 +292,7 @@ class LogViewer(qt.QWidget):
         if self._should_autoscroll:
             self.tree.scrollToBottom()
 
-    def new_record(self, rec):
+    def new_record(self, rec, sort=True):
         # Check if we're running in the Qt main thread
         current_thread = qt.QThread.currentThread()
         main_thread = qt.QApplication.instance().thread()
@@ -363,56 +303,38 @@ class LogViewer(qt.QWidget):
             return
 
         # Process the record in the GUI thread
-        self._process_record(rec)
+        self._process_record(rec, sort=sort)
 
-    def _process_record(self, rec):
+    def _process_record(self, rec, sort=True):
         """Process a log record in the GUI thread."""
         self.model.append_record(rec)
 
-        # Ensure sorting is maintained when adding new data
-        self._ensure_chronological_sorting()
+        if sort:
+            self.ensure_chronological_sorting()
 
-    def _set_child_spans(self, parent_item):
-        """Set column spans for all children of a parent item to span full width."""
-        # Find the LogViewer instance to access the tree view
-        viewer = None
-        current = parent_item
-        while current:
-            if hasattr(current, 'model') and hasattr(current.model(), 'parent'):
-                model_parent = current.model().parent()
-                if isinstance(model_parent, LogViewer):
-                    viewer = model_parent
-                    break
-            # Try to find the model and work backwards
-            if hasattr(current, 'model'):
-                model = current.model()
-                # Look for LogViewer in the model's parent chain
-                test_obj = model
-                while test_obj:
-                    if isinstance(test_obj, LogViewer):
-                        viewer = test_obj
-                        break
-                    test_obj = (
-                        getattr(test_obj, 'parent', lambda: None)()
-                        if hasattr(test_obj, 'parent')
-                        else None
-                    )
-                    if test_obj is None:
-                        break
-            break
+    def set_records(self, *recs):
+        """Replace all existing records with new ones, clearing selection and expansion but preserving filters."""
+        # Clear selection before replacing data
+        self.tree.selectionModel().clear()
+        self.model.set_records()
+        self.highlight_delegate.clear_highlight()
 
-        # If we can't find the viewer through the model, we'll need to set spans later
-        # This will be called from the LogViewer class
-        pass
+        # Replace all records in the model
+        for i, rec in enumerate(recs):
+            self.model.append_record(rec)
+            if i % 20 == 0:
+                qt.QApplication.processEvents()
+
+        # Ensure proper sorting after bulk update
+        self.ensure_chronological_sorting()
+
+        # Trigger repaint to clear any highlighting
+        self.tree.viewport().update()
 
     def apply_filters(self, filter_strings):
         """Apply the given filter strings to the proxy model."""
-        old_final_model = self.proxy_model.final_model if USE_CHAINED_FILTERING else None
-
         # Save expansion state before changing filters
         expanded_paths = self.expansion_manager.save_state()
-        # print(f"Saved expansion state: {expanded_paths}")
-
         invalid_filters = self.proxy_model.set_filters(filter_strings)
 
         # Update filter input widget with invalid filter feedback
@@ -457,17 +379,13 @@ class LogViewer(qt.QWidget):
         # Remember the current filter strings
         self._last_filter_strings = filter_strings[:]
 
-    def _ensure_chronological_sorting(self):
+    def ensure_chronological_sorting(self):
         """Ensure the tree view is sorted chronologically by timestamp."""
         current_model = self.tree.model()
 
         # Set sort role to use numeric timestamp from ItemDataRole.NUMERIC_TIMESTAMP
         if hasattr(current_model, 'setSortRole'):
             current_model.setSortRole(ItemDataRole.NUMERIC_TIMESTAMP)
-
-        # Apply sorting
-        # if hasattr(current_model, 'sort'):
-        # current_model.sort(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
 
         self.tree.sortByColumn(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
 
@@ -490,6 +408,42 @@ class LogViewer(qt.QWidget):
     def _toggle_column_visibility(self, column, visible):
         """Toggle visibility of a column."""
         self.tree.setColumnHidden(column, not visible)
+
+    def _show_row_context_menu(self, position):
+        """Show context menu for row operations when right-clicking on a row."""
+        # Get the index at the clicked position
+        index = self.tree.indexAt(position)
+        if not index.isValid():
+            return
+
+        menu = qt.QMenu(self)
+
+        # Add copy action
+        copy_action = qt.QAction("Copy", self)
+        copy_action.selectedIndex = index
+        copy_action.triggered.connect(self._copy_record_to_clipboard)
+        menu.addAction(copy_action)
+
+        # Show the menu at the cursor position
+        menu.popup(self.tree.mapToGlobal(position))
+
+    def _copy_record_to_clipboard(self):
+        """Copy the formatted full record for the selected row to the clipboard."""
+        index = self.sender().selectedIndex
+
+        # If this is a child item, get the parent's index
+        while index.parent().isValid():
+            index = index.parent()
+        unfiltered_index = self.map_index_to_model(index)
+        cell_index = self.model.index(unfiltered_index.row(), 0, index.parent())
+        log_record = getattr(self.model.itemFromIndex(cell_index), 'log_record')
+        if not log_record:
+            return
+
+        formatted_text = format_log_record_as_text(log_record)
+
+        clipboard = qt.QApplication.clipboard()
+        clipboard.setText(formatted_text)
 
     def _on_selection_changed(self, selected, deselected):
         """Handle selection changes to highlight related entries."""
@@ -572,9 +526,8 @@ class LogViewer(qt.QWidget):
 
         # Get the unique log ID from the timestamp column
         try:
-            log_id = model.data(model.index(row, LogColumns.TIMESTAMP), ItemDataRole.LOG_ID)
-            return log_id
-        except:
+            return model.data(model.index(row, LogColumns.TIMESTAMP), ItemDataRole.LOG_ID)
+        except (AttributeError, IndexError, RuntimeError):
             return None
 
     def _restore_selection(self, selected_log_id):
@@ -596,7 +549,7 @@ class LogViewer(qt.QWidget):
                     )
                     self.tree.scrollTo(index)  # Scroll to show the selected item
                     break
-            except:
+            except (AttributeError, IndexError, RuntimeError):
                 continue
 
     def _parse_code_line_info(self, text):
@@ -635,7 +588,7 @@ class LogViewer(qt.QWidget):
             return
 
         # Check if this is a code line (traceback_frame or stack_frame)
-        data = item.data(ItemDataRole.PYTHON_DATA)
+        data = item.data_dict
         if not data or not isinstance(data, dict):
             return
 
@@ -648,10 +601,6 @@ class LogViewer(qt.QWidget):
         if frame_parts and frame_parts.get('has_file_ref'):
             file_path = frame_parts.get('file_path')
             line_number = frame_parts.get('line_number')
-
-            if file_path and line_number:
-                # Emit signal with file path and line number
-                self.code_line_clicked.emit(file_path, line_number)
         else:
             # Fallback to on-demand parsing for older data
             text = data.get('text', '')
@@ -660,178 +609,30 @@ class LogViewer(qt.QWidget):
             file_path = file_info.get('file_path')
             line_number = file_info.get('line_number')
 
-            if file_path and line_number:
-                self.code_line_clicked.emit(file_path, line_number)
+        if file_path and line_number:
+            # Emit signal with file path and line number
+            self.code_line_clicked.emit(file_path, line_number)
 
     def _export_all_to_html(self):
         """Export all log entries to HTML file."""
-        self._export_to_html(
-            dialog_title="Export All Logs to HTML",
+        export_logs_to_html(
+            self.model,
+            "All Log Entries",
+            filter_criteria=None,
+            parent_widget=self,
             default_filename="all_logs.html",
-            export_title="All Log Entries",
-            use_filtered_model=False,
         )
 
     def _export_filtered_to_html(self):
         """Export currently filtered log entries to HTML file."""
-        self._export_to_html(
-            dialog_title="Export Filtered Logs to HTML",
+        filter_criteria = self.filter_input_widget.get_filter_strings()
+        export_logs_to_html(
+            self.tree.model(),
+            "Filtered Log Entries",
+            filter_criteria=filter_criteria,
+            parent_widget=self,
             default_filename="filtered_logs.html",
-            export_title="Filtered Log Entries",
-            use_filtered_model=True,
         )
-
-    def _export_to_html(self, dialog_title, default_filename, export_title, use_filtered_model):
-        """Common export logic for both all and filtered exports."""
-        filename, _ = qt.QFileDialog.getSaveFileName(
-            self, dialog_title, default_filename, "HTML Files (*.html)"
-        )
-
-        if filename:
-            # Always expand all content in the source model first
-            self._expand_all_content_for_export(self.model)
-
-            if use_filtered_model:
-                # Export filtered logs - get filter criteria and use current tree model
-                filter_criteria = self.filter_input_widget.get_filter_strings()
-                model_to_export = self.tree.model()
-            else:
-                # Export all logs - no filter criteria, use source model
-                filter_criteria = None
-                model_to_export = self.model
-
-            self._export_model_to_html(model_to_export, filename, export_title, filter_criteria)
-
-    def _expand_all_content_for_export(self, model):
-        """Expand all lazy-loaded content in the model for export."""
-
-        def expand_recursive(parent_item):
-            # If this item has a loading placeholder, replace it with content
-            if getattr(parent_item, 'has_child_placeholder', False):
-                model.replace_placeholder_with_content(parent_item)
-
-            # Recursively expand all children
-            for row in range(parent_item.rowCount()):
-                child_item = parent_item.child(row, 0)
-                if child_item:
-                    expand_recursive(child_item)
-
-        # Expand all top-level items
-        for row in range(model.rowCount()):
-            top_level_item = model.item(row, 0)
-            if top_level_item:
-                expand_recursive(top_level_item)
-
-    def _export_model_to_html(self, model, filename, title, filter_criteria=None):
-        """Export the given model data to HTML file."""
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                # Write HTML header
-                f.write(
-                    HTML_EXPORT_HEADER.format(
-                        title=title, timestamp=time.strftime('%Y-%m-%d %H:%M:%S')
-                    )
-                )
-
-                # Add filter criteria summary if this is a filtered export
-                if filter_criteria is not None:
-                    if filter_criteria:
-                        filter_items = '\n'.join(
-                            HTML_FILTER_ITEM.format(filter_expr=html.escape(filter_expr))
-                            for filter_expr in filter_criteria
-                        )
-                        f.write(HTML_FILTER_CRITERIA_SECTION.format(filter_items=filter_items))
-                    else:
-                        f.write(HTML_NO_FILTERS)
-
-                f.write(HTML_TABLE_HEADER)
-
-                # Write log entries
-                self._write_model_rows_to_html(f, model, qt.QModelIndex())
-
-                # Write HTML footer
-                f.write(HTML_EXPORT_FOOTER)
-
-            # Success - no popup needed
-
-        except Exception as e:
-            # Show error message
-            qt.QMessageBox.critical(self, "Export Error", f"Failed to export logs:\\n{str(e)}")
-
-    def _write_model_rows_to_html(self, file, model, parent_index, indent_level=0):
-        """Recursively write model rows to HTML file."""
-        import html
-
-        row_count = model.rowCount(parent_index)
-        for row in range(row_count):
-            # Get data from each column
-            timestamp_index = model.index(row, LogColumns.TIMESTAMP, parent_index)
-            source_index = model.index(row, LogColumns.SOURCE, parent_index)
-            logger_index = model.index(row, LogColumns.LOGGER, parent_index)
-            level_index = model.index(row, LogColumns.LEVEL, parent_index)
-            message_index = model.index(row, LogColumns.MESSAGE, parent_index)
-
-            timestamp = model.data(timestamp_index, qt.Qt.DisplayRole) or ""
-            source = model.data(source_index, qt.Qt.DisplayRole) or ""
-            logger = model.data(logger_index, qt.Qt.DisplayRole) or ""
-            level = model.data(level_index, qt.Qt.DisplayRole) or ""
-            message = model.data(message_index, qt.Qt.DisplayRole) or ""
-
-            # Determine CSS class based on content and level
-            css_class = "child-entry" if indent_level > 0 else "log-entry"
-
-            # Add level-specific CSS class
-            level_upper = level.upper()
-            for level_name, css_suffix in LEVEL_CSS_CLASSES.items():
-                if level_name in level_upper:
-                    css_class += f" {css_suffix}"
-                    break
-
-            # Check if this is an exception or traceback line
-            python_data = model.data(timestamp_index, qt.Qt.UserRole)
-            if python_data and isinstance(python_data, dict):
-                data_type = python_data.get('type', '')
-                if data_type == 'exception':
-                    css_class += " exception"
-                elif data_type in ['traceback_frame', 'stack_frame']:
-                    css_class += " traceback"
-
-            # Write the row with column span for child entries
-            if indent_level > 0:
-                # Child entries span all columns
-                base_indent = "&nbsp;" * (indent_level * 4)  # Base hierarchy indentation
-
-                # Use the timestamp column content as the main content for child entries
-                content = timestamp if timestamp.strip() else message
-
-                # Add extra indentation for code lines (lines that start with 4+ spaces)
-                extra_indent = ""
-                if content.startswith("    ") and not content.strip().startswith("File "):
-                    # This is a code line, add extra indentation
-                    extra_indent = "&nbsp;" * 8
-
-                file.write(
-                    f"""            <tr class="{css_class}">
-                <td colspan="5">{base_indent}{extra_indent}{html.escape(content)}</td>
-            </tr>
-"""
-                )
-            else:
-                # Top-level entries use all columns
-                file.write(
-                    f"""            <tr class="{css_class}">
-                <td class="timestamp">{html.escape(timestamp)}</td>
-                <td>{html.escape(source)}</td>
-                <td>{html.escape(logger)}</td>
-                <td>{html.escape(level)}</td>
-                <td>{html.escape(message)}</td>
-            </tr>
-"""
-                )
-
-            # Recursively write child rows
-            if model.rowCount(timestamp_index) > 0:
-                self._write_model_rows_to_html(file, model, timestamp_index, indent_level + 1)
 
 
 class QtLogHandlerSignals(qt.QObject):

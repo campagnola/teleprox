@@ -71,6 +71,11 @@ def import_qt(qt_lib=None):
     qt_namespace.update(qtgui.__dict__)
     qtwidgets = importlib.import_module(f'{QT_LIB}.QtWidgets')
     qt_namespace.update(qtwidgets.__dict__)
+    try:
+        qttest = importlib.import_module(QT_LIB + '.QtTest')
+        qt_namespace.update(qttest.__dict__)
+    except ImportError:
+        pass  # QtTest might not be available in all distributions
 
     if 'PySide' not in QT_LIB:
         qt_namespace['Signal'] = qt_namespace[
