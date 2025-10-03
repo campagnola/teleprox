@@ -420,7 +420,7 @@ class LogViewer(qt.QWidget):
 
         # Add copy action
         copy_action = qt.QAction("Copy", self)
-        copy_action.setData(position)
+        copy_action.selectedIndex = index
         copy_action.triggered.connect(self._copy_record_to_clipboard)
         menu.addAction(copy_action)
 
@@ -429,19 +429,14 @@ class LogViewer(qt.QWidget):
 
     def _copy_record_to_clipboard(self):
         """Copy the formatted full record for the selected row to the clipboard."""
-        position = self.sender().data()
-        index = self.tree.indexAt(position)
-        if not index.isValid():
-            return
+        index = self.sender().selectedIndex
 
         # If this is a child item, get the parent's index
         while index.parent().isValid():
             index = index.parent()
-        index = self.map_index_to_model(index)
-        index = self.model.index(
-            index.row(), LogColumns.TIMESTAMP, index.parent()
-        )
-        log_record = self.model.data(index, ItemDataRole.PYTHON_DATA)
+        unfiltered_index = self.map_index_to_model(index)
+        cell_index = self.model.index(unfiltered_index.row(), 0, index.parent())
+        log_record = getattr(self.model.itemFromIndex(cell_index), 'log_record')
         if not log_record:
             return
 

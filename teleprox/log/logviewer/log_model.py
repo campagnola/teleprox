@@ -56,9 +56,6 @@ class LogModel(qt.QStandardItemModel):
         # Set data unique to main row items
         row_items[0].log_record = rec
         row_items[0].setData(log_id, ItemDataRole.LOG_ID)  # Store unique log ID
-        row_items[0].setData(
-            rec, ItemDataRole.PYTHON_DATA
-        )  # Also store LogRecord in Qt data for consistency
 
         # Add items to the model
         self.appendRow(row_items)
