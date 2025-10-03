@@ -588,7 +588,7 @@ class LogViewer(qt.QWidget):
             return
 
         # Check if this is a code line (traceback_frame or stack_frame)
-        data = item.data(ItemDataRole.PYTHON_DATA)
+        data = item.data_dict
         if not data or not isinstance(data, dict):
             return
 

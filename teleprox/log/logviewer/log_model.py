@@ -637,7 +637,7 @@ class LogModel(qt.QStandardItemModel):
         self._set_filter_data_on_item(item, parent_record)
 
         # Store the data dict for click handling
-        item.setData(data_dict, ItemDataRole.PYTHON_DATA)
+        item.data_dict = data_dict
 
         # Set colors to differentiate from main log entries
         item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
