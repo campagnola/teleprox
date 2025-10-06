@@ -186,7 +186,7 @@ class Serializer:
             elif type_name == 'proxy':
                 if 'attributes' in dct:
                     dct['attributes'] = tuple(dct['attributes'])
-                proxy = ObjectProxy(**dct, local_server=self._server)
+                proxy = ObjectProxy.get_object_proxy(**dct, local_server=self._server)
                 if self._proxy_opts is not None:
                     proxy._set_proxy_options(**self._proxy_opts)
                 if self._server is not None and proxy._rpc_addr == self._server.address:

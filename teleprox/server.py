@@ -166,12 +166,12 @@ class RPCServer(object):
         self._next_ref_id += 1
         oid = self._get_object_id(obj)
         type_str = str(type(obj))
-        proxy = ObjectProxy(
-            self.address,
-            oid,
-            rid,
-            self,
-            type_str,
+        proxy = ObjectProxy.get_object_proxy(
+            rpc_addr=self.address,
+            obj_id=oid,
+            ref_id=rid,
+            local_server=self,
+            type_str=type_str,
             attributes=(),
             server_is_lazy=self.is_lazy,
             **kwds,
