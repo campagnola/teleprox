@@ -15,11 +15,11 @@ attrs_not_shown_as_children = {
 ignorable_child_attrs = {'exc_info', 'exc_text', 'stack_info'}
 
 
-
 class ItemDataRole:
     """Constants for QStandardItem UserRole data slots."""
     # Primary data slot - references to Python objects
-    PYTHON_DATA = qt.Qt.UserRole           # LogRecord object, or custom data dict
+    LOG_RECORD = qt.Qt.UserRole             # LogRecord object, or custom data dict
+    ROW_DETAILS = qt.Qt.UserRole + 100      # dict of extra attributes for child items
     
     # Qt-specific data for sorting/filtering/display
     NUMERIC_TIMESTAMP = qt.Qt.UserRole + 1  # float timestamp for sorting
