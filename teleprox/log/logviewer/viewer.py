@@ -436,7 +436,7 @@ class LogViewer(qt.QWidget):
             index = index.parent()
         unfiltered_index = self.map_index_to_model(index)
         cell_index = self.model.index(unfiltered_index.row(), 0, index.parent())
-        log_record = getattr(self.model.itemFromIndex(cell_index), 'log_record')
+        log_record = self.model.itemFromIndex(cell_index).data(ItemDataRole.LOG_RECORD)
         if not log_record:
             return
 
@@ -588,8 +588,8 @@ class LogViewer(qt.QWidget):
             return
 
         # Check if this is a code line (traceback_frame or stack_frame)
-        data = item.data_dict
-        if not data or not isinstance(data, dict):
+        data = item.data(ItemDataRole.ROW_DETAILS)
+        if not data or data.get('type') == 'primary_item':
             return
 
         item_type = data.get('type')

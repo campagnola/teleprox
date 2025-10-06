@@ -161,7 +161,7 @@ class CustomLogViewer(LogViewer):
             return
 
         # Check if this is a documentation link
-        data = item.data(ItemDataRole.PYTHON_DATA)
+        data = item.data(ItemDataRole.LOG_RECORD)
         if data and isinstance(data, dict) and data.get('type') == 'documentation_link':
             url = data.get('url')
             if url:

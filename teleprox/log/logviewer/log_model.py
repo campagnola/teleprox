@@ -33,10 +33,12 @@ class LogModel(qt.QStandardItemModel):
     def _create_and_add_record_row(self, rec):
         """Create and add a single record row with lazy loading support."""
         # Create items for each column using LogColumns order
-        row_items = [
-            qt.QStandardItem(self._get_column_text(rec, col_id))
-            for col_id in range(len(LogColumns.TITLES))
-        ]
+
+        row_items = []
+        for col_id in range(len(LogColumns.TITLES)):
+            item = qt.QStandardItem(self._get_column_text(rec, col_id))
+            item.data_dict = rec
+            row_items.append(item)
 
         # Set colors based on log level
         level_color = level_colors.get(rec.levelno, "#000000")
@@ -54,8 +56,10 @@ class LogModel(qt.QStandardItemModel):
         self._set_filter_data_on_items(row_items, rec)
 
         # Set data unique to main row items
-        row_items[0].log_record = rec
-        row_items[0].setData(log_id, ItemDataRole.LOG_ID)  # Store unique log ID
+        # we cannot trust to attrs because Qt will be .clone()'ing items
+        row_items[0].setData(log_id, ItemDataRole.LOG_ID)
+        row_items[0].setData(rec, ItemDataRole.LOG_RECORD)
+        row_items[0].setData({'type': 'primary_item', 'record': rec}, ItemDataRole.ROW_DETAILS)
 
         # Add items to the model
         self.appendRow(row_items)
@@ -92,7 +96,7 @@ class LogModel(qt.QStandardItemModel):
             return
 
         # Get the stored log record
-        log_record = parent_item.log_record
+        log_record = parent_item.data(ItemDataRole.LOG_RECORD)
         if log_record is None:
             return
 
@@ -638,6 +642,8 @@ class LogModel(qt.QStandardItemModel):
 
         # Store the data dict for click handling
         item.data_dict = data_dict
+        # we cannot trust to attrs because Qt will be .clone()'ing items
+        item.setData(data_dict, ItemDataRole.ROW_DETAILS)
 
         # Set colors to differentiate from main log entries
         item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
