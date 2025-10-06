@@ -5,7 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.0]
+
+### Added
+- Added `LogViewer.set_records()` method for bulk log replacement
+- Enhanced log viewer with disconnected operation capability
+- Added copy functionality to context menu for log entries
+- Improved text export functionality with all fields included
+- Added custom LogViewer example with documentation links
+- Enhanced exception handling for differently serialized exc_info
+- Added rate limiting for UI responsiveness during high-volume logging
+
+### Fixed
+- Fixed log record references that had been lost during processing
+- Fixed code line clicking functionality in log viewer traceback frames
+- Improved exception handling for pre-stringed exc_info
+- Enhanced copy functionality to work from any sub-item in log viewer
+- Fixed recursion error in proxy object deletion
+
+### Changed
+- Applied selective black code formatting for consistency
+- Enhanced data attribute handling using attrs instead of Qt data
+- Moved text export functionality into dedicated export.py module
+- Refactored export behavior out of main LogViewer class
+- Code refactoring for improved clarity and simplicity
+
+## [2.0.0]
 
 ### Added
 
