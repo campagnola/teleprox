@@ -32,10 +32,10 @@ class TestContextMenuCopy:
             model = viewer.tree.model()
             index = model.index(0, LogColumns.TIMESTAMP)
 
-            # Mock the sender to provide the position data
+            # Mock the sender to provide the selectedIndex
             with patch.object(viewer, 'sender') as mock_sender:
                 mock_action = Mock()
-                mock_action.data.return_value = qt.QPoint(0, 0)  # Position doesn't matter for this test
+                mock_action.selectedIndex = index  # Set the selectedIndex that _copy_record_to_clipboard expects
                 mock_sender.return_value = mock_action
                 
                 # Mock indexAt to return our test index
