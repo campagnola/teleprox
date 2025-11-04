@@ -87,8 +87,6 @@ class ObjectProxy(object):
     @classmethod
     def get_object_proxy(cls, **kwds):
         """Return a proxy to an object, possibly reusing an existing proxy."""
-        if kwds.get('force_new', False):
-            return cls(**kwds)
         key = _make_key(kwds)
         if key not in cls.__proxy_cache or cls.__proxy_cache[key]() is None:
             proxy = cls(**kwds)
@@ -105,7 +103,6 @@ class ObjectProxy(object):
         type_str='',
         attributes=(),
         server_is_lazy=False,
-        force_new=False,
         **kwds,
     ):
         """Don't create objects directly; use ObjectProxy.get_object_proxy() instead."""
@@ -120,7 +117,6 @@ class ObjectProxy(object):
             type_str,
             attributes,
             server_is_lazy,
-            force_new,
             proxy_options=kwds,
         )
 
@@ -133,7 +129,6 @@ class ObjectProxy(object):
         type_str,
         attributes,
         server_is_lazy,
-        force_new,
         proxy_options=None,
     ):
         if isinstance(rpc_addr, str):
@@ -162,7 +157,6 @@ class ObjectProxy(object):
                 _client_=None,
                 _local_server=local_server,
                 _server_is_lazy=server_is_lazy,
-                _force_new=force_new,
                 _proxy_options=proxy_options,
             )
         )
@@ -350,7 +344,6 @@ class ObjectProxy(object):
             local_server=self._local_server,
             type_str=self._type_str,
             attributes=self._attributes + (attr,),
-            force_new=self._force_new,
             **opts,
         )
         # Keep a reference to the parent proxy so that the remote object cannot be
