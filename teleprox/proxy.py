@@ -248,8 +248,11 @@ class ObjectProxy(object):
         for k in kwds:
             if k not in self._proxy_options:
                 raise KeyError(f"Unrecognized proxy option '{k}'")
+        old_key = _make_key(self.__getstate__())
         self._proxy_options.update(kwds)
         # update cache
+        if old_key in self.__class__.__proxy_cache:
+            del self.__class__.__proxy_cache[old_key]
         key = _make_key(self.__getstate__() | {'local_server': self._local_server})
         self.__class__.__proxy_cache[key] = weakref.ref(self)
 
