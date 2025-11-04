@@ -82,6 +82,26 @@ def test_proxy_del_infinite_recursion():
     ), f"Detected infinite recursion in stderr - the bug still exists: {stderr_output[:1000]}..."
 
 
+def test_proxy_identity():
+    """Test that proxies maintain identity correctly."""
+    with ProcessCleaner() as cleaner:
+        proc = teleprox.start_process(name='test_proxy_identity')
+        cleaner.add(proc)
+
+        remote_os = proc.client._import('os')
+        assert remote_os is proc.client._import('os')
+
+        assert remote_os.listdir is remote_os.listdir  # Same proxy object for same attr
+
+        remote_list_1 = remote_os.listdir('.')
+        remote_list_2 = remote_os.listdir('.')
+
+        assert remote_list_1 is not remote_list_2  # Different proxy objects for different remote objects
+        assert remote_list_1 == remote_list_2  # But they represent equal values
+
+        proc.stop()
+
+
 def test_numpy_numbers():
     """Test that numpy number proxies behave correctly without causing infinite recursion."""
     with ProcessCleaner() as cleaner:
