@@ -25,7 +25,7 @@ Homepage = "http://github.com/campagnola/teleprox"
 Repository = "http://github.com/campagnola/teleprox"
 
 [tool.setuptools]
-packages = ["teleprox"]
+packages = {find = {exclude = ["*.tests*"]}}
 
 [tool.setuptools.dynamic]
 version = {attr = "teleprox.__version__"}
