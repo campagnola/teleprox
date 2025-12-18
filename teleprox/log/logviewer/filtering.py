@@ -172,8 +172,31 @@ class ChainedLogFilterManager:
     def map_index_to_model(self, index):
         """Map an index from the final proxy output back to the source model."""
         for proxy in reversed(self.proxy_chain):
-            index = proxy.mapToSource(index)        
+            index = proxy.mapToSource(index)
         return index
+
+    def set_source_model(self, new_source_model):
+        """Update the source model and rebuild the proxy chain."""
+        self.source_model = new_source_model
+
+        # Rebuild the entire chain with the new source model
+        # This re-applies all existing filters to the new model
+        if self.proxy_chain:
+            # Store current filter configs by extracting them from existing proxies
+            # We need to rebuild because we can't just swap the source on a chain
+            current_model = new_source_model
+            for proxy in self.proxy_chain:
+                proxy.setSourceModel(current_model)
+                current_model = proxy
+
+            self.final_model = current_model
+
+            # Invalidate filters on all proxies to apply to new data
+            for proxy in self.proxy_chain:
+                proxy.invalidateFilter()
+        else:
+            # No filters active, just update the reference
+            self.final_model = new_source_model
 
     def set_filters(self, filter_strings):
         """Parse filters and build/update proxy chain dynamically.
@@ -249,12 +272,12 @@ class ChainedLogFilterManager:
         if not self.proxy_chain:
             self.final_model = self.source_model
             return
-            
+
         current_model = self.source_model
         for proxy in self.proxy_chain:
             proxy.setSourceModel(current_model)
             current_model = proxy
-        
+
         self.final_model = current_model
     
     def _apply_filter_to_proxy(self, proxy, field, value):
