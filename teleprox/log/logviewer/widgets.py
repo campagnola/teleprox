@@ -335,7 +335,7 @@ class FilterInputWidget(qt.QWidget):
 
         # Show menu at button position
         button_pos = self.menu_button.mapToGlobal(self.menu_button.rect().bottomLeft())
-        menu.exec_(button_pos)
+        qt.exec_menu(menu, button_pos)
 
 
 class HighlightDelegate(qt.QStyledItemDelegate):

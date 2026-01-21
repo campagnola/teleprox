@@ -8,7 +8,7 @@ import signal
 import sys
 import time
 
-from PyQt5 import QtWidgets, QtCore
+from teleprox import qt
 
 import teleprox
 import teleprox.log
@@ -19,7 +19,7 @@ from teleprox.log.logviewer import LogViewer
 def create_daemon_gui():
     """Function to be imported by daemon process to create its own GUI"""
 
-    class DaemonGUI(QtWidgets.QWidget):
+    class DaemonGUI(qt.QWidget):
         def __init__(self):
             super().__init__()
             self.message_count = 0
@@ -29,36 +29,36 @@ def create_daemon_gui():
             self.setWindowTitle("Daemon Process - Independent GUI")
             self.setGeometry(600, 100, 350, 250)
 
-            layout = QtWidgets.QVBoxLayout()
+            layout = qt.QVBoxLayout()
 
             # Status info
             import os
-            pid_label = QtWidgets.QLabel(f"Daemon PID: {os.getpid()}")
+            pid_label = qt.QLabel(f"Daemon PID: {os.getpid()}")
             layout.addWidget(pid_label)
 
-            self.status_label = QtWidgets.QLabel("Daemon process is running independently")
+            self.status_label = qt.QLabel("Daemon process is running independently")
             layout.addWidget(self.status_label)
 
             # Log generation controls
-            self.log_btn = QtWidgets.QPushButton("Generate Log Message")
+            self.log_btn = qt.QPushButton("Generate Log Message")
             self.log_btn.clicked.connect(self.generate_log)
             layout.addWidget(self.log_btn)
 
-            self.auto_log_btn = QtWidgets.QPushButton("Start Auto-Logging (5s)")
+            self.auto_log_btn = qt.QPushButton("Start Auto-Logging (5s)")
             self.auto_log_btn.clicked.connect(self.toggle_auto_log)
             layout.addWidget(self.auto_log_btn)
 
-            self.exception_btn = QtWidgets.QPushButton("Create Exception")
+            self.exception_btn = qt.QPushButton("Create Exception")
             self.exception_btn.clicked.connect(self.create_exception)
             layout.addWidget(self.exception_btn)
 
-            self.message_count_label = QtWidgets.QLabel("Messages sent: 0")
+            self.message_count_label = qt.QLabel("Messages sent: 0")
             layout.addWidget(self.message_count_label)
 
             # Log level selector
-            level_layout = QtWidgets.QHBoxLayout()
-            level_layout.addWidget(QtWidgets.QLabel("Log Level:"))
-            self.level_combo = QtWidgets.QComboBox()
+            level_layout = qt.QHBoxLayout()
+            level_layout.addWidget(qt.QLabel("Log Level:"))
+            self.level_combo = qt.QComboBox()
             self.level_combo.addItems(['DEBUG', 'INFO', 'WARNING', 'ERROR'])
             self.level_combo.setCurrentText('INFO')
             level_layout.addWidget(self.level_combo)
@@ -67,7 +67,7 @@ def create_daemon_gui():
             self.setLayout(layout)
 
             # Timer for auto-logging
-            self.auto_timer = QtCore.QTimer()
+            self.auto_timer = qt.QTimer()
             self.auto_timer.timeout.connect(self.generate_log)
             self.auto_logging = False
 
@@ -120,7 +120,7 @@ def create_daemon_gui():
     return gui
 
 
-class DaemonController(QtWidgets.QWidget):
+class DaemonController(qt.QWidget):
     """Main controller window that manages the daemon process and log viewing"""
 
     def __init__(self):
@@ -137,20 +137,20 @@ class DaemonController(QtWidgets.QWidget):
         self.setWindowTitle("Advanced Logging Example - Controller")
         self.setGeometry(100, 100, 1000, 700)
 
-        layout = QtWidgets.QVBoxLayout()
+        layout = qt.QVBoxLayout()
 
         # Daemon controls
-        daemon_group = QtWidgets.QGroupBox("Daemon Process Control")
-        daemon_layout = QtWidgets.QVBoxLayout()
+        daemon_group = qt.QGroupBox("Daemon Process Control")
+        daemon_layout = qt.QVBoxLayout()
 
-        self.start_daemon_btn = QtWidgets.QPushButton("Start Daemon Process")
+        self.start_daemon_btn = qt.QPushButton("Start Daemon Process")
         self.start_daemon_btn.clicked.connect(self.start_daemon)
         daemon_layout.addWidget(self.start_daemon_btn)
 
-        self.daemon_status_label = QtWidgets.QLabel("Status: No daemon running")
+        self.daemon_status_label = qt.QLabel("Status: No daemon running")
         daemon_layout.addWidget(self.daemon_status_label)
 
-        self.reconnect_btn = QtWidgets.QPushButton("Reconnect to Daemon")
+        self.reconnect_btn = qt.QPushButton("Reconnect to Daemon")
         self.reconnect_btn.clicked.connect(self.reconnect_daemon)
         self.reconnect_btn.setEnabled(False)
         daemon_layout.addWidget(self.reconnect_btn)
@@ -159,23 +159,23 @@ class DaemonController(QtWidgets.QWidget):
         layout.addWidget(daemon_group)
 
         # Test connection button
-        self.test_connection_btn = QtWidgets.QPushButton("Test Connection to Daemon")
+        self.test_connection_btn = qt.QPushButton("Test Connection to Daemon")
         self.test_connection_btn.clicked.connect(self.test_connection)
         self.test_connection_btn.setEnabled(False)
         layout.addWidget(self.test_connection_btn)
 
         # Embedded log viewer
-        log_group = QtWidgets.QGroupBox("Log Viewer")
-        log_layout = QtWidgets.QVBoxLayout()
+        log_group = qt.QGroupBox("Log Viewer")
+        log_layout = qt.QVBoxLayout()
 
         # Log viewer controls
-        viewer_controls = QtWidgets.QHBoxLayout()
-        
-        self.clear_logs_btn = QtWidgets.QPushButton("Clear Logs")
+        viewer_controls = qt.QHBoxLayout()
+
+        self.clear_logs_btn = qt.QPushButton("Clear Logs")
         self.clear_logs_btn.clicked.connect(self.clear_logs)
         viewer_controls.addWidget(self.clear_logs_btn)
-        
-        self.load_sample_logs_btn = QtWidgets.QPushButton("Load Sample Historical Logs")
+
+        self.load_sample_logs_btn = qt.QPushButton("Load Sample Historical Logs")
         self.load_sample_logs_btn.clicked.connect(self.load_sample_historical_logs)
         viewer_controls.addWidget(self.load_sample_logs_btn)
         
@@ -288,10 +288,10 @@ class DaemonController(QtWidgets.QWidget):
                 self.log("Added examples dir to daemon's Python path")
 
                 # Create QApplication in daemon if it doesn't exist
-                r_qtwidgets = self.daemon.client._import('PyQt5.QtWidgets')
-                daemon_app = r_qtwidgets.QApplication.instance()
+                r_qt = self.daemon.client._import('teleprox.qt')
+                daemon_app = r_qt.QApplication.instance()
                 if daemon_app is None:
-                    daemon_app = r_qtwidgets.QApplication([])
+                    daemon_app = r_qt.QApplication([])
                 self.log("Created Qt application in daemon")
 
                 # Import daemon GUI module and create the GUI
@@ -476,12 +476,12 @@ class DaemonController(QtWidgets.QWidget):
 
 def main():
     """Main entry point"""
-    app = QtWidgets.QApplication(sys.argv)
+    app = qt.QApplication(sys.argv)
 
     controller = DaemonController()
     controller.show()
 
-    sys.exit(app.exec_())
+    sys.exit(qt.exec_app(app))
 
 
 if __name__ == '__main__':

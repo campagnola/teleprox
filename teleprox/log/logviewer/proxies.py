@@ -34,10 +34,7 @@ class FieldFilterProxy(qt.QSortFilterProxyModel):
     def set_filter_pattern(self, pattern):
         """Set the filter pattern for this field."""
         self.filter_pattern = pattern
-        if pattern:
-            self.setFilterRegExp(pattern)
-        else:
-            self.setFilterRegExp("")
+        qt.set_regex_filter(self, pattern)
 
 
 class LevelCipherFilterProxy(FieldFilterProxy):

@@ -403,7 +403,7 @@ class LogViewer(qt.QWidget):
             )
             menu.addAction(action)
 
-        menu.exec_(self.header.mapToGlobal(position))
+        qt.exec_menu(menu, self.header.mapToGlobal(position))
 
     def _toggle_column_visibility(self, column, visible):
         """Toggle visibility of a column."""
@@ -425,7 +425,7 @@ class LogViewer(qt.QWidget):
         menu.addAction(copy_action)
 
         # Show the menu at the cursor position
-        menu.popup(self.tree.mapToGlobal(position))
+        qt.exec_menu(menu, self.tree.mapToGlobal(position))
 
     def _copy_record_to_clipboard(self):
         """Copy the formatted full record for the selected row to the clipboard."""
