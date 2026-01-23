@@ -778,8 +778,12 @@ class Future(concurrent.futures.Future):
         except Exception as e:
             e.add_note(
                 # WARNING: this string is used to parse out notes above
-                f"This exception was caused by a remote call to {self.client.address.decode()} with ID"
+                f"- This exception was caused by a remote call to {self.client.address.decode()} with ID"
                 f" {self.call_id}. The call was made from the following stack:\n"
                 f"{''.join(traceback.format_list(self.invocation_stack))}\n==============\n"
+            )
+            e.add_note(
+                f"- The remote exception traceback was:\n"
+                f"{''.join(getattr(e, 'tb_str', []))}"
             )
             raise e
