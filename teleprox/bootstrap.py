@@ -13,6 +13,7 @@ parser.add_argument('--qt', nargs='?', default=False, const=True, help='Run the 
 parser.add_argument('--verbose', nargs='?', default=False, const=True, help='Print log messages to stdout')
 parser.add_argument('--logaddr', nargs='?', default=None, help='Optional address to send log records to')
 parser.add_argument('--loglevel', nargs='?', default='INFO', help='Log level for this process. (default is INFO)')
+parser.add_argument('--log-send-level', nargs='?', default=None, help='Minimum log level to send to log server. (default is same as loglevel)')
 parser.add_argument('--bootstrap_addr', nargs='?', default=None, help='Address to send bootstrap messages to')
 parser.add_argument('--child_name_prefix', nargs='?', default='', help='Prefix for child process names')
 
@@ -20,14 +21,18 @@ args = parser.parse_args()
 conf = vars(args)
 
 conf['class_name'] = 'QtRPCServer' if conf['qt'] else 'RPCServer'
-try:
-    # loglevel might be sent as an integer string
-    if conf['loglevel'].isdigit():
-        conf['loglevel'] = int(conf['loglevel'])
+def interpret_loglevel_arg(arg):
+    if isinstance(arg, int):
+        return arg
+    if arg.isdigit():
+        return int(arg)
     else:
-        conf['loglevel'] = getattr(logging, conf['loglevel'].upper())
-except ValueError:
-    pass
+        return getattr(logging, arg.upper())
+
+# loglevel might be sent as an integer string
+conf['loglevel'] = interpret_loglevel_arg(conf['loglevel'])
+
+
 
 # Fork and detach if requested (only for posix systems; in windows, detachment happens in the parent)
 if conf['daemon'] is True and sys.platform != 'win32':
@@ -78,6 +83,11 @@ if conf['procname'] is not None:
     log.set_process_name(conf['procname'])
 if conf['logaddr'] is not None:
     log.set_logger_address(conf['logaddr'].encode())
+if conf['log_send_level'] is None:
+    conf['log_send_level'] = conf['loglevel']
+conf['log_send_level'] = interpret_loglevel_arg(conf['log_send_level'])
+if log.remote.sender is not None:
+    log.remote.sender.setLevel(conf['log_send_level'])
 
 # Also send unhandled exceptions to log server
 log.log_exceptions()
