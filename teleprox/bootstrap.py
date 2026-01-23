@@ -22,6 +22,8 @@ conf = vars(args)
 
 conf['class_name'] = 'QtRPCServer' if conf['qt'] else 'RPCServer'
 def interpret_loglevel_arg(arg):
+    if isinstance(arg, int):
+        return arg
     if arg.isdigit():
         return int(arg)
     else:
