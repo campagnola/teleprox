@@ -34,6 +34,7 @@ def start_process(
     qt=False,
     log_addr=None,
     log_level=None,
+    log_send_level=None,
     log_stdio=None,
     executable=None,
     shell=False,
@@ -69,8 +70,10 @@ def start_process(
         enabled by default.
     log_level : int | str | None
         Optional initial log level to assign to the root logger in the new
-        process. INFO by default. (Can also be set via
-        `teleprox.process.logger.setLevel()`.)
+        process. INFO by default.
+    log_send_level : int | str | None
+        Optional minimum log level to send to the log server. By default, this
+        is the same as log_level. Requires log_addr to be set.
     log_stdio : bool | None
         If True, then the new process's stdout and stderr will be captured and
         forwarded as log records. By default, this is True if log_addr is set. stdout
@@ -144,6 +147,12 @@ def start_process(
         log_level = logger.getEffectiveLevel()
     elif isinstance(log_level, str):
         log_level = getattr(logging, log_level.upper())
+    if log_send_level is None:
+        log_send_level = log_level
+    elif isinstance(log_send_level, str):
+        log_send_level = getattr(logging, log_send_level.upper())
+    if not isinstance(log_send_level, int):
+        raise TypeError(f"log_send_level must be int, str, or None; got {repr(log_send_level)}")
     if log_stdio not in (True, False, None):
         raise TypeError(f'log_stdio must be True, False, or None; got {repr(log_stdio)}')
     if log_stdio is True:
@@ -178,6 +187,7 @@ def start_process(
             [
                 f'--logaddr={log_addr.decode()}',
                 f'--loglevel={log_level}',
+                f'--log-send-level={log_send_level}',
             ]
         )
     bootstrap_args.extend(

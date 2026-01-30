@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3]
+
+### Added
+- Added `set_source_model()` method to ChainedLogFilterManager to enable swapping source models while preserving filter chain
+- Added option to set log level for remote log sending independently from root logger
+
+### Fixed
+- Fixed bootstrap configuration handling
+
+## [2.1.2]
+
+### Fixed
+- Fixed package distribution to include all subpackages
+
 ## [2.1.1]
 
 ### Fixed
