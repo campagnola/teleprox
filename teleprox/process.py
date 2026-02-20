@@ -236,8 +236,8 @@ def start_process(
             popen_kwargs[
                 'creationflags'
             ] = (
-                subprocess.CREATE_NEW_PROCESS_GROUP
-            )  # subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
     else:
         if log_stdio is True:
             popen_kwargs['stdout'] = subprocess.PIPE
