@@ -76,7 +76,7 @@ class CustomLogModel(LogModel):
         # Make documentation links clickable
         if data_dict.get('type') == 'documentation_link':
             item = child_row[0]
-            item.setFlags(qt.Qt.ItemIsEnabled | qt.Qt.ItemIsSelectable)  # Allow clicking
+            item.setFlags(qt.Qt.ItemFlag.ItemIsEnabled | qt.Qt.ItemFlag.ItemIsSelectable)  # Allow clicking
 
             # Style documentation links differently
             item.setForeground(qt.QColor("#0066CC"))  # Blue for links

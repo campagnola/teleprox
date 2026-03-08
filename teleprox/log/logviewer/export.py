@@ -179,7 +179,7 @@ def _extract_row_data(model, row, parent_index):
         'message': model.index(row, LogColumns.MESSAGE, parent_index),
     }
 
-    return {key: model.data(index, qt.Qt.DisplayRole) or "" for key, index in indices.items()}
+    return {key: model.data(index, qt.Qt.ItemDataRole.DisplayRole) or "" for key, index in indices.items()}
 
 
 def _determine_css_class(column_data, model, row, parent_index, indent_level):
@@ -195,7 +195,7 @@ def _determine_css_class(column_data, model, row, parent_index, indent_level):
 
     # Check if this is an exception or traceback line
     timestamp_index = model.index(row, LogColumns.TIMESTAMP, parent_index)
-    python_data = model.data(timestamp_index, qt.Qt.UserRole)
+    python_data = model.data(timestamp_index, qt.Qt.ItemDataRole.UserRole)
     if python_data and isinstance(python_data, dict):
         data_type = python_data.get('type', '')
         if data_type == 'exception':

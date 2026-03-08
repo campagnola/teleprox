@@ -18,21 +18,21 @@ ignorable_child_attrs = {'exc_info', 'exc_text', 'stack_info'}
 class ItemDataRole:
     """Constants for QStandardItem UserRole data slots."""
     # Primary data slot - references to Python objects
-    LOG_RECORD = qt.Qt.UserRole             # LogRecord object, or custom data dict
-    ROW_DETAILS = qt.Qt.UserRole + 100      # dict of extra attributes for child items
+    LOG_RECORD = qt.Qt.ItemDataRole.UserRole             # LogRecord object, or custom data dict
+    ROW_DETAILS = qt.Qt.ItemDataRole.UserRole + 100      # dict of extra attributes for child items
     
     # Qt-specific data for sorting/filtering/display
-    NUMERIC_TIMESTAMP = qt.Qt.UserRole + 1  # float timestamp for sorting
-    PROCESS_NAME = qt.Qt.UserRole + 2       # string process name
-    THREAD_NAME = qt.Qt.UserRole + 3        # string thread name  
-    LOGGER_NAME = qt.Qt.UserRole + 4        # string logger name
-    LEVEL_NUMBER = qt.Qt.UserRole + 5       # int level number for sorting
-    LEVEL_CIPHER = qt.Qt.UserRole + 6       # string level cipher for filtering
-    MESSAGE_TEXT = qt.Qt.UserRole + 7       # string message for filtering
-    LOG_ID = qt.Qt.UserRole + 8             # unique int ID for selection tracking
-    HOST_NAME = qt.Qt.UserRole + 9          # string host name for filtering
-    SOURCE_TEXT = qt.Qt.UserRole + 10       # string source (process/thread) for filtering
-    TASK_NAME = qt.Qt.UserRole + 11         # string task name for filtering
+    NUMERIC_TIMESTAMP = qt.Qt.ItemDataRole.UserRole + 1  # float timestamp for sorting
+    PROCESS_NAME = qt.Qt.ItemDataRole.UserRole + 2       # string process name
+    THREAD_NAME = qt.Qt.ItemDataRole.UserRole + 3        # string thread name  
+    LOGGER_NAME = qt.Qt.ItemDataRole.UserRole + 4        # string logger name
+    LEVEL_NUMBER = qt.Qt.ItemDataRole.UserRole + 5       # int level number for sorting
+    LEVEL_CIPHER = qt.Qt.ItemDataRole.UserRole + 6       # string level cipher for filtering
+    MESSAGE_TEXT = qt.Qt.ItemDataRole.UserRole + 7       # string message for filtering
+    LOG_ID = qt.Qt.ItemDataRole.UserRole + 8             # unique int ID for selection tracking
+    HOST_NAME = qt.Qt.ItemDataRole.UserRole + 9          # string host name for filtering
+    SOURCE_TEXT = qt.Qt.ItemDataRole.UserRole + 10       # string source (process/thread) for filtering
+    TASK_NAME = qt.Qt.ItemDataRole.UserRole + 11         # string task name for filtering
 
 
 class LogColumns:

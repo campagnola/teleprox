@@ -75,7 +75,7 @@ class TestLogViewerSorting:
             level_index = tree_model.index(i, LogColumns.LEVEL)
             
             actual_timestamp = tree_model.data(timestamp_index, ItemDataRole.NUMERIC_TIMESTAMP)
-            actual_message = tree_model.data(message_index, qt.Qt.DisplayRole)
+            actual_message = tree_model.data(message_index, qt.Qt.ItemDataRole.DisplayRole)
             actual_level = tree_model.data(level_index, ItemDataRole.LEVEL_NUMBER)
             
             assert actual_timestamp is not None, f"Row {i} should have numeric timestamp"
@@ -121,7 +121,7 @@ class TestLogViewerSorting:
         model = viewer.tree.model()
         for i, expected_msg in enumerate(all_messages_order):
             message_index = model.index(i, LogColumns.MESSAGE)
-            actual_message = model.data(message_index, qt.Qt.DisplayRole)
+            actual_message = model.data(message_index, qt.Qt.ItemDataRole.DisplayRole)
             assert expected_msg in actual_message, f"Before filtering, row {i}: expected '{expected_msg}' in '{actual_message}'"
         
         # Apply ERROR level filter
@@ -137,7 +137,7 @@ class TestLogViewerSorting:
         
         for i, expected_msg in enumerate(error_messages_order):
             message_index = filtered_model.index(i, LogColumns.MESSAGE)
-            actual_message = filtered_model.data(message_index, qt.Qt.DisplayRole)
+            actual_message = filtered_model.data(message_index, qt.Qt.ItemDataRole.DisplayRole)
             assert expected_msg in actual_message, f"After filtering, row {i}: expected '{expected_msg}' in '{actual_message}'"
         
         # Clear filters
@@ -149,7 +149,7 @@ class TestLogViewerSorting:
         
         for i, expected_msg in enumerate(all_messages_order):
             message_index = final_model.index(i, LogColumns.MESSAGE)
-            actual_message = final_model.data(message_index, qt.Qt.DisplayRole)
+            actual_message = final_model.data(message_index, qt.Qt.ItemDataRole.DisplayRole)
             assert expected_msg in actual_message, f"After clearing filters, row {i}: expected '{expected_msg}' in '{actual_message}'"
 
 

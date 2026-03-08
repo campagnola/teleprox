@@ -53,11 +53,11 @@ class TestFieldFilterProxy:
         
         # Test empty pattern
         proxy.set_filter_pattern("")
-        assert proxy.filterRegExp().pattern() == ""
+        assert proxy.filterRegularExpression().pattern() == ""
         
         # Test non-empty pattern  
         proxy.set_filter_pattern("test.*")
-        assert proxy.filterRegExp().pattern() == "test.*"
+        assert proxy.filterRegularExpression().pattern() == "test.*"
     
     def test_field_filter_proxy_filtering(self, mock_model):
         """Test actual filtering behavior."""

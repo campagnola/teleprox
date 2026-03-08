@@ -129,7 +129,7 @@ class TestSetRecords:
 
         # Verify it's the new info message that's visible
         visible_msg = viewer.tree.model().data(
-            viewer.tree.model().index(0, LogColumns.MESSAGE), qt.Qt.DisplayRole
+            viewer.tree.model().index(0, LogColumns.MESSAGE), qt.Qt.ItemDataRole.DisplayRole
         )
         assert visible_msg == "New info message"
 
@@ -146,7 +146,7 @@ class TestSetRecords:
         # Select first item
         index = viewer.tree.model().index(0, LogColumns.TIMESTAMP)
         viewer.tree.selectionModel().select(
-            index, qt.QItemSelectionModel.Select | qt.QItemSelectionModel.Rows
+            index, qt.QItemSelectionModel.SelectionFlag.Select | qt.QItemSelectionModel.SelectionFlag.Rows
         )
 
         # Verify selection exists

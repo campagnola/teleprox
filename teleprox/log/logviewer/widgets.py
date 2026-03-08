@@ -30,7 +30,7 @@ class SearchWidget(qt.QWidget):
         self.layout.addWidget(self.prev_button)
 
         self.result_label = qt.QLabel("0/0")
-        self.result_label.setAlignment(qt.Qt.AlignCenter)
+        self.result_label.setAlignment(qt.Qt.AlignmentFlag.AlignCenter)
         self.layout.addWidget(self.result_label)
 
         self.next_button = qt.QPushButton("→")
@@ -109,7 +109,7 @@ class SearchWidget(qt.QWidget):
                     continue
 
                 # Get display text and check for match
-                text = model.data(index, qt.Qt.DisplayRole)
+                text = model.data(index, qt.Qt.ItemDataRole.DisplayRole)
                 if text and search_term_lower in str(text).lower():
                     match_found = True
                     break
@@ -147,7 +147,7 @@ class SearchWidget(qt.QWidget):
         self.tree_view.setCurrentIndex(result_index)
 
         # Scroll to make sure it's visible
-        self.tree_view.scrollTo(result_index, qt.QAbstractItemView.EnsureVisible)
+        self.tree_view.scrollTo(result_index, qt.QAbstractItemView.ScrollHint.EnsureVisible)
 
         # Update result label
         self._update_result_label()
@@ -208,7 +208,7 @@ class FilterTagWidget(qt.QLineEdit):
         self.adjust_width()
 
         # Set size policy to fixed
-        self.setSizePolicy(qt.QSizePolicy.Fixed, qt.QSizePolicy.Fixed)
+        self.setSizePolicy(qt.QSizePolicy.Policy.Fixed, qt.QSizePolicy.Policy.Fixed)
 
     def adjust_width(self):
         """Adjust the width of the line edit to fit its content."""
@@ -252,7 +252,7 @@ class FilterInputWidget(qt.QWidget):
         )
         self.filter_input.returnPressed.connect(self.add_filter)
         self.filter_input.editingFinished.connect(self.add_filter)
-        self.filter_input.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Fixed)
+        self.filter_input.setSizePolicy(qt.QSizePolicy.Policy.Expanding, qt.QSizePolicy.Policy.Fixed)
 
         self.layout.addWidget(self.filter_input)
 
@@ -335,7 +335,7 @@ class FilterInputWidget(qt.QWidget):
 
         # Show menu at button position
         button_pos = self.menu_button.mapToGlobal(self.menu_button.rect().bottomLeft())
-        menu.exec_(button_pos)
+        menu.exec(button_pos)
 
 
 class HighlightDelegate(qt.QStyledItemDelegate):
@@ -402,10 +402,10 @@ class HighlightDelegate(qt.QStyledItemDelegate):
             if parent_index.isValid():
                 # This is a child item - check if parent should be highlighted
                 parent_source = model.data(
-                    model.index(parent_index.row(), LogColumns.SOURCE), qt.Qt.DisplayRole
+                    model.index(parent_index.row(), LogColumns.SOURCE), qt.Qt.ItemDataRole.DisplayRole
                 )
                 parent_logger = model.data(
-                    model.index(parent_index.row(), LogColumns.LOGGER), qt.Qt.DisplayRole
+                    model.index(parent_index.row(), LogColumns.LOGGER), qt.Qt.ItemDataRole.DisplayRole
                 )
 
                 highlight_type = self._should_highlight(parent_source, parent_logger)
@@ -420,8 +420,8 @@ class HighlightDelegate(qt.QStyledItemDelegate):
                 return
 
             # This is a top-level item - check for highlighting
-            current_source = model.data(model.index(row, LogColumns.SOURCE), qt.Qt.DisplayRole)
-            current_logger = model.data(model.index(row, LogColumns.LOGGER), qt.Qt.DisplayRole)
+            current_source = model.data(model.index(row, LogColumns.SOURCE), qt.Qt.ItemDataRole.DisplayRole)
+            current_logger = model.data(model.index(row, LogColumns.LOGGER), qt.Qt.ItemDataRole.DisplayRole)
 
             highlight_type = self._should_highlight(current_source, current_logger)
             if highlight_type:
