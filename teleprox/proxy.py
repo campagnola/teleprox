@@ -314,7 +314,13 @@ class ObjectProxy(object):
 
     def __del__(self):
         if self.__dict__.get('_proxy_options', {}).get('auto_delete', False):
-            self._delete()
+            try:
+                self._delete()
+            except RuntimeError as exc:
+                if exc.args and exc.args[0] == "Cannot send request; server has already disconnected.":
+                    pass
+                else:
+                    raise
 
     def __getattr__(self, attr):
         """

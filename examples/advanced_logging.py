@@ -8,7 +8,9 @@ import signal
 import sys
 import time
 
-from PyQt5 import QtWidgets, QtCore
+# We import from teleprox.qt here just to allow support for PyQt5/6 and PySide2/6 in the example;
+# you can replace these imports with direct imports from your chosen Qt library in your own code.
+from teleprox.qt import QtWidgets, QtCore
 
 import teleprox
 import teleprox.log
@@ -288,7 +290,7 @@ class DaemonController(QtWidgets.QWidget):
                 self.log("Added examples dir to daemon's Python path")
 
                 # Create QApplication in daemon if it doesn't exist
-                r_qtwidgets = self.daemon.client._import('PyQt5.QtWidgets')
+                r_qtwidgets = self.daemon.client._import('teleprox.qt').QtWidgets
                 daemon_app = r_qtwidgets.QApplication.instance()
                 if daemon_app is None:
                     daemon_app = r_qtwidgets.QApplication([])
@@ -481,7 +483,7 @@ def main():
     controller = DaemonController()
     controller.show()
 
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == '__main__':
