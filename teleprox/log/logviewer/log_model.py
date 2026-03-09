@@ -347,7 +347,7 @@ class LogModel(qt.QStandardItemModel):
         category_item.setFont(bold_font)
 
         # Make categories not selectable but expandable
-        category_item.setFlags(qt.Qt.ItemIsEnabled)
+        category_item.setFlags(qt.Qt.ItemFlag.ItemIsEnabled)
 
         return category_item
 
@@ -650,10 +650,10 @@ class LogModel(qt.QStandardItemModel):
 
         # Make traceback/stack frame items clickable for file navigation
         if data_dict.get('type') in ['traceback_frame', 'stack_frame']:
-            item.setFlags(qt.Qt.ItemIsEnabled | qt.Qt.ItemIsSelectable)  # Allow clicking
+            item.setFlags(qt.Qt.ItemFlag.ItemIsEnabled | qt.Qt.ItemFlag.ItemIsSelectable)  # Allow clicking
         else:
             # Make other exception items not selectable
-            item.setFlags(qt.Qt.ItemIsEnabled)  # Remove ItemIsSelectable flag
+            item.setFlags(qt.Qt.ItemFlag.ItemIsEnabled)  # Remove ItemIsSelectable flag
 
         # Apply styling to the timestamp column item (where content is now)
         # Apply monospace font for code-like content
@@ -669,7 +669,7 @@ class LogModel(qt.QStandardItemModel):
         if should_use_monospace:
             # Use monospace font for all code lines
             monospace_font = qt.QFont("Consolas, Monaco, 'Courier New', monospace")
-            monospace_font.setStyleHint(qt.QFont.TypeWriter)
+            monospace_font.setStyleHint(qt.QFont.StyleHint.TypeWriter)
             item.setFont(monospace_font)
 
         # Make exception messages bold

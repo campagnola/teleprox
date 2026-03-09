@@ -9,18 +9,19 @@ qt_reason = ""
 p = teleprox.start_process('check_qt_process')
 try:    
     qt = p.client._import('teleprox.qt')
-    try:
-        app = qt.QApplication([], _timeout=1)
-    except TimeoutError:
-        if p.poll() is not None:
-            # subprocess exited; probably means we can't use Qt from this environment
-            qt_available = False
-            qt_reason = "Qt cannot be used from this environment"
-
-except ImportError as exc:
+    app = qt.QApplication([], _timeout=5)
+except TimeoutError:
+    if p.poll() is not None:
+        # subprocess exited; probably means we can't use Qt from this environment
+        qt_available = False
+        qt_reason = "Qt cannot be used from this environment - subprocess probably crashed while testing Qt import"
+    else:
+        # subprocess is still alive; probably means we hit a known deadlock in Qt when exiting the process
+        qt_available = False
+        qt_reason = "Qt cannot be used from this environment - subprocess probably locked while testing Qt import"
+except Exception as exc:
     qt_available = False
     qt_reason = str(exc)
-
 finally:
     p.client.close_server()
     for i in range(10):

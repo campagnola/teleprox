@@ -1,10 +1,16 @@
 import contextlib
 import importlib
 import sys
+from types import ModuleType
 
-HAVE_QT = None
-QT_LIB = None
+# order of preference for Qt libraries to import
 qt_lib_order = ['PyQt6', 'PySide6', 'PyQt5', 'PySide2']
+
+# automatically import submodules to make them available for __getattr__
+qt_submodules = ['QtCore', 'QtGui', 'QtWidgets', 'QtTest']
+
+QT_LIB = None
+HAVE_QT = None
 
 
 def check_qt_imported():
@@ -12,89 +18,85 @@ def check_qt_imported():
 
     Returns
     -------
-    HAVE_QT : bool | None
-        True if a Qt library has been imported, False if none are importable, None if none have been imported yet.
+    qt_lib : str | None
+        The name of the imported Qt library, or None if none have been imported yet.
     """
-    global HAVE_QT, QT_LIB
-    if HAVE_QT is None:
-        for qt_lib in qt_lib_order:
-            if (
-                f'{qt_lib}.QtCore' in sys.modules
-                or f'{qt_lib}.QtGui' in sys.modules
-                or f'{qt_lib}.QtWidgets' in sys.modules
-            ):
-                HAVE_QT = True
-                QT_LIB = qt_lib
-                break
-    return HAVE_QT
+    for qt_lib in qt_lib_order:
+        if (
+            f'{qt_lib}.QtCore' in sys.modules
+            or f'{qt_lib}.QtGui' in sys.modules
+            or f'{qt_lib}.QtWidgets' in sys.modules
+        ):
+            return qt_lib
 
 
-check_qt_imported()
+def have_qt():
+    if HAVE_QT is not None:
+        return HAVE_QT
+    
+    try:
+        get_qt_module()
+        return True
+    except ImportError:
+        return False
 
 
-qt_namespace = None
+def get_qt_module() -> ModuleType:
+    """Return the top-level module of a Qt library (PyQt or Pyside).
+    
+    If one is already imported, it will be returned. 
+    Otherwise, the first importable library will be imported and returned.
 
+    Order is set by qt_lib_order.
+    """
+    global QT_LIB
+    if QT_LIB is not None:
+        return QT_LIB
 
-def import_qt(qt_lib=None):
-    """Import a Qt library and return a namespace with its objects."""
-    global HAVE_QT, QT_LIB, qt_namespace
-    if not HAVE_QT:
-        check_qt_imported()
-
-    if HAVE_QT is True and qt_lib is not None and qt_lib != QT_LIB:
-        raise ValueError(f'Already imported Qt library: {QT_LIB}')
-
-    if qt_namespace is not None:
-        return qt_namespace
-
-    # search all qt libs unless specified
-    qt_libs = qt_lib_order if qt_lib is None else [qt_lib]
+    qt_lib = check_qt_imported()
+    if qt_lib is None:
+        # check all qt libs in order
+        libs_to_check = qt_lib_order
+    else:
+        # only try importing the already imported library
+        libs_to_check = [qt_lib]
 
     # import first available
-    if not HAVE_QT:
+    QT_LIB = import_qt_lib(libs_to_check)
+    return QT_LIB
+
+
+def import_qt_lib(libs_to_check):
+    """Import the first available Qt library from the given list of library names.
+
+    Also adds Qt types to the default serializer types list, so that they can be serialized    
+    """
+    global HAVE_QT
+
+    qt_module = None
+    for qt_lib in libs_to_check:
+        with contextlib.suppress(ImportError):            
+            for submodule in qt_submodules:
+                importlib.import_module(f'{qt_lib}.{submodule}')
+            HAVE_QT = True
+            # print(f'Using Qt library: {qt_lib}')
+            # import traceback
+            # traceback.print_stack()
+            qt_module = importlib.import_module(f'{qt_lib}')
+        
+    if HAVE_QT is not True:
         HAVE_QT = False
-        for qt_lib in qt_libs:
-            with contextlib.suppress(ImportError):
-                importlib.import_module(f'{qt_lib}.QtCore')
-                HAVE_QT = True
-                QT_LIB = qt_lib
-                break
-    if not HAVE_QT:
-        raise ImportError(
-            f'No importable Qt library found (tried {", ".join(qt_libs)})'
-        )
+        raise ImportError(f'No importable Qt library found (tried {", ".join(libs_to_check)})')
 
-    qt_namespace = {}
-    qtcore = importlib.import_module(f'{QT_LIB}.QtCore')
-    qt_namespace.update(qtcore.__dict__)
-    qtgui = importlib.import_module(f'{QT_LIB}.QtGui')
-    qt_namespace.update(qtgui.__dict__)
-    qtwidgets = importlib.import_module(f'{QT_LIB}.QtWidgets')
-    qt_namespace.update(qtwidgets.__dict__)
-    try:
-        qttest = importlib.import_module(QT_LIB + '.QtTest')
-        qt_namespace.update(qttest.__dict__)
-    except ImportError:
-        pass  # QtTest might not be available in all distributions
+    from . import serializer
+    qtcore = getattr(qt_module, 'QtCore')
+    qtgui = getattr(qt_module, 'QtGui')
+    serializer.default_serialize_types += (
+        qtgui.QMatrix4x4, qtgui.QMatrix3x3, qtgui.QMatrix2x2, qtgui.QTransform,
+        qtgui.QVector3D, qtgui.QVector4D, qtgui.QQuaternion,
+        qtcore.QPoint, qtcore.QSize, qtcore.QRect, qtcore.QLine, qtcore.QLineF,
+        qtcore.QPointF, qtcore.QSizeF, qtcore.QRectF,
+    )
 
-    if 'PySide' not in QT_LIB:
-        qt_namespace['Signal'] = qt_namespace[
-            'pyqtSignal'
-        ]  # for compatibility with PySide
+    return qt_module
 
-    def make_qapp():
-        """Create a QApplication object if one does not already exist.
-
-        Returns
-        -------
-        app : QApplication
-            The QApplication object.
-        """
-        app = qt_namespace['QApplication'].instance()
-        if app is None:
-            app = qt_namespace['QApplication']([])
-        return app
-
-    qt_namespace['make_qapp'] = make_qapp
-
-    return qt_namespace

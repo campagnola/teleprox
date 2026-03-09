@@ -6,6 +6,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        qt: [pyqt5, pyqt6, pyside6, ""]
+
     steps:
     - name: Check out repository
       uses: actions/checkout@v4
@@ -23,7 +27,7 @@ jobs:
     - name: Install python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest msgpack pyzmq numpy pyqt5 ipykernel
+        pip install pytest msgpack pyzmq numpy ${{ matrix.qt }} ipykernel
         python -m ipykernel install --user
 
     - name: Run tests

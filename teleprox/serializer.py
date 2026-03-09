@@ -5,9 +5,9 @@ import logging
 import pickle
 import multiprocessing.shared_memory
 
-from . import qt_util
 from .proxy import ObjectProxy
 from .shmem import SharedNDArray
+from . import qt
 
 try:
     import numpy as np
@@ -36,7 +36,7 @@ encode_key = '___type_name___'
 # Object types to be serialized by default. This applies when passing
 # arguments to a remote procedure and when returning results. All other
 # types will be sent by proxy if a server is available; otherwise an 
-# exceotion will be raised.
+# exception will be raised.
 default_serialize_types = (
     ObjectProxy, type(None), str, bytes, int, float, tuple, list, dict, bool,
     datetime.datetime, datetime.date,
@@ -45,16 +45,6 @@ default_serialize_types = (
 
 if HAVE_NUMPY:
     default_serialize_types += (np.number, np.bool_, np.dtype, np.ndarray)
-
-if qt_util.HAVE_QT:
-    from . import qt
-
-    default_serialize_types += (
-        qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform,
-        qt.QVector3D, qt.QVector4D, qt.QQuaternion,
-        qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
-        qt.QPointF, qt.QSizeF, qt.QRectF,
-    )
 
 
 class Serializer:

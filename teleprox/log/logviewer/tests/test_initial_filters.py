@@ -40,7 +40,7 @@ class TestInitialFilters:
         # Debug: Print what's visible
         for i in range(visible_count):
             msg = viewer.tree.model().data(
-                viewer.tree.model().index(i, LogColumns.MESSAGE), qt.Qt.DisplayRole
+                viewer.tree.model().index(i, LogColumns.MESSAGE), qt.Qt.ItemDataRole.DisplayRole
             )
             print(f"Visible message {i}: {msg}")
 
@@ -104,7 +104,7 @@ class TestInitialFilters:
 
         for i in range(visible_count):
             msg = viewer.tree.model().data(
-                viewer.tree.model().index(i, LogColumns.MESSAGE), qt.Qt.DisplayRole
+                viewer.tree.model().index(i, LogColumns.MESSAGE), qt.Qt.ItemDataRole.DisplayRole
             )
             print(f"Visible message {i}: {msg}")
 
@@ -160,10 +160,10 @@ class TestInitialFilters:
 
         for i in range(visible_count):
             msg = viewer.tree.model().data(
-                viewer.tree.model().index(i, LogColumns.MESSAGE), qt.Qt.DisplayRole
+                viewer.tree.model().index(i, LogColumns.MESSAGE), qt.Qt.ItemDataRole.DisplayRole
             )
             level = viewer.tree.model().data(
-                viewer.tree.model().index(i, LogColumns.LEVEL), qt.Qt.DisplayRole
+                viewer.tree.model().index(i, LogColumns.LEVEL), qt.Qt.ItemDataRole.DisplayRole
             )
             print(f"Visible message {i}: [{level}] {msg}")
 
@@ -192,10 +192,10 @@ class TestInitialFilters:
 
         for i in range(visible_count):
             msg = viewer.tree.model().data(
-                viewer.tree.model().index(i, LogColumns.MESSAGE), qt.Qt.DisplayRole
+                viewer.tree.model().index(i, LogColumns.MESSAGE), qt.Qt.ItemDataRole.DisplayRole
             )
             level = viewer.tree.model().data(
-                viewer.tree.model().index(i, LogColumns.LEVEL), qt.Qt.DisplayRole
+                viewer.tree.model().index(i, LogColumns.LEVEL), qt.Qt.ItemDataRole.DisplayRole
             )
             print(f"Visible: [{level}] {msg}")
 
@@ -236,10 +236,10 @@ class TestInitialFilters:
 
         for i in range(visible_count):
             msg = viewer.tree.model().data(
-                viewer.tree.model().index(i, LogColumns.MESSAGE), qt.Qt.DisplayRole
+                viewer.tree.model().index(i, LogColumns.MESSAGE), qt.Qt.ItemDataRole.DisplayRole
             )
             level = viewer.tree.model().data(
-                viewer.tree.model().index(i, LogColumns.LEVEL), qt.Qt.DisplayRole
+                viewer.tree.model().index(i, LogColumns.LEVEL), qt.Qt.ItemDataRole.DisplayRole
             )
             print(f"  Visible {i}: [{level}] {msg}")
 

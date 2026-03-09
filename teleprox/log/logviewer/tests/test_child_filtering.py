@@ -86,7 +86,7 @@ class TestChildFiltering:
         found_exception_content = False
         for i in range(visible_children):
             child_index = current_model.index(i, 0, error_index)
-            child_text = current_model.data(child_index, qt.Qt.DisplayRole) or ""
+            child_text = current_model.data(child_index, qt.Qt.ItemDataRole.DisplayRole) or ""
             if "Exception" in child_text or "ValueError" in child_text or "user_id" in child_text:
                 found_exception_content = True
                 break

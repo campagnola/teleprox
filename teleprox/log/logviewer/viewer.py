@@ -166,7 +166,7 @@ class LogViewer(qt.QWidget):
             logger.addHandler(self.handler)
 
         # Set up thread-safe message handling - queued connection ensures GUI thread execution
-        self._message_from_thread_signal.connect(self._process_record, qt.Qt.QueuedConnection)
+        self._message_from_thread_signal.connect(self._process_record, qt.Qt.ConnectionType.QueuedConnection)
 
         # Set up GUI
         self.layout = qt.QGridLayout()
@@ -214,10 +214,10 @@ class LogViewer(qt.QWidget):
         self.tree = qt.QTreeView()
         self.tree.setModel(tree_model)
         self.tree.setAlternatingRowColors(True)
-        self.tree.setEditTriggers(qt.QAbstractItemView.NoEditTriggers)  # Make non-editable
+        self.tree.setEditTriggers(qt.QAbstractItemView.EditTrigger.NoEditTriggers)  # Make non-editable
 
         # Set up right-click context menu
-        self.tree.setContextMenuPolicy(qt.Qt.CustomContextMenu)
+        self.tree.setContextMenuPolicy(qt.Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_row_context_menu)
 
         # Connect search widget to tree view
@@ -228,7 +228,7 @@ class LogViewer(qt.QWidget):
 
         # Set up custom header with context menu
         self.header = self.tree.header()
-        self.header.setContextMenuPolicy(qt.Qt.CustomContextMenu)
+        self.header.setContextMenuPolicy(qt.Qt.ContextMenuPolicy.CustomContextMenu)
         self.header.customContextMenuRequested.connect(self._show_header_context_menu)
 
         # Hide Task, Level, Host, Process, and Thread columns by default
@@ -387,7 +387,7 @@ class LogViewer(qt.QWidget):
         if hasattr(current_model, 'setSortRole'):
             current_model.setSortRole(ItemDataRole.NUMERIC_TIMESTAMP)
 
-        self.tree.sortByColumn(LogColumns.TIMESTAMP, qt.Qt.AscendingOrder)
+        self.tree.sortByColumn(LogColumns.TIMESTAMP, qt.Qt.SortOrder.AscendingOrder)
 
     def _show_header_context_menu(self, position):
         """Show context menu for column visibility when right-clicking on header."""
@@ -403,7 +403,7 @@ class LogViewer(qt.QWidget):
             )
             menu.addAction(action)
 
-        menu.exec_(self.header.mapToGlobal(position))
+        menu.exec(self.header.mapToGlobal(position))
 
     def _toggle_column_visibility(self, column, visible):
         """Toggle visibility of a column."""
@@ -462,15 +462,15 @@ class LogViewer(qt.QWidget):
         if parent_index.isValid():
             # This is a child item - use parent's highlighting data
             source_data = model.data(
-                model.index(parent_index.row(), LogColumns.SOURCE), qt.Qt.DisplayRole
+                model.index(parent_index.row(), LogColumns.SOURCE), qt.Qt.ItemDataRole.DisplayRole
             )
             logger_data = model.data(
-                model.index(parent_index.row(), LogColumns.LOGGER), qt.Qt.DisplayRole
+                model.index(parent_index.row(), LogColumns.LOGGER), qt.Qt.ItemDataRole.DisplayRole
             )
         else:
             # This is a top-level item - use its own data
-            source_data = model.data(model.index(index.row(), LogColumns.SOURCE), qt.Qt.DisplayRole)
-            logger_data = model.data(model.index(index.row(), LogColumns.LOGGER), qt.Qt.DisplayRole)
+            source_data = model.data(model.index(index.row(), LogColumns.SOURCE), qt.Qt.ItemDataRole.DisplayRole)
+            logger_data = model.data(model.index(index.row(), LogColumns.LOGGER), qt.Qt.ItemDataRole.DisplayRole)
 
         if not source_data or not logger_data:
             self.highlight_delegate.clear_highlight()
@@ -545,7 +545,7 @@ class LogViewer(qt.QWidget):
                     # Found matching row, select it
                     index = model.index(row, LogColumns.TIMESTAMP)
                     self.tree.selectionModel().select(
-                        index, qt.QItemSelectionModel.Select | qt.QItemSelectionModel.Rows
+                        index, qt.QItemSelectionModel.SelectionFlag.Select | qt.QItemSelectionModel.SelectionFlag.Rows
                     )
                     self.tree.scrollTo(index)  # Scroll to show the selected item
                     break

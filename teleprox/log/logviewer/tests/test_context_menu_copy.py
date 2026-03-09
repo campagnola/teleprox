@@ -68,7 +68,7 @@ class TestContextMenuCopy:
 
         # Mock indexAt to return a valid index and mock menu exec to avoid blocking
         with patch.object(viewer.tree, 'indexAt', return_value=valid_index):
-            with patch('teleprox.log.logviewer.viewer.qt.QMenu.exec_'):
+            with patch('teleprox.log.logviewer.viewer.qt.QMenu.exec'):
                 # Call should complete without error
                 position = qt.QPoint(0, 0)
                 try:

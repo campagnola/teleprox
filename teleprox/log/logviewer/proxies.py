@@ -14,7 +14,7 @@ class FieldFilterProxy(qt.QSortFilterProxyModel):
         self.field_name = field_name
         self.column = column
         self.setFilterKeyColumn(column)
-        self.setFilterCaseSensitivity(qt.Qt.CaseInsensitive)
+        self.setFilterCaseSensitivity(qt.Qt.CaseSensitivity.CaseInsensitive)
         self.filter_pattern = ""
         
         # Set custom filter role for fields - all fields now use data roles, not display text
@@ -35,9 +35,9 @@ class FieldFilterProxy(qt.QSortFilterProxyModel):
         """Set the filter pattern for this field."""
         self.filter_pattern = pattern
         if pattern:
-            self.setFilterRegExp(pattern)
+            self.setFilterRegularExpression(pattern)
         else:
-            self.setFilterRegExp("")
+            self.setFilterRegularExpression("")
 
 
 class LevelCipherFilterProxy(FieldFilterProxy):
@@ -46,7 +46,7 @@ class LevelCipherFilterProxy(FieldFilterProxy):
     def __init__(self, parent=None):
         super().__init__("level", LogColumns.LEVEL, parent)  # Use LogColumns constant
         self.setFilterRole(ItemDataRole.LEVEL_CIPHER)  # Filter on cipher data
-        self.setFilterCaseSensitivity(qt.Qt.CaseSensitive)  # Cipher patterns are case-sensitive
+        self.setFilterCaseSensitivity(qt.Qt.CaseSensitivity.CaseSensitive)  # Cipher patterns are case-sensitive
     
     def set_level_filter(self, level_value):
         """Set level filter using threshold (levels >= threshold)."""
