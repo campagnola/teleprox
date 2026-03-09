@@ -196,7 +196,11 @@ class RPCServer(object):
                 " The object may have been released already."
             ) from e
         for attr in proxy._attributes:
-            obj = getattr(obj, attr)
+            try:
+                obj = getattr(obj, attr)
+            except Exception as e:
+                e.add_note(f"Failed to access attribute '{attr}' of object {obj!r} while unwrapping proxy.")
+                raise
         # logger.debug("server %s unwrap proxy %d: %s", self.address, oid, obj)
         return obj
 

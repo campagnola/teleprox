@@ -8,7 +8,7 @@ jobs:
 
     strategy:
       matrix:
-        qt: [pyqt5, pyqt6]
+        qt: [pyqt5, pyqt6, pyside6, ""]
 
     steps:
     - name: Check out repository
