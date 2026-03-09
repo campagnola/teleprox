@@ -5,9 +5,9 @@ import logging
 import pickle
 import multiprocessing.shared_memory
 
-from . import qt_util
 from .proxy import ObjectProxy
 from .shmem import SharedNDArray
+from . import qt
 
 try:
     import numpy as np
@@ -36,25 +36,29 @@ encode_key = '___type_name___'
 # Object types to be serialized by default. This applies when passing
 # arguments to a remote procedure and when returning results. All other
 # types will be sent by proxy if a server is available; otherwise an 
-# exceotion will be raised.
-default_serialize_types = (
-    ObjectProxy, type(None), str, bytes, int, float, tuple, list, dict, bool,
-    datetime.datetime, datetime.date,
-    multiprocessing.shared_memory.SharedMemory, SharedNDArray,
-)
+# exception will be raised.
+_default_serialize_types = None
+def default_serialize_types():
+    # deferred initiaization to avoid qt import at module load time
+    global _default_serialize_types
+    if _default_serialize_types is None:
+        _default_serialize_types = (
+            ObjectProxy, type(None), str, bytes, int, float, tuple, list, dict, bool,
+            datetime.datetime, datetime.date,
+            multiprocessing.shared_memory.SharedMemory, SharedNDArray,
+        )
+    if HAVE_NUMPY:
+        _default_serialize_types += (np.number, np.bool_, np.dtype, np.ndarray)
+    if qt.have_qt():
+        _default_serialize_types += (
+            qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform,
+            qt.QVector3D, qt.QVector4D, qt.QQuaternion,
+            qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
+            qt.QPointF, qt.QSizeF, qt.QRectF,
+        )
+    return _default_serialize_types
 
-if HAVE_NUMPY:
-    default_serialize_types += (np.number, np.bool_, np.dtype, np.ndarray)
 
-if qt_util.HAVE_QT:
-    from . import qt
-
-    default_serialize_types += (
-        qt.QMatrix4x4, qt.QMatrix3x3, qt.QMatrix2x2, qt.QTransform,
-        qt.QVector3D, qt.QVector4D, qt.QQuaternion,
-        qt.QPoint, qt.QSize, qt.QRect, qt.QLine, qt.QLineF,
-        qt.QPointF, qt.QSizeF, qt.QRectF,
-    )
 
 
 class Serializer:
@@ -74,7 +78,7 @@ class Serializer:
 
     def __init__(self, server=None):
         self._server = server
-        self._serialize_types = default_serialize_types
+        self._serialize_types = default_serialize_types()
         self._proxy_opts = None
 
     def disable_proxying(self):
@@ -240,7 +244,7 @@ class MsgpackSerializer(Serializer):
     def dumps(self, obj, serialize_types):
         """Convert obj to msgpack string.
         """
-        self._serialize_types = serialize_types or default_serialize_types
+        self._serialize_types = serialize_types or default_serialize_types()
         return msgpack.dumps(obj, use_bin_type=True, default=self.encode, strict_types=True)
 
     def loads(self, msg, proxy_opts):
@@ -281,7 +285,7 @@ class JsonSerializer(Serializer):
         self.EnhancedJSONEncoder = EnhancedJSONEncoder
 
     def dumps(self, obj, serialize_types):
-        self._serialize_types = serialize_types or default_serialize_types
+        self._serialize_types = serialize_types or default_serialize_types()
         return json.dumps(obj, cls=self.EnhancedJSONEncoder).encode()
 
     def loads(self, msg, proxy_opts):
