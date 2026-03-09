@@ -38,3 +38,10 @@ def __getattr__(name):
             lookup_cache[name] = value
             return value
 
+    if name in qt_submodules:
+        # allow direct access to submodules as well
+        value = getattr(qt_module, name)
+        lookup_cache[name] = value
+        return value
+
+    raise AttributeError(f"Attribute '{name}' not found in Qt submodules: {qt_submodules}")
