@@ -905,6 +905,56 @@ def test_shared_local_server_cross_process_objects():
         shared_server.close()
 
 
+def test_client_del_closes_socket():
+    """Test that garbage-collecting an RPCClient calls close() and closes the socket.
+    """
+    import gc
+
+    server = RPCServer()
+    client = RPCClient(server.address)
+    socket = client._socket
+
+    assert not socket.closed
+
+    RPCClient.forget_client(client)
+    del client
+    gc.collect()
+
+    assert socket.closed, "client.__del__ should have closed the socket via close()"
+
+    server.close()
+
+
+def test_thread_del_closes_socket():
+    """Test that garbage-collecting a thread with an open RPCClient calls close() and closes the socket.
+    """
+    import gc
+
+    server = RPCServer()
+
+    class ClientThread(threading.Thread):
+        def __init__(self, addr):
+            super().__init__(daemon=True)
+            self.addr = addr
+
+        def run(self):
+            self._socket = RPCClient(self.addr)._socket
+
+    thread = ClientThread(server.address)
+    thread.start()
+    thread.join()
+
+    socket = thread._socket
+    assert not socket.closed
+
+    del thread
+    gc.collect()
+
+    assert socket.closed, "thread.__del__ should have closed the socket via close()"
+
+    server.close()
+
+
 if __name__ == '__main__':
     # ~ test_rpc()
     test_qt_rpc()
