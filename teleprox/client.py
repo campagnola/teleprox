@@ -19,6 +19,7 @@ from . import log
 from .qt_server import QtRPCServer
 from .serializer import all_serializers, Serializer
 from .server import RPCServer
+from .log import DEBUG1, DEBUG2, DEBUG3
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ class RPCClient(object):
             self._socket.linger = 1000
             self._poller = None
 
-            logger.info("RPC connect to %s", address.decode())
+            logger.log(DEBUG3, "RPC connect to %s", address.decode())
             self._socket.connect(address)
             self.next_request_id = 0
             self.futures = weakref.WeakValueDictionary()
@@ -338,8 +339,8 @@ class RPCClient(object):
         else:
             req_id = self.next_request_id
             self.next_request_id += 1
-        logger.info("RPC request '%s' to %s [req_id=%s]", action, self.address.decode(), req_id)
-        logger.debug("    => sync=%s return=%s opts=%s", sync, return_type, opts)
+        logger.log(DEBUG2, "RPC request '%s' to %s [req_id=%s]", action, self.address.decode(), req_id)
+        logger.log(DEBUG1, "    => sync=%s return=%s opts=%s", sync, return_type, opts)
 
         if opts is None:
             opts_str = b''
@@ -591,12 +592,12 @@ class RPCClient(object):
         This takes care of assigning return values or exceptions to existing
         Future instances.
         """
-        logger.debug(
+        logger.log(DEBUG2,
             "RPC recv result from %s [req_id=%s]",
             self.address.decode(),
             msg.get('req_id', None),
         )
-        logger.debug(f"    => {msg}")
+        logger.log(DEBUG1, f"    => {msg}")
         if msg['action'] == 'return':
             req_id = msg['req_id']
             fut = self.futures.pop(req_id, None)
@@ -637,7 +638,7 @@ class RPCClient(object):
         # * another client requested that the server close and this client
         #   received a preemptive disconnect message from the server.
         self._disconnected = True
-        logger.debug("Received server disconnect from %s", self.address)
+        logger.log(DEBUG2, "Received server disconnect from %s", self.address)
         exc = RuntimeError("Cannot receive result; server has already disconnected.")
         for fut in self.futures.values():
             fut.set_exception(exc)
