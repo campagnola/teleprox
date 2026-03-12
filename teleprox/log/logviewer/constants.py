@@ -9,7 +9,7 @@ attrs_not_shown_as_children = {
     'name', 'msg', 'message', 'args', 'levelname', 'levelno', 'pathname', 'filename',
     'module', 'lineno', 'funcName', 'created', 'msecs', 'relativeCreated',
     'thread', 'threadName', 'processName', 'hostName', 'process', 'getMessage',
-    'tags', 'taskName',
+    'tags', 'taskName', 'asctime',
 }
 # attributes we can show as children, or ignore if their value is None
 ignorable_child_attrs = {'exc_info', 'exc_text', 'stack_info'}

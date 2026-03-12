@@ -15,6 +15,7 @@ from . import log
 from . import serializer
 from .proxy import ObjectProxy
 from .timer import Timer
+from .log import DEBUG1, DEBUG2, DEBUG3
 
 logger = logging.getLogger(__name__)
 
@@ -260,13 +261,13 @@ class RPCServer(object):
                 raise ValueError(f"Unsupported serializer '{ser_type}'") from e
             opts = msg.pop('opts', None)
 
-            logger.debug("RPC recv '%s' from %s [req_id=%s]", action, caller.decode(), req_id)
-            logger.debug("    => %s", msg)
+            logger.log(DEBUG2, "RPC recv '%s' from %s [req_id=%s]", action, caller.decode(), req_id)
+            logger.log(DEBUG1, "    => %s", msg)
             if opts == b'':
                 opts = None
             else:
                 opts = ser.loads(opts, proxy_opts={})
-            logger.debug("    => opts: %s", opts)
+            logger.log(DEBUG1, "    => opts: %s", opts)
 
             result = self.process_action(action, opts, return_type, caller)
             exc = None
@@ -321,8 +322,8 @@ class RPCServer(object):
 
     def _send_result(self, caller, req_id, rval=None, error=None):
         result = {'action': 'return', 'req_id': req_id, 'rval': rval, 'error': error}
-        logger.debug("RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id'])
-        logger.debug("    => %s", result)
+        logger.log(DEBUG2, "RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id'])
+        logger.log(DEBUG1, "    => %s", result)
 
         # Select the correct serializer for this client
         ser = self._serializers[self._clients[caller]]
@@ -426,7 +427,7 @@ class RPCServer(object):
     def run_forever(self):
         """Read and process RPC requests until the server is asked to close."""
         self._run_thread = threading.current_thread()
-        logger.info(
+        logger.log(DEBUG2,
             f"RPC start server loop: {log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}"
             f"@{self.address.decode()}"
         )
