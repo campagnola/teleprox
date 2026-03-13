@@ -905,6 +905,117 @@ def test_shared_local_server_cross_process_objects():
         shared_server.close()
 
 
+def test_client_del_closes_socket():
+    """Test that garbage-collecting an RPCClient calls close() and closes the socket.
+    """
+    import gc
+
+    server = RPCServer()
+    client = RPCClient(server.address)
+    socket = client._socket
+
+    assert not socket.closed
+
+    RPCClient.forget_client(client)
+    del client
+    gc.collect()
+
+    assert socket.closed, "client.__del__ should have closed the socket via close()"
+
+    server.close()
+
+
+def test_thread_del_closes_socket():
+    """Test that garbage-collecting a thread with an open RPCClient calls close() and closes the socket.
+    """
+    import gc
+
+    server = RPCServer()
+
+    class ClientThread(threading.Thread):
+        def __init__(self, addr):
+            super().__init__(daemon=True)
+            self.addr = addr
+
+        def run(self):
+            self._socket = RPCClient(self.addr)._socket
+
+    thread = ClientThread(server.address)
+    thread.start()
+    thread.join()
+
+    socket = thread._socket
+    assert not socket.closed
+
+    del thread
+    gc.collect()
+
+    assert socket.closed, "thread.__del__ should have closed the socket via close()"
+
+    server.close()
+
+
+@requires_qt
+def test_qt_log_handler_tolerates_deleted_qt_object():
+    """QtLogHandler.handle() must not crash when the underlying Qt C++ object is deleted.
+
+    This can happen when GC destroys Qt objects in an order where the C++ object
+    backing the handler's signal is gone before the handler itself is collected.
+    """
+    import gc
+    from teleprox.log.logviewer.viewer import QtLogHandler
+
+    handler = QtLogHandler()
+
+    # Drop all Python references to the QObject so the C++ object is destroyed,
+    # while handler.new_record (a bound signal) still points to it.
+    signals = handler._signals
+    del handler._signals
+    del signals
+    gc.collect()
+
+    record = logging.makeLogRecord({'msg': 'test'})
+    # Must not raise RuntimeError or segfault
+    handler.handle(record)
+
+
+@requires_qt
+def test_client_del_with_qt_log_handler_on_dead_object():
+    """RPCClient.__del__ must not segfault when its logging goes through a QtLogHandler
+    whose underlying Qt C++ object has already been destroyed.
+
+    Regression test for the chain:
+      RPCClient.__del__ -> close() -> _local_server.close() -> logger.debug() ->
+      QtLogHandler.handle() -> signal.emit() on deleted C++ object -> segfault
+    """
+    import gc
+    from teleprox.log.logviewer.viewer import QtLogHandler
+
+    handler = QtLogHandler()
+    server_logger = logging.getLogger('teleprox.server')
+    server_logger.addHandler(handler)
+
+    try:
+        server = RPCServer()
+        client = RPCClient(server.address)
+
+        # Destroy the C++ Qt object while keeping the Python handler alive,
+        # simulating the GC ordering that caused the segfault.
+        signals = handler._signals
+        del handler._signals
+        del signals
+        gc.collect()
+
+        # __del__ -> close() -> logger.debug() -> handler.handle() -> emit on dead C++ obj
+        RPCClient.forget_client(client)
+        del client
+        gc.collect()
+        # Reaching here without a segfault means the fix is working
+    finally:
+        server_logger.removeHandler(handler)
+        server.close()
+
+
 if __name__ == '__main__':
     # ~ test_rpc()
     test_qt_rpc()
