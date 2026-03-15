@@ -230,6 +230,10 @@ class LogViewer(qt.QWidget):
         self.header = self.tree.header()
         self.header.setContextMenuPolicy(qt.Qt.ContextMenuPolicy.CustomContextMenu)
         self.header.customContextMenuRequested.connect(self._show_header_context_menu)
+        self.header.setStretchLastSection(False)
+
+        # Allow horizontal scrolling; columns keep their set widths
+        self.tree.setHorizontalScrollBarPolicy(qt.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         # Hide Task, Level, Host, Process, and Thread columns by default
         self.tree.setColumnHidden(LogColumns.LEVEL, True)  # Level column
@@ -260,9 +264,12 @@ class LogViewer(qt.QWidget):
         self.layout.addWidget(self.tree, 1, 0)
         self.resize(1200, 600)
 
-        # Set column widths from constants
+        # Set column widths from constants; MESSAGE column tracks its content width
         for i, width in enumerate(LogColumns.WIDTHS):
             self.tree.setColumnWidth(i, width)
+        self.header.setSectionResizeMode(
+            LogColumns.MESSAGE, qt.QHeaderView.ResizeMode.ResizeToContents
+        )
 
         # Apply initial filters if provided
         if initial_filters:
