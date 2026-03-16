@@ -31,6 +31,12 @@ class FieldFilterProxy(qt.QSortFilterProxyModel):
         if field_name in field_roles:
             self.setFilterRole(field_roles[field_name])
     
+    def lessThan(self, source_left, source_right):
+        """Preserve insertion order for child items (e.g., exception stack frames)."""
+        if source_left.parent().isValid():
+            return source_left.row() < source_right.row()
+        return super().lessThan(source_left, source_right)
+
     def set_filter_pattern(self, pattern):
         """Set the filter pattern for this field."""
         self.filter_pattern = pattern
