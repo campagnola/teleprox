@@ -113,23 +113,10 @@ class ExpansionStateManager:
         return current_index
 
     def _set_child_spans_for_item(self, index):
-        """Set column spans for children of an item."""
-        current_model = self.tree_view.model()
-        for row in range(current_model.rowCount(index)):
-            self.tree_view.setFirstColumnSpanned(row, index, True)
+        """No-op: child rows now place text in the MESSAGE column; no spanning needed."""
 
     def _set_spans_recursive(self, parent_index, current_model):
-        """Recursively set column spans for all child items."""
-        for row in range(current_model.rowCount(parent_index)):
-            index = current_model.index(row, LogColumns.TIMESTAMP, parent_index)
-
-            # Set column spans for child items (not top-level)
-            if parent_index.isValid():
-                self.tree_view.setFirstColumnSpanned(row, parent_index, True)
-
-            # Recursively set spans for grandchildren
-            if current_model.rowCount(index) > 0:
-                self._set_spans_recursive(index, current_model)
+        """No-op: child rows now place text in the MESSAGE column; no spanning needed."""
 
 
 class LogViewer(qt.QWidget):

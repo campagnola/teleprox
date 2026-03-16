@@ -630,32 +630,33 @@ class LogModel(qt.QStandardItemModel):
         return {'has_file_ref': False, 'full_text': text}
 
     def _create_child_row(self, label, message, data_dict, parent_record):
-        """Create a standardized child row for exception details."""
-        # For child rows, put all content in the first column since it will span
-        # Create items for each column dynamically
-        item = qt.QStandardItem(message)
+        """Create a standardized child row for exception details.
 
-        # INHERIT PARENT'S FILTER DATA so Qt native filtering includes children
-        # This allows children to pass the same filters as their parents
-        # Set the same data on ALL items so filtering works regardless of which column is checked
-        self._set_filter_data_on_item(item, parent_record)
+        Text is placed in the MESSAGE column so that ResizeToContents on that
+        column keeps child rows fully visible without elision.
+        """
+        n_cols = self._get_column_count()
+        row_items = [qt.QStandardItem("") for _ in range(n_cols)]
+        item = row_items[LogColumns.MESSAGE]
+        item.setText(message)
 
-        # Store the data dict for click handling
-        item.data_dict = data_dict
-        # we cannot trust to attrs because Qt will be .clone()'ing items
-        item.setData(data_dict, ItemDataRole.ROW_DETAILS)
+        # INHERIT PARENT'S FILTER DATA so Qt native filtering includes children.
+        # Set on all items so filtering works regardless of which column is checked.
+        for row_item in row_items:
+            self._set_filter_data_on_item(row_item, parent_record)
+            row_item.data_dict = data_dict
+            # we cannot trust to attrs because Qt will be .clone()'ing items
+            row_item.setData(data_dict, ItemDataRole.ROW_DETAILS)
 
         # Set colors to differentiate from main log entries
         item.setForeground(qt.QColor("#444444"))  # Dark gray for child text
 
         # Make traceback/stack frame items clickable for file navigation
         if data_dict.get('type') in ['traceback_frame', 'stack_frame']:
-            item.setFlags(qt.Qt.ItemFlag.ItemIsEnabled | qt.Qt.ItemFlag.ItemIsSelectable)  # Allow clicking
+            item.setFlags(qt.Qt.ItemFlag.ItemIsEnabled | qt.Qt.ItemFlag.ItemIsSelectable)
         else:
-            # Make other exception items not selectable
-            item.setFlags(qt.Qt.ItemFlag.ItemIsEnabled)  # Remove ItemIsSelectable flag
+            item.setFlags(qt.Qt.ItemFlag.ItemIsEnabled)
 
-        # Apply styling to the timestamp column item (where content is now)
         # Apply monospace font for code-like content
         text = data_dict.get('text', '')
         should_use_monospace = (
@@ -667,7 +668,6 @@ class LogModel(qt.QStandardItemModel):
         )
 
         if should_use_monospace:
-            # Use monospace font for all code lines
             monospace_font = qt.QFont("Consolas, Monaco, 'Courier New', monospace")
             monospace_font.setStyleHint(qt.QFont.StyleHint.TypeWriter)
             item.setFont(monospace_font)
@@ -685,7 +685,7 @@ class LogModel(qt.QStandardItemModel):
             item.setFont(italic_font)
             item.setForeground(qt.QColor("#888888"))  # Lighter gray for separators
 
-        return [item]
+        return row_items
 
     def _get_level_cipher(self, level_int):
         """Get level cipher for a given level number."""
