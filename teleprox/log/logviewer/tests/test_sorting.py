@@ -153,6 +153,68 @@ class TestLogViewerSorting:
             assert expected_msg in actual_message, f"After clearing filters, row {i}: expected '{expected_msg}' in '{actual_message}'"
 
 
+class TestExceptionStackSorting:
+    """Test that exception stack frames are not reordered when sorting is applied."""
+
+    def test_exception_stack_frames_preserve_order_after_sort(self, qapp):
+        """Exception stack child rows must stay in traceback order when the viewer sorts."""
+        viewer = LogViewer(logger='test.exception.sort', initial_filters=[])
+
+        base_time = 1000000000
+        try:
+            raise ValueError("inner")
+        except ValueError as inner:
+            try:
+                raise RuntimeError("outer") from inner
+            except RuntimeError:
+                import sys
+                exc_info = sys.exc_info()
+
+        record = logging.LogRecord(
+            name='test.exception.sort',
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="boom",
+            args=(),
+            exc_info=exc_info,
+        )
+        record.created = base_time
+
+        viewer.handler.handle(record)
+        qapp.processEvents()
+
+        # Expand the exception entry to load child rows
+        source_model = viewer.model
+        assert source_model.rowCount() >= 1
+        top_item = source_model.item(0, 0)
+        viewer.model.item_expanded(top_item)
+
+        # Trigger a sort to simulate the user clicking a column header
+        viewer.tree.sortByColumn(LogColumns.TIMESTAMP, qt.Qt.SortOrder.DescendingOrder)
+        qapp.processEvents()
+        viewer.tree.sortByColumn(LogColumns.TIMESTAMP, qt.Qt.SortOrder.AscendingOrder)
+        qapp.processEvents()
+
+        # Get child rows from the tree model (through proxy)
+        tree_model = viewer.tree.model()
+        top_index = tree_model.index(0, 0)
+        n_children = tree_model.rowCount(top_index)
+        assert n_children > 0, "Exception entry should have child rows after expansion"
+
+        # Child rows must be in ascending row order (insertion order preserved)
+        prev_source_row = -1
+        for child_row in range(n_children):
+            child_index = tree_model.index(child_row, 0, top_index)
+            # Map back to source model to get the original row number
+            source_index = viewer.proxy_model.map_index_to_model(child_index)
+            assert source_index.row() > prev_source_row, (
+                f"Child row {child_row} source row {source_index.row()} is out of order "
+                f"(previous was {prev_source_row})"
+            )
+            prev_source_row = source_index.row()
+
+
 def run_manual_tests():
     """Run basic tests without pytest."""
     # Create QApplication for manual testing (conftest.py only works in pytest)
