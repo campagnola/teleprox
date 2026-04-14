@@ -689,7 +689,7 @@ class RPCClient(object):
         return avg
 
     def __del__(self):
-        if hasattr(self, '_socket'):
+        if hasattr(self, '_socket') and not sys.is_finalizing():
             self.close()
 
 

@@ -644,4 +644,6 @@ class QtLogHandler(logging.Handler):
         self.new_record = self._signals.new_record
 
     def handle(self, record):
-        self.new_record.emit(record)
+        signals = getattr(self, '_signals', None)
+        if signals is not None:
+            signals.new_record.emit(record)

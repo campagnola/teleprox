@@ -955,6 +955,67 @@ def test_thread_del_closes_socket():
     server.close()
 
 
+@requires_qt
+def test_qt_log_handler_tolerates_deleted_qt_object():
+    """QtLogHandler.handle() must not crash when the underlying Qt C++ object is deleted.
+
+    This can happen when GC destroys Qt objects in an order where the C++ object
+    backing the handler's signal is gone before the handler itself is collected.
+    """
+    import gc
+    from teleprox.log.logviewer.viewer import QtLogHandler
+
+    handler = QtLogHandler()
+
+    # Drop all Python references to the QObject so the C++ object is destroyed,
+    # while handler.new_record (a bound signal) still points to it.
+    signals = handler._signals
+    del handler._signals
+    del signals
+    gc.collect()
+
+    record = logging.makeLogRecord({'msg': 'test'})
+    # Must not raise RuntimeError or segfault
+    handler.handle(record)
+
+
+@requires_qt
+def test_client_del_with_qt_log_handler_on_dead_object():
+    """RPCClient.__del__ must not segfault when its logging goes through a QtLogHandler
+    whose underlying Qt C++ object has already been destroyed.
+
+    Regression test for the chain:
+      RPCClient.__del__ -> close() -> _local_server.close() -> logger.debug() ->
+      QtLogHandler.handle() -> signal.emit() on deleted C++ object -> segfault
+    """
+    import gc
+    from teleprox.log.logviewer.viewer import QtLogHandler
+
+    handler = QtLogHandler()
+    server_logger = logging.getLogger('teleprox.server')
+    server_logger.addHandler(handler)
+
+    try:
+        server = RPCServer()
+        client = RPCClient(server.address)
+
+        # Destroy the C++ Qt object while keeping the Python handler alive,
+        # simulating the GC ordering that caused the segfault.
+        signals = handler._signals
+        del handler._signals
+        del signals
+        gc.collect()
+
+        # __del__ -> close() -> logger.debug() -> handler.handle() -> emit on dead C++ obj
+        RPCClient.forget_client(client)
+        del client
+        gc.collect()
+        # Reaching here without a segfault means the fix is working
+    finally:
+        server_logger.removeHandler(handler)
+        server.close()
+
+
 if __name__ == '__main__':
     # ~ test_rpc()
     test_qt_rpc()
