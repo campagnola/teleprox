@@ -61,16 +61,18 @@ def find_procs(search):
         raise NotImplementedError(f"find_procs not implemented for platform {sys.platform}")
 
 
-def kill_procs(search, wait=5):
+def kill_procs(search=None, wait=5):
     """Kill all processes with the given search string in their command line.
 
     return (pid, command) for each killed process
     """
-    procs = find_procs(teleprox.process.PROCESS_NAME_PREFIX)    
+    if search is None:
+        search = teleprox.process.PROCESS_NAME_PREFIX
+    procs = find_procs(search)    
     if not procs:
         return []
     time.sleep(wait)  # wait a little longer for cleanup..
-    procs = find_procs(teleprox.process.PROCESS_NAME_PREFIX)
+    procs = find_procs(search)
     if not procs:
         return []
     for pid, line in procs:
@@ -164,7 +166,7 @@ def netstat():
     """
     
     if sys.platform == 'win32':
-        output = subprocess.check_output(['netstat', '-ano']).decode()
+        output = subprocess.check_output(['netstat', '-ano'], creationflags=subprocess.CREATE_NO_WINDOW).decode()
         lines = output.split('\n')
         ports = []
         for line in lines:
