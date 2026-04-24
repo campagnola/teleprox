@@ -16,6 +16,9 @@ parser.add_argument('--loglevel', nargs='?', default='INFO', help='Log level for
 parser.add_argument('--log-send-level', nargs='?', default=None, help='Minimum log level to send to log server. (default is same as loglevel)')
 parser.add_argument('--bootstrap_addr', nargs='?', default=None, help='Address to send bootstrap messages to')
 parser.add_argument('--child_name_prefix', nargs='?', default='', help='Prefix for child process names')
+parser.add_argument('--parent-pid', nargs='?', default=None, type=int, help='PID of the parent process')
+parser.add_argument('--exit-on-parent-death', default=False, action='store_true',
+                    help='Exit automatically when the parent process (--parent-pid) dies')
 
 args = parser.parse_args()
 conf = vars(args)
@@ -67,6 +70,7 @@ logger.setLevel(conf['loglevel'])
 
 from teleprox import log
 import teleprox
+from teleprox.util import pid_exists
 
 # Set up process name prefix if requested
 teleprox.process.PROCESS_NAME_PREFIX = conf['child_name_prefix']
@@ -124,8 +128,31 @@ if conf['bootstrap_addr'] is not None:
 
     bootstrap_sock.close()
 
+def _start_parent_watcher(parent_pid):
+    """Start a daemon thread that exits this process when *parent_pid* disappears.
+
+    Polls every 5 seconds.  On Windows the parent-side Job Object already handles
+    instant termination; this thread is a belt-and-suspenders fallback and the
+    primary mechanism on non-Windows platforms.
+    """
+    import threading
+
+    def _watch():
+        while True:
+            time.sleep(5)
+            if not pid_exists(parent_pid):
+                logger.warning("Parent process %d has died; exiting.", parent_pid)
+                os._exit(1)
+
+    t = threading.Thread(target=_watch, name='parent_watcher', daemon=True)
+    t.start()
+    logger.debug("Watching parent process %d", parent_pid)
+
+
 # Run server until heat death of universe
 if 'address' in status:
+    if conf['exit_on_parent_death'] and conf['parent_pid'] is not None:
+        _start_parent_watcher(conf['parent_pid'])
     server.run_forever()
     
 if conf['qt']:

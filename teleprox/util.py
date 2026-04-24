@@ -7,6 +7,31 @@ import time
 import teleprox
 
 
+def pid_exists(pid):
+    """Return True if a process with *pid* is still running."""
+    if sys.platform == 'win32':
+        import win32api
+        import win32con
+        import win32process
+        import pywintypes
+        STILL_ACTIVE = 259
+        try:
+            handle = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            exit_code = win32process.GetExitCodeProcess(handle)
+            win32api.CloseHandle(handle)
+            return exit_code == STILL_ACTIVE
+        except pywintypes.error:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True  # process exists but we can't signal it
+
+
 def kill_pid(pid):
     if sys.platform == 'win32':
         # on windows, SIGKILL is not available but we can use any signal other than CTRL_C_EVENT (0) or CTRL_BREAK_EVENT (1)
