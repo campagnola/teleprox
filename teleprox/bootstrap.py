@@ -70,6 +70,7 @@ logger.setLevel(conf['loglevel'])
 
 from teleprox import log
 import teleprox
+from teleprox.util import pid_exists
 
 # Set up process name prefix if requested
 teleprox.process.PROCESS_NAME_PREFIX = conf['child_name_prefix']
@@ -127,31 +128,6 @@ if conf['bootstrap_addr'] is not None:
 
     bootstrap_sock.close()
 
-def _pid_exists(pid):
-    """Return True if a process with *pid* is still running."""
-    if sys.platform == 'win32':
-        import win32api
-        import win32con
-        import win32process
-        import pywintypes
-        STILL_ACTIVE = 259
-        try:
-            handle = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-            exit_code = win32process.GetExitCodeProcess(handle)
-            win32api.CloseHandle(handle)
-            return exit_code == STILL_ACTIVE
-        except pywintypes.error:
-            return False
-    else:
-        try:
-            os.kill(pid, 0)
-            return True
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True  # process exists but we can't signal it
-
-
 def _start_parent_watcher(parent_pid):
     """Start a daemon thread that exits this process when *parent_pid* disappears.
 
@@ -164,7 +140,7 @@ def _start_parent_watcher(parent_pid):
     def _watch():
         while True:
             time.sleep(5)
-            if not _pid_exists(parent_pid):
+            if not pid_exists(parent_pid):
                 logger.warning("Parent process %d has died; exiting.", parent_pid)
                 os._exit(1)
 
