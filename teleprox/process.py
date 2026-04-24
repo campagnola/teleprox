@@ -3,6 +3,7 @@
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
 import sys
+import os
 import json
 import subprocess
 import atexit
@@ -28,6 +29,51 @@ logger.setLevel(logging.INFO)
 PROCESS_NAME_PREFIX = ''
 
 
+def _try_setup_win32_job_object(child_pid):
+    """Assign *child_pid* to a Windows Job Object configured with KILL_ON_JOB_CLOSE.
+
+    Returns a job handle that the caller must keep alive for as long as the child
+    should be kept alive.  When the handle is closed (explicitly or because the
+    parent process exits/crashes) the OS kills every process in the job.
+
+    Returns None if the platform is not Windows or if any step fails.
+    """
+    if sys.platform != 'win32':
+        return None
+    try:
+        import win32api
+        import win32con
+        import win32job
+
+        job = win32job.CreateJobObject(None, None)
+        info = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
+        info['BasicLimitInformation']['LimitFlags'] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, info)
+
+        child_handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, False, child_pid)
+        try:
+            win32job.AssignProcessToJobObject(job, child_handle)
+        finally:
+            win32api.CloseHandle(child_handle)
+
+        logger.debug("Assigned child pid %d to Win32 job object (kill-on-close)", child_pid)
+        return job
+
+    except Exception:
+        logger.debug("Win32 job object setup failed", exc_info=True)
+        return None
+
+
+def _close_win32_handle(handle):
+    if handle is None:
+        return
+    try:
+        import win32api
+        win32api.CloseHandle(handle)
+    except Exception:
+        pass
+
+
 def start_process(
     name=None,
     address="tcp://127.0.0.1:*",
@@ -42,6 +88,7 @@ def start_process(
     serializer='msgpack',
     local_server=None,
     daemon=False,
+    exit_on_parent_death=None,
     stdin=None,
     stdout=None,
     stderr=None,
@@ -93,6 +140,11 @@ def start_process(
         If True, then the new process will be detached from the parent process, allowing
         it to run indefinitely in the background, even after the parent closes.
         Default is False.
+    exit_on_parent_death : bool | None
+        If True, the child process will exit automatically when this (parent) process
+        dies, even if it crashes.  On Windows this is implemented via a Job Object
+        (OS-level, instant); on other platforms a polling thread checks the parent PID
+        every 5 seconds.  Defaults to True for non-daemon processes, False for daemons.
     stdin, stdout, stderr :
         See Popen documentation for details. Not compatible with log_addr.
 
@@ -131,6 +183,10 @@ def start_process(
     # logger.warning("Spawning process: %s %s %s", name, log_addr, log_level)
     if not isinstance(daemon, bool):
         raise TypeError(f"daemon must be bool; got {repr(daemon)}")
+    if exit_on_parent_death is None:
+        exit_on_parent_death = not daemon
+    if not isinstance(exit_on_parent_death, bool):
+        raise TypeError(f"exit_on_parent_death must be bool or None; got {repr(exit_on_parent_death)}")
     if not isinstance(qt, bool):
         raise TypeError(f"qt must be bool; got {repr(qt)}")
     if not isinstance(address, (str, bytes)):
@@ -199,6 +255,10 @@ def start_process(
     if PROCESS_NAME_PREFIX not in ('', None):
         bootstrap_args.append(f'--child_name_prefix={PROCESS_NAME_PREFIX}')
 
+    bootstrap_args.append(f'--parent-pid={os.getpid()}')
+    if exit_on_parent_death:
+        bootstrap_args.append('--exit-on-parent-death')
+
     if executable is None:
         if conda_env is None:
             executable = sys.executable
@@ -253,6 +313,14 @@ def start_process(
         stdio_logger = None
 
     logger.info(f'Spawned process "{name}" with pid {proc.pid}')
+
+    # On Windows, assign the child to a Job Object so it is killed automatically
+    # when this process exits or crashes (KILL_ON_JOB_CLOSE).  The polling thread
+    # started by the child (--exit-on-parent-death) provides a fallback on other
+    # platforms and belt-and-suspenders coverage on Windows.
+    job_handle = None
+    if exit_on_parent_death and not daemon:
+        job_handle = _try_setup_win32_job_object(proc.pid)
     if daemon is True and sys.platform != 'win32':
         proc.wait()  # prevent zombie
         proc = None  # prevent trying wait/kill/poll  (but maybe we can still do this on windows?)
@@ -287,7 +355,7 @@ def start_process(
     if daemon is True:
         return DaemonProcess(client, name, qt, status['pid'])
     else:
-        return ChildProcess(proc, client, name, qt, stdio_logger)
+        return ChildProcess(proc, client, name, qt, stdio_logger, job_handle=job_handle)
 
 
 class DaemonProcess:
@@ -317,7 +385,7 @@ class DaemonProcess:
 
 
 class ChildProcess:
-    def __init__(self, proc, client, name, qt, stdio_logger=None):
+    def __init__(self, proc, client, name, qt, stdio_logger=None, job_handle=None):
         self.proc = proc
         self.pid = proc.pid
         self.client = client
@@ -325,6 +393,7 @@ class ChildProcess:
         self.qt = qt
         self.logger = logger
         self.stdio_logger = stdio_logger
+        self._job_handle = job_handle  # Win32 job handle; kept alive so KILL_ON_JOB_CLOSE fires
 
         # Automatically shut down process when we exit.
         atexit.register(self.stop)
@@ -362,20 +431,26 @@ class ChildProcess:
             return
         logger.info("Kill child process: %d", self.proc.pid)
         self.proc.kill()
-
-        return self.wait()
+        result = self.wait()
+        _close_win32_handle(self._job_handle)
+        self._job_handle = None
+        return result
 
     def stop(self, timeout=10):
         """Stop the spawned process by asking its RPC server to close."""
         if self.proc.poll() is not None:
             # process has already exited
+            _close_win32_handle(self._job_handle)
+            self._job_handle = None
             return
         logger.info(f"Close process: {self.client.address}")
         closed = self.client.close_server(timeout=timeout)
         if not closed:
             raise RuntimeError(f"Server refused to close. (reply: {closed})")
-
-        return self.wait(timeout)
+        result = self.wait(timeout)
+        _close_win32_handle(self._job_handle)
+        self._job_handle = None
+        return result
 
     def poll(self):
         """Return the spawned process's return code, or None if it has not
