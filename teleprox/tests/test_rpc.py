@@ -337,12 +337,13 @@ def test_disconnect():
     server_proc.kill()
     client_proc.kill()
 
-    # Clients gracefully handle sudden death of server (with timeout)
+    # kill() immediately informs the client; no timeout needed
     server_proc3 = start_process('test_disconnect_server_proc3')
     server_proc3.kill()
 
-    with pytest.raises(TimeoutError):
-        server_proc3.client.ping(timeout=1)
+    assert server_proc3.client.disconnected() is True
+    with pytest.raises(RuntimeError):
+        server_proc3.client.ping()
 
     # server doesn't hang up if clients are not available to receive disconnect
     # message
