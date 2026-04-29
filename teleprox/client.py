@@ -24,6 +24,26 @@ from .log import DEBUG1, DEBUG2, DEBUG3
 logger = logging.getLogger(__name__)
 
 
+# Process-level provider called before each outgoing call_obj to supply extra opts.
+# Set via set_call_opts_provider(). Signature: () -> dict | None
+_call_opts_provider = None
+
+
+def set_call_opts_provider(fn):
+    """Register a process-level provider that adds extra opts to every outgoing call_obj.
+
+    The provider is called with no arguments before each call_obj request and should
+    return a dict of extra opts to merge into the call, or None.  Only one provider
+    can be registered at a time; calling this again replaces the previous one.
+
+    Use this to attach call-time metadata (e.g. tracing context) that the receiving
+    RPCServer can inspect via a complementary hook registered with
+    :func:`teleprox.server.set_call_context_hook`.
+    """
+    global _call_opts_provider
+    _call_opts_provider = fn
+
+
 class RPCClient(object):
     """Connection to an :class:`RPCServer`.
 
@@ -388,6 +408,10 @@ class RPCClient(object):
             All extra keyword arguments are passed to :func:`send() <RPCClient.send>`.
         """
         opts = {'obj': obj, 'args': args, 'kwargs': kwargs}
+        if _call_opts_provider is not None:
+            extra = _call_opts_provider()
+            if extra:
+                opts.update(extra)
         return self.send('call_obj', opts=opts, **kwds)
 
     def get_obj(self, obj, **kwds):
