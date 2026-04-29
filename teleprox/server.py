@@ -1,5 +1,6 @@
 import atexit
 import builtins
+import contextlib
 import logging
 import sys
 import threading
@@ -8,6 +9,26 @@ import traceback
 import zmq
 
 from . import log
+
+
+# Process-level hook called around each incoming call_obj execution.
+# Set via set_call_context_hook(). Signature: (opts: dict) -> context manager
+_call_context_hook = None
+
+
+def set_call_context_hook(fn):
+    """Register a process-level hook that wraps every incoming call_obj execution.
+
+    The hook is called with the full opts dict for the call_obj action and must
+    return a context manager.  The remote callable is invoked inside that context
+    manager, so the hook can set up (and tear down) any per-call state.
+
+    Only one hook can be registered at a time; calling this again replaces the
+    previous one.  Pair with :func:`teleprox.client.set_call_opts_provider` to
+    propagate metadata from the calling process into the receiving process.
+    """
+    global _call_context_hook
+    _call_context_hook = fn
 from . import serializer
 from .proxy import ObjectProxy
 from .timer import Timer
@@ -339,15 +360,17 @@ class RPCServer(object):
             fnargs = opts.get('args', ())
             fnkwds = opts.get('kwargs', {})
 
+            call_cm = _call_context_hook(opts) if _call_context_hook is not None else contextlib.nullcontext()
             # need to do this because some functions do not allow keyword arguments.
-            if len(fnkwds) == 0:
-                try:
-                    result = obj(*fnargs)
-                except Exception:
-                    logger.warning("Failed to call object %s: %d, %s", obj, len(fnargs), fnargs[1:])
-                    raise
-            else:
-                result = obj(*fnargs, **fnkwds)
+            with call_cm:
+                if len(fnkwds) == 0:
+                    try:
+                        result = obj(*fnargs)
+                    except Exception:
+                        logger.warning("Failed to call object %s: %d, %s", obj, len(fnargs), fnargs[1:])
+                        raise
+                else:
+                    result = obj(*fnargs, **fnkwds)
             # logger.debug("    => call_obj result: %r", result)
         elif action == 'get_obj':
             result = opts['obj']
