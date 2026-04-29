@@ -164,6 +164,8 @@ class LogSender(logging.Handler):
         atexit.register(self.close)
 
     def handle(self, record):
+        if not self.filter(record):
+            return False
         self.record_queue.put(record)
         return True
 
