@@ -169,7 +169,7 @@ class TestChildUIBehavior:
         assert category_child_count > 1, "Exception category should have multiple children (traceback + exception)"
         
         # Check that the last child in the category is the exception message
-        last_child = exc_category.child(category_child_count - 1, LogColumns.TIMESTAMP)  # Last row, first column
+        last_child = exc_category.child(category_child_count - 1, LogColumns.MESSAGE)  # Last row, message column
         assert last_child is not None, "Should have last child in exception category"
         
         last_message = last_child.text()
@@ -177,7 +177,7 @@ class TestChildUIBehavior:
         assert "Test exception message" in last_message, "Should contain the exception text"
         
         # Check that earlier children are traceback frames
-        first_child = exc_category.child(0, LogColumns.TIMESTAMP)  # First row, first column
+        first_child = exc_category.child(0, LogColumns.MESSAGE)  # First row, message column
         assert first_child is not None, "Should have first child in exception category"
         
         first_message = first_child.text()
@@ -220,7 +220,7 @@ class TestChildUIBehavior:
         # Verify we have at least one traceback frame (not just the exception message)
         has_traceback = False
         for i in range(category_child_count - 1):  # Exclude last item (exception message)
-            child = exc_category.child(i, LogColumns.TIMESTAMP)  # First column contains the content
+            child = exc_category.child(i, LogColumns.MESSAGE)  # Message column contains the content
             if child and "File " in child.text():
                 has_traceback = True
                 break
