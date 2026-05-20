@@ -14,12 +14,11 @@ def pid_exists(pid):
         import win32con
         import win32process
         import pywintypes
-        STILL_ACTIVE = 259
         try:
             handle = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             exit_code = win32process.GetExitCodeProcess(handle)
             win32api.CloseHandle(handle)
-            return exit_code == STILL_ACTIVE
+            return exit_code == win32con.STILL_ACTIVE
         except pywintypes.error:
             return False
     else:

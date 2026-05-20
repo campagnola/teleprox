@@ -615,7 +615,7 @@ class RPCClient(object):
             else:
                 fut.set_result(msg['rval'])
         elif msg['action'] == 'disconnect':
-            self._server_disconnected()
+            self.server_disconnected()
         else:
             raise ValueError(f"Invalid action '{msg['action']}'")
 
@@ -624,19 +624,25 @@ class RPCClient(object):
             if fut.result() is True:
                 # We requested a server closure and the server complied; now
                 # handle the disconnect.
-                self._server_disconnected()
+                self.server_disconnected()
         except RuntimeError:
             # might have already disconnected before this request finished.
             if self.disconnected():
                 pass
             raise
 
-    def _server_disconnected(self):
-        # server has disconnected; inform all pending futures.
-        # This method can be called two different ways:
-        # * this client requested that the server close and it returned True
-        # * another client requested that the server close and this client
-        #   received a preemptive disconnect message from the server.
+    def server_disconnected(self):
+        """Handle server disconnection; inform all pending futures.
+
+        This method is called when the server has disconnected from the client.
+        It may be triggered in multiple ways:
+
+        * this client requested that the server close and it returned True
+        * another client requested that the server close and this client
+          received a preemptive disconnect message from the server.
+        * the process managing the server called kill() and explicitly notifies
+          this client.
+        """
         self._disconnected = True
         logger.log(DEBUG2, "Received server disconnect from %s", self.address)
         exc = RuntimeError("Cannot receive result; server has already disconnected.")

@@ -341,7 +341,7 @@ def test_disconnect():
     server_proc3 = start_process('test_disconnect_server_proc3')
     server_proc3.kill()
 
-    assert server_proc3.client.disconnected() is True
+    assert server_proc3.client.disconnected()
     with pytest.raises(RuntimeError):
         server_proc3.client.ping()
 

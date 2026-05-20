@@ -382,7 +382,7 @@ class DaemonProcess:
             pass
         except OSError:
             logger.info("Error killing process %d", self.pid, exc_info=True)
-        self.client._server_disconnected()
+        self.client.server_disconnected()
 
 
 class ChildProcess:
@@ -432,7 +432,7 @@ class ChildProcess:
             return
         logger.info("Kill child process: %d", self.proc.pid)
         self.proc.kill()
-        self.client._server_disconnected()
+        self.client.server_disconnected()
         result = self.wait()
         _close_win32_handle(self._job_handle)
         self._job_handle = None
