@@ -3,6 +3,7 @@ import sys
 from unittest.mock import Mock
 
 from teleprox.log.logviewer.viewer import LogViewer
+from teleprox.log.logviewer.constants import LogColumns
 
 
 class TestCodeLineClicking:
@@ -46,6 +47,11 @@ class TestCodeLineClicking:
             for i in range(parent_item.rowCount()):
                 child_item = parent_item.child(i, 0)
                 if child_item:
+                    # Check the message column (col 7) where child row text is stored
+                    msg_item = parent_item.child(i, LogColumns.MESSAGE)
+                    if msg_item and target_text in msg_item.text():
+                        return msg_item
+                    # Also check column 0 text (for category items)
                     if target_text in child_item.text():
                         return child_item
                     # Recursively check children
