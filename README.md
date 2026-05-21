@@ -54,4 +54,7 @@ docker build -t teleprox-act-runner -f .github/act-ubuntu.dockerfile .github/
 
 Then run `act` as normal; `.actrc` maps `ubuntu-latest` to this image.
 
+Acknowledgements
+----------------
+
 Teleprox was originally developed as pyacq.core.rpc by the French National Center for Scientific Research (CNRS).
