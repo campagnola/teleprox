@@ -441,6 +441,9 @@ class RPCServer(object):
 
     def _final_close(self):
         # Called after the server has closed and sent its disconnect messages.
+        # Reduce linger so we don't block for 5s waiting to deliver notifications
+        # to peers that have already disconnected.  50ms is plenty for loopback.
+        self._socket.linger = 50
         self._socket.close()
 
     def running(self):

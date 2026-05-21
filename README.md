@@ -43,4 +43,15 @@ remote_sys.stdout.write('hello', _sync='off')
 proc.stop()
 ```
 
+Local CI
+========
+
+To run GitHub Actions workflows locally with [act](https://github.com/nektos/act), first build the runner image once:
+
+```
+docker build -t teleprox-act-runner -f .github/act-ubuntu.dockerfile .github/
+```
+
+Then run `act` as normal; `.actrc` maps `ubuntu-latest` to this image.
+
 Teleprox was originally developed as pyacq.core.rpc by the French National Center for Scientific Research (CNRS).

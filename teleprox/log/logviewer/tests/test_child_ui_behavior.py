@@ -11,9 +11,27 @@ from teleprox.log.logviewer.constants import ItemDataRole, LogColumns
 from teleprox import qt
 
 
+def _get_child_text(parent_item, row):
+    """Return the message text of a child row.
+
+    Qt 5.15.19 has a bug where items added to a QStandardItem before it is
+    inserted into the model do not get their column count registered with the
+    model.  This makes model.index(row, col>0, parent) return invalid indexes,
+    and item.child(row, col>0) unreliable.  Column 0 always works, so we read
+    the text from ItemDataRole.ROW_DETAILS which is set on all columns.
+    """
+    child0 = parent_item.child(row, 0)
+    if child0 is None:
+        return None
+    data = child0.data(ItemDataRole.ROW_DETAILS)
+    if isinstance(data, dict):
+        return data.get('text', '')
+    return None
+
+
 class TestChildUIBehavior:
     """Test cases for UI behavior of exception children."""
-    
+
     # QApplication fixture provided by conftest.py
     
     def test_child_selection_highlighting(self, qapp):
@@ -169,18 +187,14 @@ class TestChildUIBehavior:
         assert category_child_count > 1, "Exception category should have multiple children (traceback + exception)"
         
         # Check that the last child in the category is the exception message
-        last_child = exc_category.child(category_child_count - 1, LogColumns.TIMESTAMP)  # Last row, first column
-        assert last_child is not None, "Should have last child in exception category"
-        
-        last_message = last_child.text()
+        last_message = _get_child_text(exc_category, category_child_count - 1)
+        assert last_message is not None, "Should have last child in exception category"
         assert "ValueError" in last_message, "Last child should be the exception message"
         assert "Test exception message" in last_message, "Should contain the exception text"
-        
+
         # Check that earlier children are traceback frames
-        first_child = exc_category.child(0, LogColumns.TIMESTAMP)  # First row, first column
-        assert first_child is not None, "Should have first child in exception category"
-        
-        first_message = first_child.text()
+        first_message = _get_child_text(exc_category, 0)
+        assert first_message is not None, "Should have first child in exception category"
         assert "File " in first_message, "First child should be a traceback frame"
     
     def test_monospace_font_for_code(self, qapp):
@@ -218,11 +232,8 @@ class TestChildUIBehavior:
         assert category_child_count >= 2, "Should have at least traceback frame + exception message"
         
         # Verify we have at least one traceback frame (not just the exception message)
-        has_traceback = False
-        for i in range(category_child_count - 1):  # Exclude last item (exception message)
-            child = exc_category.child(i, LogColumns.TIMESTAMP)  # First column contains the content
-            if child and "File " in child.text():
-                has_traceback = True
-                break
-        
+        has_traceback = any(
+            "File " in (_get_child_text(exc_category, i) or "")
+            for i in range(category_child_count - 1)
+        )
         assert has_traceback, "Should have at least one traceback frame"
