@@ -2,7 +2,7 @@ import time
 
 import pytest
 import teleprox
-from teleprox.util import assert_pid_dead
+from teleprox.util import assert_pid_dead, pid_exists
 
 
 def test_kill():
@@ -80,16 +80,13 @@ def test_exit_on_parent_death():
     proc1.kill()  # hard kill: atexit and stop() are never called
     assert_pid_dead(pid1)
 
-    # Wait for P2 to exit.  On Windows the Job Object fires immediately; on other
-    # platforms the polling thread wakes within 5 s.  Allow 15 s for safety.
+    # Wait for P2 to exit on its own.  Poll with pid_exists() so we don't
+    # prematurely kill P2 before the parent watcher fires (~5 s on non-Windows).
+    # Allow 15 s total for safety.
     deadline = time.time() + 15
-    while time.time() < deadline:
-        try:
-            assert_pid_dead(pid2)
-            return  # P2 is gone — test passes
-        except AssertionError:
-            time.sleep(0.5)
+    while pid_exists(pid2) and time.time() < deadline:
+        time.sleep(0.5)
 
-    assert_pid_dead(pid2)  # final attempt; raises with a clear message if still alive
+    assert_pid_dead(pid2)  # fail (and clean up) if P2 is still alive
 
 

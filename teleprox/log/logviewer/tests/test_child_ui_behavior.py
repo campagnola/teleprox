@@ -11,9 +11,20 @@ from teleprox.log.logviewer.constants import ItemDataRole, LogColumns
 from teleprox import qt
 
 
+def _child_at(model, parent_item, row, col):
+    """Navigate to a child item by row and column using the model index.
+
+    QStandardItem.child(row, col) is unreliable for col > 0 in some Qt 5.x
+    versions; using the model's own index navigation is the correct approach.
+    """
+    parent_idx = model.indexFromItem(parent_item)
+    child_idx = model.index(row, col, parent_idx)
+    return model.itemFromIndex(child_idx)
+
+
 class TestChildUIBehavior:
     """Test cases for UI behavior of exception children."""
-    
+
     # QApplication fixture provided by conftest.py
     
     def test_child_selection_highlighting(self, qapp):
@@ -169,15 +180,15 @@ class TestChildUIBehavior:
         assert category_child_count > 1, "Exception category should have multiple children (traceback + exception)"
         
         # Check that the last child in the category is the exception message
-        last_child = exc_category.child(category_child_count - 1, LogColumns.MESSAGE)  # Last row, message column
+        last_child = _child_at(viewer.model, exc_category, category_child_count - 1, LogColumns.MESSAGE)
         assert last_child is not None, "Should have last child in exception category"
-        
+
         last_message = last_child.text()
         assert "ValueError" in last_message, "Last child should be the exception message"
         assert "Test exception message" in last_message, "Should contain the exception text"
-        
+
         # Check that earlier children are traceback frames
-        first_child = exc_category.child(0, LogColumns.MESSAGE)  # First row, message column
+        first_child = _child_at(viewer.model, exc_category, 0, LogColumns.MESSAGE)
         assert first_child is not None, "Should have first child in exception category"
         
         first_message = first_child.text()
@@ -220,7 +231,7 @@ class TestChildUIBehavior:
         # Verify we have at least one traceback frame (not just the exception message)
         has_traceback = False
         for i in range(category_child_count - 1):  # Exclude last item (exception message)
-            child = exc_category.child(i, LogColumns.MESSAGE)  # Message column contains the content
+            child = _child_at(viewer.model, exc_category, i, LogColumns.MESSAGE)
             if child and "File " in child.text():
                 has_traceback = True
                 break

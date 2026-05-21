@@ -128,6 +128,25 @@ if conf['bootstrap_addr'] is not None:
 
     bootstrap_sock.close()
 
+def _parent_is_alive(parent_pid):
+    """Return True if parent_pid is still our direct parent process.
+
+    On Linux, reads /proc/self/status to get the kernel-reported PPid.  This is
+    immune to PID reuse: if the original parent dies, the kernel immediately
+    re-parents us to init (PID 1), so the PPid changes regardless of whether
+    the old PID is recycled.  Falls back to pid_exists() on other platforms.
+    """
+    if sys.platform == 'linux':
+        try:
+            with open('/proc/self/status') as f:
+                for line in f:
+                    if line.startswith('PPid:'):
+                        return int(line.split()[1]) == parent_pid
+        except OSError:
+            pass
+    return pid_exists(parent_pid)
+
+
 def _start_parent_watcher(parent_pid):
     """Start a daemon thread that exits this process when *parent_pid* disappears.
 
@@ -140,7 +159,7 @@ def _start_parent_watcher(parent_pid):
     def _watch():
         while True:
             time.sleep(5)
-            if not pid_exists(parent_pid):
+            if not _parent_is_alive(parent_pid):
                 logger.warning("Parent process %d has died; exiting.", parent_pid)
                 os._exit(1)
 
