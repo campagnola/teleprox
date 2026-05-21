@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1]
+
+### Added
+- Added process-level call hooks: `set_call_opts_provider()` on `RPCClient` and `set_call_context_hook()` on `RPCServer`, enabling metadata propagation (e.g. tracing context) across process boundaries without modifying call sites
+- Non-daemon child processes now automatically exit if their parent process disappears
+- Log viewer now shows a horizontal scrollbar and expands the message column to content width, preventing long messages from being elided
+
+### Fixed
+- `LogSender.handle()` now applies registered filters before queuing log records
+- Connections are now properly closed when the owning thread or client dies
+- Fixed at-exit segfault caused by emitting a signal on a deleted Qt object
+- Fixed Windows 11 process spawning by setting the required detached process flag
+- Fixed netstat calls on Windows from opening a visible console window
+- Disconnect client when `process.kill()` is called
+- Fixed log viewer child row text to use `ROW_DETAILS` data role for reliable column access
+- `server_disconnected` renamed from private `_server_disconnected` to public API
+
+### Changed
+- `server_disconnected` is now a public attribute on `RPCClient`
+
+## [2.2.0]
+
+### Added
+- Added PyQt6 support alongside existing PyQt5 and PySide2 support
+- Added PySide6 support
+- Added CI test matrix entries for PyQt6 and no-Qt configurations
+- Qt submodules (e.g. `QtCore`, `QtWidgets`) are now accessible by name on the shim
+
+### Fixed
+- Updated Qt shim to handle lazily-loaded Qt libraries in newer versions
+- Fixed logging example for Qt6 compatibility
+- Suppressed spurious proxy deletion errors on shutdown
+
 ## [2.1.3]
 
 ### Added
