@@ -1,0 +1,2 @@
+-P ubuntu-latest=teleprox-act-runner
+--pull=false
