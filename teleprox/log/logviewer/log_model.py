@@ -722,7 +722,14 @@ class LogModel(qt.QStandardItemModel):
             elif col_id == LogColumns.MESSAGE:
                 record._column_text_cache[col_id] = record.getMessage()
             elif col_id == LogColumns.TASK:
-                record._column_text_cache[col_id] = getattr(record, 'taskName', '')
+                # The gentletask throughline: the chain of task names active when
+                # the record was emitted (set by ThroughlineNameFilter). Falls back
+                # to a plain taskName for records without a throughline.
+                throughline = getattr(record, 'throughline', None)
+                if throughline:
+                    record._column_text_cache[col_id] = " > ".join(str(n) for n in throughline)
+                else:
+                    record._column_text_cache[col_id] = getattr(record, 'taskName', '')
             else:
                 record._column_text_cache[col_id] = ""
 

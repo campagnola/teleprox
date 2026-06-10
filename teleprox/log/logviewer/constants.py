@@ -57,7 +57,7 @@ class LogColumns:
         'Logger',       # LOGGER
         'Level',        # LEVEL
         'Message',      # MESSAGE
-        'Task'          # TASK
+        'Throughline'   # TASK (gentletask throughline / task-name chain)
     ]
     
     # Default column widths
@@ -70,5 +70,5 @@ class LogColumns:
         100,    # LOGGER
         100,    # LEVEL
         400,    # MESSAGE
-        100     # TASK
+        250     # TASK (Throughline — task-name chain can be long)
     ]

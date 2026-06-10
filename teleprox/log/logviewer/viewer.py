@@ -231,9 +231,9 @@ class LogViewer(qt.QWidget):
         self.header.setContextMenuPolicy(qt.Qt.ContextMenuPolicy.CustomContextMenu)
         self.header.customContextMenuRequested.connect(self._show_header_context_menu)
 
-        # Hide Task, Level, Host, Process, and Thread columns by default
+        # Hide Level, Host, Process, and Thread columns by default. The Throughline
+        # (task-name chain) column is shown by default.
         self.tree.setColumnHidden(LogColumns.LEVEL, True)  # Level column
-        self.tree.setColumnHidden(LogColumns.TASK, True)  # Task column
         self.tree.setColumnHidden(LogColumns.HOST, True)  # Host column
         self.tree.setColumnHidden(LogColumns.PROCESS, True)  # Process column
         self.tree.setColumnHidden(LogColumns.THREAD, True)  # Thread column
