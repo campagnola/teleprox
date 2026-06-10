@@ -13,6 +13,11 @@ import json
 import traceback
 import types
 
+try:
+    from gentletask import task_chain as _gt_task_chain
+except ImportError:  # gentletask is an optional dependency
+    _gt_task_chain = None
+
 logger = logging.getLogger(__name__)
 
 # Provide access to process and thread names for logging purposes.
@@ -166,6 +171,12 @@ class LogSender(logging.Handler):
     def handle(self, record):
         if not self.filter(record):
             return False
+        # Tag the record with the gentletask throughline here, in the emitting
+        # thread, so the originating process's task context travels to the log
+        # server (the send loop below runs on a different thread with no context).
+        # Set only if absent so an upstream filter's value is preserved.
+        if _gt_task_chain is not None and not hasattr(record, "throughline"):
+            record.throughline = _gt_task_chain()
         self.record_queue.put(record)
         return True
 
