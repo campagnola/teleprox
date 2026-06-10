@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `LogSender.close()` now joins the sender thread before closing the socket, ensuring all queued log records are delivered when a process exits quickly
+- A failed remote call's "Exception while processing request" error log now re-establishes the call's context hook while logging, so the failure record carries the same throughline a successful call would (previously the context window had already closed, leaving an empty chain)
 
 ## [2.2.1]
 

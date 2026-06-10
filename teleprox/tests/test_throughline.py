@@ -141,3 +141,40 @@ def test_cross_process_throughline_ancestry():
             proc.stop()
 
     assert recorder.find_message("chain:parent_op,parent_step") is not None
+
+
+def test_cross_process_exception_log_carries_throughline():
+    """A remote call that RAISES logs its server-side error under the caller's chain.
+
+    The server's "Exception while processing request" record is emitted after the
+    call's context window (``with call_cm``) has closed.  The error path
+    re-establishes the transferred frames while logging, so the failure log
+    carries the same throughline a successful call would, rather than an empty
+    chain.
+    """
+    with RemoteLogRecorder("test_throughline_exc") as recorder:
+        proc = teleprox.start_process(
+            name="test_throughline_exc_child", log_addr=recorder.address
+        )
+        try:
+            proc.client._import("teleprox.throughline").enable_throughline_propagation()
+
+            # Define a remote function that always raises.
+            proc.client._import("builtins").exec(
+                "def _boom():\n"
+                "    raise ValueError('boom')\n"
+                "import builtins as _b; _b._boom = _boom\n"
+            )
+            boom = proc.client._import("builtins")._boom
+            with gentletask.throughline(name="parent_op"), gentletask.throughline(
+                name="parent_step"
+            ):
+                with pytest.raises(Exception):
+                    boom()
+        finally:
+            proc.stop()
+
+    rec = recorder.find_message("Exception while processing request")
+    assert rec is not None
+    # The chain survives the JSON round-trip as a list rather than a tuple.
+    assert list(getattr(rec, "throughline", ())) == ["parent_op", "parent_step"]
