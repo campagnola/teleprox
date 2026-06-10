@@ -1,4 +1,4 @@
-# Tests for LogSender.handle() respecting registered filters.
+# Tests for LogSender: filter behavior and close() flush guarantee.
 import logging
 import time
 
@@ -104,4 +104,37 @@ def test_multiple_filters_all_must_pass():
 
     assert 'should_not_reach_second_filter' not in delivered
     assert 'should_reach_second_filter' in delivered
+    recorder.stop()
+
+
+# ---------------------------------------------------------------------------
+# close() flush guarantee
+# ---------------------------------------------------------------------------
+
+def test_close_flushes_pending_records():
+    """close() must deliver all records queued before it is called.
+
+    Queue records faster than the run thread can drain them, then call close()
+    immediately. The pre-fix behavior was to close the socket before the thread
+    finished draining the queue, silently dropping records.
+    """
+    N = 50
+    recorder = RemoteLogRecorder('test_close_flush')
+    sender = LogSender(recorder.address)
+
+    for i in range(N):
+        sender.handle(logging.makeLogRecord({
+            'msg': f'close_flush_{i}',
+            'levelno': logging.INFO,
+            'levelname': 'INFO',
+        }))
+
+    sender.close()
+
+    # PUSH/PULL is ordered, so the last record arriving implies all earlier ones did too.
+    assert recorder.find_message(f'close_flush_{N - 1}') is not None, \
+        "Last record not delivered — close() did not flush the queue"
+    missing = [i for i in range(N) if recorder.handler.find_message(f'close_flush_{i}') is None]
+    assert missing == [], f"Records dropped during close(): {missing}"
+
     recorder.stop()

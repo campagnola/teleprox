@@ -175,6 +175,10 @@ class LogSender(logging.Handler):
             if record is None:
                 break
             self._handle(record)
+        # Close socket here so all queued records are sent before it closes.
+        socket, self.socket = self.socket, None
+        if socket is not None:
+            socket.close()
 
     def _handle(self, record):
         global host_name, process_name, thread_names
@@ -271,9 +275,12 @@ class LogSender(logging.Handler):
         self.socket.connect(addr)
 
     def close(self):
-        # if this socket is left open when the process exits, it can lead to
-        # deadlock.
+        # Leaving the socket open when the process exits can cause deadlock;
+        # join the run thread so all queued records are sent before it closes
+        # the socket. The fallback handles the rare case where the thread times out.
         self.record_queue.put(None)
+        self.thread.join(timeout=5)
+        # Fallback: close socket if the run thread didn't get to it.
         socket, self.socket = self.socket, None
         if socket is not None:
             socket.close()
