@@ -300,12 +300,17 @@ class RPCServer(object):
             # failed call's error record carries the same context the call ran
             # under. The hook was active only inside process_action's `with
             # call_cm` and is gone by the time control reaches here.
-            if _call_context_hook is not None and action == 'call_obj' and opts:
-                err_ctx = _call_context_hook(opts)
-            else:
-                err_ctx = contextlib.nullcontext()
-            with err_ctx:
-                logger.exception("    => Exception while processing request %d", req_id)
+            err_ctx = contextlib.nullcontext()
+            if _call_context_hook is not None and action == 'call_obj' and isinstance(opts, dict):
+                try:
+                    err_ctx = _call_context_hook(opts)
+                except Exception:
+                    err_ctx = contextlib.nullcontext()
+            try:
+                with err_ctx:
+                    logger.error("    => Exception while processing request %d", req_id, exc_info=exc)
+            except Exception:
+                logger.error("    => Exception while processing request %d", req_id, exc_info=exc)
 
         # Send result or error back to client
         if req_id >= 0:
