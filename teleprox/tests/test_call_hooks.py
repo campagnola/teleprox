@@ -262,9 +262,11 @@ def test_failed_call_error_log_runs_under_context_hook():
     server_logger.addFilter(trace_filter)
     server_logger.addHandler(handler)
 
-    server = RPCServer()
-    client = RPCClient(server.address)
+    client = None
     try:
+        server = RPCServer()
+        client = RPCClient(server.address)
+
         # Define a remote callable that raises, then call it.
         client._import('builtins').exec(
             "def _boom():\n"
@@ -274,10 +276,10 @@ def test_failed_call_error_log_runs_under_context_hook():
         with pytest.raises(Exception):
             client._import('builtins')._boom()
     finally:
-        client.close_server()
+        if client is not None:
+            client.close_server()
         server_logger.removeHandler(handler)
         server_logger.removeFilter(trace_filter)
-
     rec = handler.find_message("Exception while processing request")
     assert rec is not None
     # Without the error-path context restore this would be None.
