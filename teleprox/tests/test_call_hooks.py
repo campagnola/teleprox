@@ -1,5 +1,6 @@
 # Tests for process-level call hooks: set_call_opts_provider and set_call_context_hook.
 import contextlib
+import logging
 import threading
 import time
 
@@ -9,7 +10,7 @@ import teleprox.client as tc
 import teleprox.server as ts
 from teleprox import RPCClient, RPCServer
 from teleprox.util import ProcessCleaner
-from teleprox.tests.util import RemoteLogRecorder
+from teleprox.tests.util import RecordingLogHandler, RemoteLogRecorder
 
 
 @pytest.fixture(autouse=True)
@@ -222,3 +223,64 @@ def test_cross_process_opts_and_hook():
             proc.stop()
 
     assert recorder.find_message('hook_trace:from-parent') is not None
+
+
+# ---------------------------------------------------------------------------
+# Failed-call error logging runs under the restored context hook
+# ---------------------------------------------------------------------------
+
+def test_failed_call_error_log_runs_under_context_hook():
+    """A failing call's server-side error log is emitted under the call's context.
+
+    Regression: the "Exception while processing request" record is logged in
+    _process_one *after* process_action's `with call_cm` has already exited.
+    The error path must re-establish the context hook so the failure record
+    carries whatever the hook installed (here, a trace id stamped onto records
+    by a logging filter), rather than logging with the context torn down.
+    """
+    active = threading.local()
+
+    @contextlib.contextmanager
+    def hook(opts):
+        active.value = opts.get('_trace')
+        try:
+            yield
+        finally:
+            active.value = None
+
+    class TraceFilter(logging.Filter):
+        def filter(self, record):
+            record.trace = getattr(active, 'value', None)
+            return True
+
+    tc.set_call_opts_provider(lambda: {'_trace': 'tid-42'})
+    ts.set_call_context_hook(hook)
+
+    server_logger = logging.getLogger('teleprox.server')
+    trace_filter = TraceFilter()
+    handler = RecordingLogHandler()
+    server_logger.addFilter(trace_filter)
+    server_logger.addHandler(handler)
+
+    client = None
+    try:
+        server = RPCServer()
+        client = RPCClient(server.address)
+
+        # Define a remote callable that raises, then call it.
+        client._import('builtins').exec(
+            "def _boom():\n"
+            "    raise ValueError('boom')\n"
+            "import builtins as _b; _b._boom = _boom\n"
+        )
+        with pytest.raises(Exception):
+            client._import('builtins')._boom()
+    finally:
+        if client is not None:
+            client.close_server()
+        server_logger.removeHandler(handler)
+        server_logger.removeFilter(trace_filter)
+    rec = handler.find_message("Exception while processing request")
+    assert rec is not None
+    # Without the error-path context restore this would be None.
+    assert rec.trace == 'tid-42'

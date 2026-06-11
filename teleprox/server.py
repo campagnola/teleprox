@@ -275,6 +275,7 @@ class RPCServer(object):
         self._clients[caller] = ser_type
 
         # Attempt to read message and invoke requested action
+        opts = None
         try:
             try:
                 ser = self._serializers[ser_type]
@@ -293,8 +294,23 @@ class RPCServer(object):
             result = self.process_action(action, opts, return_type, caller)
             exc = None
         except Exception:
-            logger.exception("    => Exception while processing request %d", req_id)
             exc = sys.exc_info()
+            # Re-establish the call's semantic context (whatever the registered
+            # context hook installs, e.g. a tracing context) while logging, so a
+            # failed call's error record carries the same context the call ran
+            # under. The hook was active only inside process_action's `with
+            # call_cm` and is gone by the time control reaches here.
+            err_ctx = contextlib.nullcontext()
+            if _call_context_hook is not None and action == 'call_obj' and isinstance(opts, dict):
+                try:
+                    err_ctx = _call_context_hook(opts)
+                except Exception:
+                    err_ctx = contextlib.nullcontext()
+            try:
+                with err_ctx:
+                    logger.error("    => Exception while processing request %d", req_id, exc_info=exc)
+            except Exception:
+                logger.error("    => Exception while processing request %d", req_id, exc_info=exc)
 
         # Send result or error back to client
         if req_id >= 0:
