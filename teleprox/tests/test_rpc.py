@@ -946,12 +946,49 @@ def test_thread_del_closes_socket():
     thread.join()
 
     socket = thread._socket
-    assert not socket.closed
 
+    # Cleanup happens when the thread stops running; dropping the Thread object
+    # and forcing GC must be a harmless (idempotent) backstop that leaves the
+    # socket closed.
     del thread
     gc.collect()
 
-    assert socket.closed, "thread.__del__ should have closed the socket via close()"
+    assert socket.closed, "thread cleanup should have closed the socket via close()"
+
+    server.close()
+
+
+def test_thread_stop_closes_socket():
+    """A thread's RPC client socket is closed when the thread STOPS running,
+    even while a reference to the Thread object is still held.
+
+    This is the file-handle leak guard: under heavy multi-threaded cross-process
+    use, Thread objects routinely linger (in pools, lists, frames), so cleanup
+    must not depend on the Thread object being garbage-collected.
+    """
+    server = RPCServer()
+
+    class ClientThread(threading.Thread):
+        def __init__(self, addr):
+            super().__init__(daemon=True)
+            self.addr = addr
+
+        def run(self):
+            self._socket = RPCClient(self.addr)._socket
+
+    thread = ClientThread(server.address)
+    thread.start()
+    thread.join()
+
+    socket = thread._socket
+
+    # We deliberately keep `thread` alive for the whole test; the socket must
+    # still be closed because the owning thread has stopped running.
+    deadline = time.time() + 2.0
+    while not socket.closed and time.time() < deadline:
+        time.sleep(0.01)
+    assert socket.closed, "stopping the thread should have closed its RPC client socket"
+    assert thread is not None  # ensure the Thread object was never collected
 
     server.close()
 
