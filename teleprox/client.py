@@ -44,6 +44,59 @@ def set_call_opts_provider(fn):
     _call_opts_provider = fn
 
 
+# Per-thread registry of RPC clients, used to close their zmq sockets promptly
+# when the owning thread stops running rather than waiting for the Thread object
+# to be garbage-collected (which may never happen if a reference to it lingers).
+_thread_clients = threading.local()
+
+
+def _safe_close_client(client, context):
+    """Close *client*, swallowing errors and skipping interpreter shutdown.
+
+    Closing zmq sockets (or routing log records through teardown-time handlers)
+    during interpreter finalization is unsafe, so we never close then. *context*
+    names the calling cleanup path for the debug log.
+    """
+    if client is None or sys.is_finalizing():
+        return
+    try:
+        client.close()
+    except Exception:
+        logger.debug("Error closing RPC client during %s", context, exc_info=True)
+
+
+class _ThreadClientCleanup:
+    """Sentinel stored in thread-local storage to close RPC clients at thread exit.
+
+    When a thread stops running, the interpreter tears down that thread's local
+    storage, dropping this sentinel. Its ``__del__`` then closes every RPC client
+    created on that thread, releasing their zmq sockets from the thread that owned
+    them.
+
+    This is the primary of three cleanup paths for a client socket; see
+    :meth:`RPCClient.close` for how the Thread-GC backstop and ``__del__`` relate.
+    """
+
+    def __init__(self):
+        self._client_refs = []
+
+    def add(self, client):
+        self._client_refs.append(weakref.ref(client))
+
+    def __del__(self):
+        for ref in self._client_refs:
+            _safe_close_client(ref(), "thread cleanup")
+
+
+def _register_thread_client(client):
+    """Register *client* to be closed when its owning thread stops running."""
+    cleanup = getattr(_thread_clients, 'cleanup', None)
+    if cleanup is None:
+        cleanup = _ThreadClientCleanup()
+        _thread_clients.cleanup = cleanup
+    cleanup.add(client)
+
+
 class RPCClient(object):
     """Connection to an :class:`RPCServer`.
 
@@ -149,10 +202,13 @@ class RPCClient(object):
 
     @classmethod
     def _forget_client_ref(cls, client_ref):
-        """Called when the owning thread is GC'd; forget the client if it still exists."""
-        client = client_ref()
-        if client is not None:
-            cls.forget_client(client)
+        """Backstop run when the owning Thread object is GC'd.
+
+        Closes the client (and its socket) if the thread-stop cleanup did not
+        already do so. ``close()`` is idempotent, so this is safe even when the
+        client was already closed at thread exit.
+        """
+        _safe_close_client(client_ref(), "thread finalize")
 
     def __init__(
         self,
@@ -164,6 +220,11 @@ class RPCClient(object):
         """Initialize a new RPCClient."""
         if isinstance(address, str):
             address = address.encode()
+
+        # Guards making close() idempotent and safe to call from multiple
+        # cleanup paths (thread-stop sentinel, Thread GC backstop, __del__).
+        self._is_closed = False
+        self._close_lock = threading.Lock()
 
         # pick a unique name: host.pid.tid:rpc_addr
         self.name = f"{log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}:{address.decode()}".encode()
@@ -193,7 +254,15 @@ class RPCClient(object):
                 )
             RPCClient.clients_by_thread[key] = self
         _client_ref = weakref.ref(self)
-        weakref.finalize(threading.current_thread(), RPCClient._forget_client_ref, _client_ref)
+        # Backstop for the thread-stop sentinel: if the Thread object is GC'd
+        # while the program is running, close the client too. atexit=False keeps
+        # this from forcing socket/logging teardown during interpreter shutdown,
+        # where weakref.finalize would otherwise still run with is_finalizing()
+        # False; shutdown cleanup is left to __del__ and RPCServer's atexit.
+        finalizer = weakref.finalize(
+            threading.current_thread(), RPCClient._forget_client_ref, _client_ref
+        )
+        finalizer.atexit = False
         try:
             # Make sure we can reach this address and there is an open socket
             port_status = self.check_address(address)
@@ -235,6 +304,9 @@ class RPCClient(object):
         except Exception:
             RPCClient.clients_by_thread.pop(key, None)
             raise
+
+        # Close this client's socket when the owning thread stops running.
+        _register_thread_client(self)
 
     @staticmethod
     def check_address(address, timeout=1.0):
@@ -682,12 +754,22 @@ class RPCClient(object):
         return self.send('ping', sync=sync, **kwds)
 
     def close(self):
-        """Close this client's socket (but leave the server running)."""
+        """Close this client's socket (but leave the server running).
+
+        Idempotent: may be called from the owning thread's stop cleanup, the
+        Thread GC backstop, or ``__del__`` without closing twice.
+        """
+        with self._close_lock:
+            if self._is_closed:
+                return
+            self._is_closed = True
         # reference management is disabled for now..
         # self.send('release_all', return_type=None)
-        self._socket.close()
+        socket = getattr(self, '_socket', None)
+        if socket is not None:
+            socket.close()
         RPCClient.forget_client(self)
-        if self._manage_local_server:
+        if getattr(self, '_manage_local_server', False):
             self._local_server.close()
 
     def close_server(self, sync='sync', timeout=1.0, **kwds):

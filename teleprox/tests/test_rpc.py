@@ -946,12 +946,103 @@ def test_thread_del_closes_socket():
     thread.join()
 
     socket = thread._socket
-    assert not socket.closed
 
+    # Cleanup happens when the thread stops running; dropping the Thread object
+    # and forcing GC must be a harmless (idempotent) backstop that leaves the
+    # socket closed.
     del thread
     gc.collect()
 
-    assert socket.closed, "thread.__del__ should have closed the socket via close()"
+    assert socket.closed, "thread cleanup should have closed the socket via close()"
+
+    server.close()
+
+
+def test_thread_stop_closes_socket():
+    """A thread's RPC client socket is closed when the thread STOPS running,
+    even while a reference to the Thread object is still held.
+
+    This is the file-handle leak guard: under heavy multi-threaded cross-process
+    use, Thread objects routinely linger (in pools, lists, frames), so cleanup
+    must not depend on the Thread object being garbage-collected.
+    """
+    server = RPCServer()
+
+    class ClientThread(threading.Thread):
+        def __init__(self, addr):
+            super().__init__(daemon=True)
+            self.addr = addr
+
+        def run(self):
+            self._socket = RPCClient(self.addr)._socket
+
+    thread = ClientThread(server.address)
+    thread.start()
+    thread.join()
+
+    socket = thread._socket
+
+    # We never drop our reference to `thread`, so the Thread object cannot be
+    # garbage-collected; the socket must still close because the owning thread
+    # has stopped running.
+    deadline = time.time() + 2.0
+    while not socket.closed and time.time() < deadline:
+        time.sleep(0.01)
+    assert socket.closed, "stopping the thread should have closed its RPC client socket"
+
+    server.close()
+
+
+def test_thread_stop_closes_multiple_client_sockets():
+    """All RPC clients created on one thread are closed when that thread stops.
+
+    Exercises the sentinel's list of per-thread clients (one socket per remote
+    server address).
+    """
+    server1 = RPCServer()
+    server2 = RPCServer()
+
+    class ClientThread(threading.Thread):
+        def __init__(self, addrs):
+            super().__init__(daemon=True)
+            self.addrs = addrs
+
+        def run(self):
+            self._sockets = [RPCClient(addr)._socket for addr in self.addrs]
+
+    thread = ClientThread([server1.address, server2.address])
+    thread.start()
+    thread.join()
+
+    sockets = thread._sockets
+    assert len(sockets) == 2
+
+    deadline = time.time() + 2.0
+    while not all(s.closed for s in sockets) and time.time() < deadline:
+        time.sleep(0.01)
+    assert all(s.closed for s in sockets), "stopping the thread should close every client socket"
+
+    server1.close()
+    server2.close()
+
+
+def test_close_is_idempotent():
+    """Calling RPCClient.close() more than once is a harmless no-op.
+
+    Multiple cleanup paths (thread-stop sentinel, Thread-GC backstop, __del__)
+    can each call close(); the second and later calls must not raise.
+    """
+    server = RPCServer()
+    client = RPCClient(server.address)
+    socket = client._socket
+
+    client.close()
+    assert socket.closed
+
+    # Second close must not raise (e.g. re-closing the socket or re-closing a
+    # managed local server).
+    client.close()
+    assert socket.closed
 
     server.close()
 
