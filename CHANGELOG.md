@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2]
+
 ### Fixed
+- RPC client sockets are now closed when the owning thread stops, preventing socket leaks from short-lived threads
+- Socket teardown is no longer forced at interpreter exit, avoiding errors during shutdown
 - `LogSender.close()` now joins the sender thread before closing the socket, ensuring all queued log records are delivered when a process exits quickly
 - A failed remote call's "Exception while processing request" error log now re-establishes the call's context hook while logging, so the failure record carries the same context (e.g. a tracing context) a successful call would; previously the hook's context window had already closed
 
