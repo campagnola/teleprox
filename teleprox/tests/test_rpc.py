@@ -982,13 +982,67 @@ def test_thread_stop_closes_socket():
 
     socket = thread._socket
 
-    # We deliberately keep `thread` alive for the whole test; the socket must
-    # still be closed because the owning thread has stopped running.
+    # We never drop our reference to `thread`, so the Thread object cannot be
+    # garbage-collected; the socket must still close because the owning thread
+    # has stopped running.
     deadline = time.time() + 2.0
     while not socket.closed and time.time() < deadline:
         time.sleep(0.01)
     assert socket.closed, "stopping the thread should have closed its RPC client socket"
-    assert thread is not None  # ensure the Thread object was never collected
+
+    server.close()
+
+
+def test_thread_stop_closes_multiple_client_sockets():
+    """All RPC clients created on one thread are closed when that thread stops.
+
+    Exercises the sentinel's list of per-thread clients (one socket per remote
+    server address).
+    """
+    server1 = RPCServer()
+    server2 = RPCServer()
+
+    class ClientThread(threading.Thread):
+        def __init__(self, addrs):
+            super().__init__(daemon=True)
+            self.addrs = addrs
+
+        def run(self):
+            self._sockets = [RPCClient(addr)._socket for addr in self.addrs]
+
+    thread = ClientThread([server1.address, server2.address])
+    thread.start()
+    thread.join()
+
+    sockets = thread._sockets
+    assert len(sockets) == 2
+
+    deadline = time.time() + 2.0
+    while not all(s.closed for s in sockets) and time.time() < deadline:
+        time.sleep(0.01)
+    assert all(s.closed for s in sockets), "stopping the thread should close every client socket"
+
+    server1.close()
+    server2.close()
+
+
+def test_close_is_idempotent():
+    """Calling RPCClient.close() more than once is a harmless no-op.
+
+    Multiple cleanup paths (thread-stop sentinel, Thread-GC backstop, __del__)
+    can each call close(); the second and later calls must not raise.
+    """
+    server = RPCServer()
+    client = RPCClient(server.address)
+    socket = client._socket
+
+    client.close()
+    assert socket.closed
+
+    # Second close must not raise (e.g. re-closing the socket or re-closing a
+    # managed local server).
+    client.close()
+    assert socket.closed
 
     server.close()
 
