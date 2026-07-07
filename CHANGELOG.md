@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `RPCServer` now refuses to start a second `run_forever` thread on one socket (via `_run_in_thread()` or a direct `run_forever()` call), raising `RuntimeError` instead of silently corrupting the socket's multipart framing; two threads reading one zmq socket is unsupported (issue #40)
+- `run_forever` now logs and skips a malformed/partial RPC message instead of letting the `ValueError` escape and kill the server thread, which previously left the process alive but deaf on teleprox (issue #40)
+
 ## [2.2.2]
 
 ### Fixed

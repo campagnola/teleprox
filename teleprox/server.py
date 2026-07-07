@@ -468,17 +468,39 @@ class RPCServer(object):
 
     def run_forever(self):
         """Read and process RPC requests until the server is asked to close."""
-        self._run_thread = threading.current_thread()
+        current = threading.current_thread()
+        if self._run_thread is not None and self._run_thread is not current and self._run_thread.is_alive():
+            raise RuntimeError(
+                "RPCServer is already processing requests in another thread; a second"
+                " run_forever would read the same zmq socket from two threads and"
+                " corrupt its framing (zmq sockets are not thread-safe)."
+            )
+        self._run_thread = current
         logger.log(DEBUG2,
             f"RPC start server loop: {log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}"
             f"@{self.address.decode()}"
         )
         while self.running():
-            name, msg = self._read_one(self._socket)
+            try:
+                name, msg = self._read_one(self._socket)
+            except ValueError as exc:
+                # A malformed/partial message (wrong number of multipart frames)
+                # usually means a single zmq socket is being read from more than
+                # one thread, which is not supported. Log and skip it rather than
+                # letting the exception escape and kill this server thread, which
+                # would leave the process alive but deaf on teleprox.
+                logger.warning("Skipping malformed RPC message: %s", exc)
+                continue
             self._process_one(name, msg)
 
     def _run_in_thread(self):
         """Call run_forever in a new thread."""
+        if self._run_thread is not None and self._run_thread.is_alive():
+            raise RuntimeError(
+                "RPCServer is already processing requests in a thread; starting a"
+                " second run_forever thread would read the same zmq socket from two"
+                " threads and corrupt its framing (zmq sockets are not thread-safe)."
+            )
         self._run_thread = threading.Thread(target=self.run_forever, daemon=True)
         self._run_thread.start()
 

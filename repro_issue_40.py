@@ -20,8 +20,14 @@ take down the harness, and we can watch its stderr for the framing error.
 
 Usage::
 
-    python repro_issue_40.py            # buggy: double run_forever -> corruption within seconds
+    python repro_issue_40.py            # buggy: double run_forever
     python repro_issue_40.py --fixed    # single run_forever -> no corruption (control)
+
+Against an UNHARDENED teleprox the buggy mode corrupts the transport within
+seconds (client-side ExtraData, server-side 'expected 6 parts', or a SIGABRT).
+Against the hardened teleprox in this repo the buggy mode is instead REFUSED with
+a RuntimeError (verdict: PREVENTED), because RPCServer now guards against starting
+a second run_forever thread on one socket.
 """
 
 import argparse
@@ -112,8 +118,15 @@ def main():
         if proc.poll() is not None:
             break
     if addr is None:
-        print("server failed to start; stderr:\n" + proc.stderr.read())
+        stderr = proc.stderr.read()
         proc.kill()
+        if "already processing requests" in stderr or "run_forever" in stderr:
+            # Hardened teleprox refuses the double _run_in_thread() with a clear
+            # RuntimeError instead of silently spawning a second socket reader.
+            print("\n--- verdict ---")
+            print("  PREVENTED: teleprox refused the double run_forever (issue #40 guard active)")
+            return 0
+        print("server failed to start; stderr:\n" + stderr)
         return 2
 
     mode = "fixed (single run_forever)" if ns.fixed else "buggy (double run_forever)"
