@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0]
+
 ### Added
 - `LogViewer._build_row_context_menu(index)` is now a documented extension point: subclasses can override it, call `super()`, and append their own actions to the row context menu instead of reimplementing `_show_row_context_menu` wholesale
 
