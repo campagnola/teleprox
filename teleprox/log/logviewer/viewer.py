@@ -416,6 +416,21 @@ class LogViewer(qt.QWidget):
         if not index.isValid():
             return
 
+        menu = self._build_row_context_menu(index)
+
+        # Show the menu at the cursor position
+        menu.popup(self.tree.mapToGlobal(position))
+
+    def _build_row_context_menu(self, index):
+        """Build and return the QMenu for a right-clicked row.
+
+        This is the extension point for subclasses that want to add actions
+        to the row context menu: override this method, call super() to get
+        the base menu (with its Copy action already attached), append your
+        own actions to it, and return it. Do not rebuild the Copy action
+        yourself; inherit it so label and `.selectedIndex` wiring stay in
+        sync with the base class.
+        """
         menu = qt.QMenu(self)
 
         # Add copy action
@@ -424,8 +439,7 @@ class LogViewer(qt.QWidget):
         copy_action.triggered.connect(self._copy_record_to_clipboard)
         menu.addAction(copy_action)
 
-        # Show the menu at the cursor position
-        menu.popup(self.tree.mapToGlobal(position))
+        return menu
 
     def _copy_record_to_clipboard(self):
         """Copy the formatted full record for the selected row to the clipboard."""
