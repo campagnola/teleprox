@@ -664,6 +664,13 @@ class QtLogHandler(logging.Handler):
         self.new_record = self._signals.new_record
 
     def handle(self, record):
+        # Apply this handler's filters, as logging.Handler.handle does. Filters may
+        # both drop records and enrich them (a filter that attaches context to the
+        # record and returns True), so skipping them here would deliver records that
+        # should have been dropped and records missing attributes the viewer reads.
+        if not self.filter(record):
+            return False
         signals = getattr(self, '_signals', None)
         if signals is not None:
             signals.new_record.emit(record)
+        return True
