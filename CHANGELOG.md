@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1]
+
 ### Fixed
 - `QtLogHandler.handle()` now applies registered filters before emitting a record, matching `logging.Handler.handle()` (and `LogSender.handle()`, fixed in 2.2.1). Filters added to the handler were silently ignored, so records a filter should have dropped reached the viewer anyway, and records a filter enriched arrived without the attributes the viewer reads
 
