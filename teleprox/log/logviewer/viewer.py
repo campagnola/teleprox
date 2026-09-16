@@ -277,6 +277,17 @@ class LogViewer(qt.QWidget):
         # Set up autoscroll functionality - track if user wants to stay at bottom
         self._should_autoscroll = True  # Start with autoscroll enabled
 
+        # Autoscroll is coalesced onto a zero-timeout single-shot timer rather
+        # than run per inserted row: scrollToBottom walks the view's layout, so
+        # doing it per record is O(n) per record. A burst of records now costs
+        # one scroll on the next trip through the event loop instead of one per
+        # record, and a burst delivered while the loop is blocked costs one
+        # scroll in total.
+        self._autoscroll_timer = qt.QTimer(self)
+        self._autoscroll_timer.setSingleShot(True)
+        self._autoscroll_timer.setInterval(0)
+        self._autoscroll_timer.timeout.connect(self._autoscroll_now)
+
         # Connect scroll bar changes to monitor user scrolling behavior
         scrollbar = self.tree.verticalScrollBar()
         scrollbar.valueChanged.connect(self._on_scroll_changed)
@@ -289,6 +300,11 @@ class LogViewer(qt.QWidget):
         self._should_autoscroll = scrollbar.value() == scrollbar.maximum()
 
     def _on_model_rows_inserted(self, parent, start, end):
+        if self._should_autoscroll:
+            self._autoscroll_timer.start()
+
+    def _autoscroll_now(self):
+        """Scroll to the newest record, if the user has not scrolled away."""
         if self._should_autoscroll:
             self.tree.scrollToBottom()
 
@@ -307,10 +323,12 @@ class LogViewer(qt.QWidget):
 
     def _process_record(self, rec, sort=True):
         """Process a log record in the GUI thread."""
-        self.model.append_record(rec)
-
-        if sort:
-            self.ensure_chronological_sorting()
+        # Ordered insertion, not a re-sort: the model keeps its rows in
+        # timestamp order as each record lands, so there is nothing to sort
+        # here. Re-sorting per record costs O(n log n) each time and made
+        # ingest quadratic -- enough to stall the Qt thread of a process
+        # logging at any volume, since records are delivered inline on it.
+        self.model.append_record(rec, sort=sort)
 
     def set_records(self, *recs):
         """Replace all existing records with new ones, clearing selection and expansion but preserving filters."""
@@ -319,13 +337,16 @@ class LogViewer(qt.QWidget):
         self.model.set_records()
         self.highlight_delegate.clear_highlight()
 
-        # Replace all records in the model
-        for i, rec in enumerate(recs):
-            self.model.append_record(rec)
+        # Replace all records in the model. Sorting the batch once up front is
+        # cheaper than placing each record individually, and appending in that
+        # order leaves the model sorted. Stable, so records sharing a timestamp
+        # keep the order they were passed in.
+        for i, rec in enumerate(sorted(recs, key=lambda r: r.created)):
+            self.model.append_record(rec, sort=False)
             if i % 20 == 0:
                 qt.QApplication.processEvents()
 
-        # Ensure proper sorting after bulk update
+        # Re-arm the view's sort indicator after the bulk update
         self.ensure_chronological_sorting()
 
         # Trigger repaint to clear any highlighting
@@ -360,8 +381,9 @@ class LogViewer(qt.QWidget):
                 # Reconnect selection handler since model changed
                 self.tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
-                # Always ensure chronological sorting
-                # self._ensure_chronological_sorting()
+                # Re-arm the view's sort: a rebuilt filter chain hands us a new
+                # outermost proxy, which starts with no sort column or role set.
+                self.ensure_chronological_sorting()
 
                 # Restore selection if possible
                 if selected_log_id is not None:
@@ -380,7 +402,13 @@ class LogViewer(qt.QWidget):
         self._last_filter_strings = filter_strings[:]
 
     def ensure_chronological_sorting(self):
-        """Ensure the tree view is sorted chronologically by timestamp."""
+        """Point the tree view's sort at the timestamp column.
+
+        Call this when the view's model changes -- at construction and after a
+        filter chain rebuild -- not per record: the model inserts each record in
+        timestamp order, so arriving records need no sort. Sorting here as
+        records land is what made ingest quadratic.
+        """
         current_model = self.tree.model()
 
         # Set sort role to use numeric timestamp from ItemDataRole.NUMERIC_TIMESTAMP

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `LogViewer` now inserts each arriving record at its chronological position instead of re-sorting the whole model per record. The re-sort made ingest quadratic (cost per record grew with the record count), and because records are delivered inline on the Qt thread, a process logging at volume could reach the point where it spent longer sorting than the interval between records and stopped servicing its event loop entirely — for a `QtRPCServer`, that means it stops answering RPC while still holding an open port
+- `LogViewer` autoscroll is now coalesced onto a single-shot timer instead of calling `scrollToBottom()` for every inserted row. `scrollToBottom` walks the view layout, so per-row calls were a second quadratic term in the same path; a burst of records now costs one scroll instead of one per record
+
 ## [2.3.1]
 
 ### Fixed

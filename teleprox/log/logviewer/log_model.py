@@ -1,3 +1,4 @@
+import bisect
 import re
 import traceback
 
@@ -15,9 +16,76 @@ class LogModel(qt.QStandardItemModel):
         # Unique ID counter for log entries
         self._next_log_id = 0
 
-    def append_record(self, rec):
-        """Append a row of log data, handling lazy loading placeholders for expandable records."""
-        self._create_and_add_record_row(rec)
+        # Timestamps of the top-level rows, held in the same order as the rows
+        # themselves. This is what lets a new record find its place with a
+        # bisect instead of a re-sort of the whole model: re-sorting per record
+        # makes ingest quadratic, which is enough to wedge a busy process.
+        # Reordering the model behind our back (QStandardItemModel.sort emits
+        # layoutChanged) drops the cache; _row_order rebuilds it on demand.
+        self._row_timestamps = []
+        self._row_order_valid = True
+        self._rows_ascending = True
+        self.layoutChanged.connect(self._invalidate_row_order)
+
+    def clear(self):
+        super().clear()
+        self._row_timestamps = []
+        self._row_order_valid = True
+        self._rows_ascending = True
+
+    def append_record(self, rec, sort=True):
+        """Add a row of log data, handling lazy loading placeholders for expandable records.
+
+        With *sort* (the default) the row is inserted where it keeps the
+        top-level rows ordered by ``rec.created``, so the model never needs a
+        re-sort. Records normally arrive in order, making that an append in the
+        common case and a bisect otherwise. Pass sort=False to append blindly,
+        which is only correct for bulk loads that are already in order.
+        """
+        row = self._insert_position(rec.created) if sort else self.rowCount()
+        self._create_and_add_record_row(rec, row)
+
+    def _insert_position(self, timestamp):
+        """Return the top-level row that keeps the rows ordered by timestamp."""
+        stamps = self._row_order()
+        # Records nearly always arrive in order, so try the end before bisecting.
+        if not stamps or timestamp >= stamps[-1]:
+            return len(stamps)
+        if not self._rows_ascending:
+            # The rows are in some other order, so there is no chronologically
+            # correct position to find: a bisect would place this record
+            # arbitrarily. Append and leave the ordering to whatever sorted it.
+            return len(stamps)
+        return bisect.bisect_right(stamps, timestamp)
+
+    def _row_order(self):
+        """Return the cached top-level row timestamps, rebuilding if stale.
+
+        Rebuilding also re-checks whether the rows really are in ascending
+        order. Sorting the model on another column or direction (a header click,
+        when a view is attached to this model directly) leaves them in an order
+        a bisect cannot reason about; noticing that here costs nothing, since
+        the rebuild already walks every row, and lets ordered insertion resume
+        by itself once the rows are chronological again.
+        """
+        if not self._row_order_valid or len(self._row_timestamps) != self.rowCount():
+            stamps = [self._row_timestamp(row) for row in range(self.rowCount())]
+            self._rows_ascending = all(a <= b for a, b in zip(stamps, stamps[1:]))
+            self._row_timestamps = stamps
+            self._row_order_valid = True
+        return self._row_timestamps
+
+    def _row_timestamp(self, row):
+        """Return a sortable timestamp for a top-level row.
+
+        A row with no numeric timestamp sorts before every real record rather
+        than breaking the bisect on a None comparison.
+        """
+        ts = self.data(self.index(row, 0), ItemDataRole.NUMERIC_TIMESTAMP)
+        return -float('inf') if ts is None else ts
+
+    def _invalidate_row_order(self, *args):
+        self._row_order_valid = False
 
     def set_records(self, *records):
         """Clear all existing records and set new ones, preserving ID counter."""
@@ -26,12 +94,17 @@ class LogModel(qt.QStandardItemModel):
         # Reset headers since clear() removes them
         self.setHorizontalHeaderLabels(LogColumns.TITLES)
 
-        # Add each new record
-        for rec in records:
+        # Add each new record in chronological order, so the rows are ordered
+        # without a re-sort. Stable, so records sharing a timestamp keep the
+        # order they were given in.
+        for rec in sorted(records, key=lambda r: r.created):
             self._create_and_add_record_row(rec)
 
-    def _create_and_add_record_row(self, rec):
-        """Create and add a single record row with lazy loading support."""
+    def _create_and_add_record_row(self, rec, row=None):
+        """Create and add a single record row with lazy loading support.
+
+        *row* is the top-level row to insert at, defaulting to the end.
+        """
         # Create items for each column using LogColumns order
 
         row_items = []
@@ -62,7 +135,14 @@ class LogModel(qt.QStandardItemModel):
         row_items[0].setData({'type': 'primary_item', 'record': rec}, ItemDataRole.ROW_DETAILS)
 
         # Add items to the model
-        self.appendRow(row_items)
+        if row is None:
+            row = self.rowCount()
+        self.insertRow(row, row_items)
+        if self._row_order_valid and len(self._row_timestamps) == self.rowCount() - 1:
+            self._row_timestamps.insert(row, rec.created)
+        else:
+            # Cache was already stale; _row_order rebuilds it when next needed.
+            self._row_order_valid = False
 
         # Check if this record has any expandable information for lazy loading
         child_attrs = [
