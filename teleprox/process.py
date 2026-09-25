@@ -45,9 +45,20 @@ def _try_setup_win32_job_object(child_pid):
         import win32con
         import win32job
 
-        job = win32job.CreateJobObject(None, None)
+        # The name must be a string; pywin32 >= 311 raises TypeError on None,
+        # which this function would otherwise swallow -- leaving every child to
+        # rely on the slower parent-death polling fallback. '' is an unnamed job.
+        job = win32job.CreateJobObject(None, '')
         info = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
-        info['BasicLimitInformation']['LimitFlags'] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        # SILENT_BREAKAWAY_OK is required alongside KILL_ON_JOB_CLOSE: without it
+        # Windows auto-assigns every process the child spawns to this same job, so
+        # a daemon grandchild -- which is explicitly meant to outlive its parent --
+        # would be killed when the child dies. Non-daemon grandchildren are still
+        # cleaned up, by the job their own parent creates for them.
+        info['BasicLimitInformation']['LimitFlags'] |= (
+            win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            | win32job.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK
+        )
         win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, info)
 
         child_handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, False, child_pid)
