@@ -308,9 +308,17 @@ class RPCServer(object):
                     err_ctx = contextlib.nullcontext()
             try:
                 with err_ctx:
-                    logger.error("    => Exception while processing request %d", req_id, exc_info=exc)
+                    logger.error(
+                        "    => Exception while processing request %d (action=%s from %s): %s: %s",
+                        req_id, action, caller.decode(), exc[0].__name__, exc[1],
+                        exc_info=exc,
+                    )
             except Exception:
-                logger.error("    => Exception while processing request %d", req_id, exc_info=exc)
+                logger.error(
+                    "    => Exception while processing request %d (action=%s from %s): %s: %s",
+                    req_id, action, caller.decode(), exc[0].__name__, exc[1],
+                    exc_info=exc,
+                )
 
         # Send result or error back to client
         if req_id >= 0:
