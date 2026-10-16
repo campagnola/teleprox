@@ -36,6 +36,10 @@ def _try_setup_win32_job_object(child_pid):
     should be kept alive.  When the handle is closed (explicitly or because the
     parent process exits/crashes) the OS kills every process in the job.
 
+    The job is configured for silent breakaway, so it contains only *child_pid*:
+    processes the child goes on to spawn leave the job as they are created.  See
+    the comment on the limit flags below for why that trade is made.
+
     Returns None if the platform is not Windows or if any step fails.
     """
     if sys.platform != 'win32':
@@ -53,8 +57,16 @@ def _try_setup_win32_job_object(child_pid):
         # SILENT_BREAKAWAY_OK is required alongside KILL_ON_JOB_CLOSE: without it
         # Windows auto-assigns every process the child spawns to this same job, so
         # a daemon grandchild -- which is explicitly meant to outlive its parent --
-        # would be killed when the child dies. Non-daemon grandchildren are still
-        # cleaned up, by the job their own parent creates for them.
+        # would be killed when the child dies.
+        #
+        # Breakaway applies to every process the child spawns, not only daemons,
+        # so the job covers just the process assigned to it below. A grandchild
+        # started through start_process is still cleaned up, by the job its own
+        # parent creates for it; one spawned any other way (a bare
+        # subprocess.Popen, a driver helper) is in no job at all. Holding
+        # descendants in the job instead would mean BREAKAWAY_OK plus an explicit
+        # CREATE_BREAKAWAY_FROM_JOB on the daemon spawn, which fails outright
+        # when teleprox itself runs inside a job that forbids breakaway.
         info['BasicLimitInformation']['LimitFlags'] |= (
             win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             | win32job.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK
@@ -156,6 +168,12 @@ def start_process(
         dies, even if it crashes.  On Windows this is implemented via a Job Object
         (OS-level, instant); on other platforms a polling thread checks the parent PID
         every 5 seconds.  Defaults to True for non-daemon processes, False for daemons.
+
+        On Windows the Job Object covers only the child process itself.  Processes the
+        child spawns are not in the job, so they are cleaned up only where they were
+        themselves started with exit_on_parent_death.  With conda_env or shell=True the
+        job tracks the wrapper process rather than the teleprox process, and the
+        teleprox process falls back to parent-PID polling.
     stdin, stdout, stderr :
         See Popen documentation for details. Not compatible with log_addr.
 

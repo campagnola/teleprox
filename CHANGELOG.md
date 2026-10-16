@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `start_process(exit_on_parent_death=True)` sets up its Windows Job Object again. `CreateJobObject(None, None)` raises `TypeError` on pywin32 >= 311, and the exception was swallowed, leaving every child on the slower parent-death polling fallback
+
+### Changed
+- Windows Job Objects now set `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK`, so a daemon grandchild is no longer killed when its parent dies. The job therefore covers only the child process it was created for: processes that child spawns by other means are not cleaned up by it, and with `conda_env` or `shell=True` the job tracks the wrapper process while the teleprox process falls back to polling
+
 ## [2.3.1]
 
 ### Fixed
