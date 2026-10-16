@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0]
+
 ### Added
 - The log record for a failed request now names the action, the calling peer and the exception type and message, so a failure can be identified without reading the traceback
 
