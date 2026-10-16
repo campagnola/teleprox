@@ -42,8 +42,23 @@ class LogModel(qt.QStandardItemModel):
         common case and a bisect otherwise. Pass sort=False to append blindly,
         which is only correct for bulk loads that are already in order.
         """
-        row = self._insert_position(rec.created) if sort else self.rowCount()
+        if sort:
+            row = self._insert_position(rec.created)
+        else:
+            stamps = self._row_order()
+            row = len(stamps)
+            if stamps and rec.created < stamps[-1]:
+                # A blind append only keeps the rows ordered while the records
+                # really do arrive in order. This one does not, so record that
+                # the rows are no longer ascending: a later bisect against rows
+                # that merely look sorted would place its record arbitrarily.
+                self._rows_ascending = False
         self._create_and_add_record_row(rec, row)
+
+    def rows_are_chronological(self):
+        """Return whether the top-level rows are in ascending timestamp order."""
+        self._row_order()
+        return self._rows_ascending
 
     def _insert_position(self, timestamp):
         """Return the top-level row that keeps the rows ordered by timestamp."""

@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `LogViewer` now inserts each arriving record at its chronological position instead of re-sorting the whole model per record. The re-sort made ingest quadratic (cost per record grew with the record count), and because records are delivered inline on the Qt thread, a process logging at volume could reach the point where it spent longer sorting than the interval between records and stopped servicing its event loop entirely — for a `QtRPCServer`, that means it stops answering RPC while still holding an open port
 - `LogViewer` autoscroll is now coalesced onto a single-shot timer instead of calling `scrollToBottom()` for every inserted row. `scrollToBottom` walks the view layout, so per-row calls were a second quadratic term in the same path; a burst of records now costs one scroll instead of one per record
+- Records arriving in a `LogViewer` whose rows are sorted some other way — a header click, with no filters, so the view is attached to the source model and no proxy places arriving rows — no longer append in an order that contradicts the view's own sort indicator. The view's sort is re-applied once per trip through the event loop, not once per record
+- A record arriving while `LogViewer.set_records()` is loading a batch no longer leaves the model claiming its rows are in timestamp order when they are not. `set_records` yields to the event loop as it loads, so a live record can land between batch rows; a later record would then be placed by a bisect against rows that only looked sorted
+- `LogViewer.set_records()` no longer scrolls once per twenty records over a growing view while loading a batch, and does not re-sort during the load at all; both happen once, after the batch
 
 ## [2.3.1]
 

@@ -288,6 +288,19 @@ class LogViewer(qt.QWidget):
         self._autoscroll_timer.setInterval(0)
         self._autoscroll_timer.timeout.connect(self._autoscroll_now)
 
+        # Ordered insertion keeps the rows in timestamp order, which is what the
+        # view's sort indicator shows by default. When the indicator says
+        # anything else -- a header click, with no filters, so the view is on the
+        # source model and there is no proxy placing arriving rows -- those rows
+        # would append and contradict it. Re-applying the view's own sort is
+        # coalesced for the same reason as the scroll: once per trip through the
+        # event loop, never once per record, which is what made ingest quadratic.
+        self._resort_timer = qt.QTimer(self)
+        self._resort_timer.setSingleShot(True)
+        self._resort_timer.setInterval(0)
+        self._resort_timer.timeout.connect(self._resort_now)
+        self._bulk_loading = False
+
         # Connect scroll bar changes to monitor user scrolling behavior
         scrollbar = self.tree.verticalScrollBar()
         scrollbar.valueChanged.connect(self._on_scroll_changed)
@@ -300,13 +313,46 @@ class LogViewer(qt.QWidget):
         self._should_autoscroll = scrollbar.value() == scrollbar.maximum()
 
     def _on_model_rows_inserted(self, parent, start, end):
+        if self._bulk_loading:
+            # set_records arms both of these once, after the whole batch.
+            return
         if self._should_autoscroll:
             self._autoscroll_timer.start()
+        # Whether a re-sort is actually needed is decided in _resort_now, once
+        # per trip through the event loop. Asking here would mean asking the
+        # model about an insertion it is still in the middle of.
+        self._resort_timer.start()
 
     def _autoscroll_now(self):
         """Scroll to the newest record, if the user has not scrolled away."""
         if self._should_autoscroll:
             self.tree.scrollToBottom()
+
+    def _rows_match_sort_indicator(self):
+        """Return whether the rows are already in the order the header shows.
+
+        Only the source model can disagree. A proxy in front of it sorts
+        dynamically, so it places arriving rows itself whatever the source does.
+
+        Call this between insertions, never during one: it reads the model's row
+        order, which is rebuilt from scratch whenever its cache does not match
+        the row count -- as it deliberately does not partway through an insert.
+        """
+        if self.tree.model() is not self.model:
+            return True
+        header = self.tree.header()
+        if header.sortIndicatorSection() != LogColumns.TIMESTAMP:
+            return False
+        if header.sortIndicatorOrder() != qt.Qt.SortOrder.AscendingOrder:
+            return False
+        return self.model.rows_are_chronological()
+
+    def _resort_now(self):
+        """Re-apply the view's sort so the rows match its indicator again."""
+        if self._rows_match_sort_indicator():
+            return
+        header = self.tree.header()
+        self.tree.sortByColumn(header.sortIndicatorSection(), header.sortIndicatorOrder())
 
     def new_record(self, rec, sort=True):
         # Check if we're running in the Qt main thread
@@ -341,13 +387,23 @@ class LogViewer(qt.QWidget):
         # cheaper than placing each record individually, and appending in that
         # order leaves the model sorted. Stable, so records sharing a timestamp
         # keep the order they were passed in.
-        for i, rec in enumerate(sorted(recs, key=lambda r: r.created)):
-            self.model.append_record(rec, sort=False)
-            if i % 20 == 0:
-                qt.QApplication.processEvents()
+        # processEvents below keeps the UI alive during a long load, which also
+        # lets live records arrive between batch rows. Hold off the per-insert
+        # scroll and re-sort for the duration and do each once at the end,
+        # rather than every twentieth record over a growing view.
+        self._bulk_loading = True
+        try:
+            for i, rec in enumerate(sorted(recs, key=lambda r: r.created)):
+                self.model.append_record(rec, sort=False)
+                if i % 20 == 0:
+                    qt.QApplication.processEvents()
+        finally:
+            self._bulk_loading = False
 
         # Re-arm the view's sort indicator after the bulk update
         self.ensure_chronological_sorting()
+        if self._should_autoscroll:
+            self._autoscroll_timer.start()
 
         # Trigger repaint to clear any highlighting
         self.tree.viewport().update()
