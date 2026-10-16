@@ -1,0 +1,10 @@
+# Store and check out text as LF on every platform. Declaring it here rather than
+# leaving it to each clone's core.autocrlf is what makes it hold for tools that write
+# CRLF on Windows -- Python's open() translates "\n" to os.linesep -- which otherwise
+# turns a two-line change into a whole-file diff.
+* text=auto eol=lf
+
+# cmd.exe and PowerShell want CRLF in the working tree; still stored as LF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
