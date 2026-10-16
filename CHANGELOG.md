@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The log record for a failed request now names the action, the calling peer and the exception type and message, so a failure can be identified without reading the traceback
+
+### Fixed
+- A peer whose zmq identity is not valid UTF-8 no longer kills the `RPCServer` thread. The identity was decoded eagerly as a logging argument, so a `UnicodeDecodeError` escaped the request handler -- and its fallback -- leaving the process alive but deaf on teleprox
+
 ## [2.3.1]
 
 ### Fixed
