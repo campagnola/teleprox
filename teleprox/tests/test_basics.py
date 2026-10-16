@@ -1,3 +1,4 @@
+import sys
 import time
 
 import pytest
@@ -90,3 +91,18 @@ def test_exit_on_parent_death():
     assert_pid_dead(pid2)  # fail (and clean up) if P2 is still alive
 
 
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='Win32 job objects are Windows-only')
+def test_win32_job_object_is_created():
+    """The job object must be set up, not silently fail through to the slower poll.
+
+    test_exit_on_parent_death passes either way, so nothing else notices when job
+    object setup breaks.
+    """
+    proc = teleprox.start_process(
+        name='test_win32_job_object', exit_on_parent_death=True)
+    try:
+        assert proc._job_handle is not None
+    finally:
+        proc.stop()

@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The log record for a failed request now names the action, the calling peer and the exception type and message, so a failure can be identified without reading the traceback
+
+### Changed
+- Windows Job Objects now set `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK`, so a daemon grandchild is no longer killed when its parent dies. The job therefore covers only the child process it was created for: processes that child spawns by other means are not cleaned up by it, and with `conda_env` or `shell=True` the job tracks the wrapper process while the teleprox process falls back to polling
+
 ### Fixed
+- `start_process(exit_on_parent_death=True)` sets up its Windows Job Object again. `CreateJobObject(None, None)` raises `TypeError` on pywin32 >= 311, and the exception was swallowed, leaving every child on the slower parent-death polling fallback
+- A peer whose zmq identity is not valid UTF-8 no longer kills the `RPCServer` thread. The identity was decoded eagerly as a logging argument, so a `UnicodeDecodeError` escaped the request handler -- and its fallback -- leaving the process alive but deaf on teleprox
 - `LogViewer` now inserts each arriving record at its chronological position instead of re-sorting the whole model per record. The re-sort made ingest quadratic (cost per record grew with the record count), and because records are delivered inline on the Qt thread, a process logging at volume could reach the point where it spent longer sorting than the interval between records and stopped servicing its event loop entirely — for a `QtRPCServer`, that means it stops answering RPC while still holding an open port
 - `LogViewer` autoscroll is now coalesced onto a single-shot timer instead of calling `scrollToBottom()` for every inserted row. `scrollToBottom` walks the view layout, so per-row calls were a second quadratic term in the same path; a burst of records now costs one scroll instead of one per record
 - Records arriving in a `LogViewer` whose rows are sorted some other way — a header click, with no filters, so the view is attached to the source model and no proxy places arriving rows — no longer append in an order that contradicts the view's own sort indicator. The view's sort is re-applied once per trip through the event loop, not once per record
