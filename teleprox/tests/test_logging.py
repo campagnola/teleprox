@@ -36,7 +36,16 @@ def test_log_server():
             (r"child_process.stdout\] message 1", logging.INFO),
             (r"child_process.stderr\] message 2", logging.WARNING),
             (r"logged message 3", logging.INFO),
-            (r".*No module named 'fake_module'.*", logging.WARNING),
+            # A failed request is logged twice: an error naming the action and
+            # the caller, then the warning that carries the exception back to
+            # the client. Both contain the exception text, so match each one on
+            # the part that is unique to it.
+            (
+                r"Exception while processing request \d+ \(action=import from .*\): "
+                r"ModuleNotFoundError: No module named 'fake_module'",
+                logging.ERROR,
+            ),
+            (r"returning exception for \d+: .*No module named 'fake_module'", logging.WARNING),
         ]
         for regex, level in expected:
             rec = logger.find_message(regex)
