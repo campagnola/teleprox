@@ -239,3 +239,31 @@ def test_close_waits_for_the_request_in_progress():
         assert future.result(timeout=10.0) == 'finished'
     finally:
         client.close()
+
+
+def test_close_leaves_the_socket_alone_when_it_cannot_reach_the_server_thread():
+    """A close that cannot be delivered must not touch the reader's socket.
+
+    The reader owns the socket, so closing it from here leaves the reader parked
+    in ``recv_multipart`` on a socket that no longer exists -- precisely the
+    leaked thread the close request exists to prevent. Failing loudly and leaving
+    the server running is the lesser harm.
+    """
+    server_logger = logging.getLogger('teleprox.server')
+    handler = RecordingLogHandler()
+    server_logger.addHandler(handler)
+
+    server = RPCServer('tcp://127.0.0.1:*')
+    thread = server._run_thread
+    server._request_close = lambda: False  # as if the request could not be sent
+    try:
+        server.close(timeout=0.5)
+
+        assert not server._socket.closed, "closed the socket the reader is reading"
+        assert server.running(), "reported closed while the reader still owns the socket"
+        assert handler.find_message('Could not stop RPC server') is not None, str(handler)
+    finally:
+        server_logger.removeHandler(handler)
+        del server._request_close
+        server.close()
+        thread.join(timeout=10.0)

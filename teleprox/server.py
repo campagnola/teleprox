@@ -475,22 +475,25 @@ class RPCServer(object):
         """Ask the server to close immediately. Pending requests will be ignored, and the currently active request
         may not send its return value.
 
-        Blocks for up to *timeout* seconds for a server thread to finish closing;
-        a server that is still running when that is spent says so in the log, and
-        reports itself still ``running()``.
+        Blocks for up to *timeout* seconds for a server thread to finish closing.
+        A server that cannot be closed -- because the request never reached its
+        thread, or because that thread outlasts *timeout* -- says so in the log
+        and reports itself still ``running()``.
         """
         if self._closed:
             # Closing releases the socket, so announcing it a second time would
             # write the disconnect messages to a socket that is already gone.
             return
         run_thread = self._run_thread
-        if (
-            run_thread is not None
-            and run_thread.is_alive()
-            and run_thread is not threading.current_thread()
-            and self._request_close()
-        ):
-            # The close is handled by the server thread itself; see _request_close.
+        if run_thread is not None and run_thread.is_alive() and run_thread is not threading.current_thread():
+            # That thread owns the socket, so it is the only one that may close
+            # the server; asking it is the only way in, and there is no fallback.
+            # Writing or closing the socket from here would leave it parked in
+            # recv_multipart on a socket that no longer exists -- the leaked
+            # thread this path exists to prevent.
+            if not self._request_close():
+                logger.error("Could not stop RPC server %s; it is still running", self.address)
+                return
             run_thread.join(timeout=timeout)
             if run_thread.is_alive():
                 logger.warning("RPC server %s did not stop within %ss of close()", self.address, timeout)
