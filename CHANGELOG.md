@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `RPCServer.close()` now stops the server thread it started, instead of leaking it and its socket. The thread sits blocked in `recv_multipart` and `run_forever` re-reads the closed flag only once a message arrives, so a close that set the flag and returned left the thread parked for the life of the process; `close()` now asks the server thread to close by sending it a close request, so the socket is released from the thread that owns it. A caller that opens one server per worker thread (`RPCClient(local_server="threaded")`, whose clients are keyed by thread) accumulated one such thread per worker. There is no fallback for a close request that cannot be delivered: closing the socket from the caller instead would strand the server thread on a socket that no longer exists, so the failure is logged and the server reports itself still `running()`
+- `RPCServer.close()` on a server with no reader thread now closes its socket too, which it previously skipped; the disconnect notifications a threaded server sends on close are now written by the thread that owns the socket rather than by the caller. Because the server thread reads the close itself, it is handled between requests: a call already running returns its result instead of losing it to the disconnect the closing thread used to send out from under it. `close()` therefore blocks until that call finishes, for up to its *timeout*, and is idempotent
+
 ## [2.4.0]
 
 ### Added

@@ -168,3 +168,102 @@ def test_request_error_log_survives_undecodable_caller():
         client.close_server()
     finally:
         client.close()
+
+
+def test_close_stops_the_server_thread():
+    """close() must stop the thread it started, not just raise the closed flag.
+
+    The server thread sits blocked in ``recv_multipart``, and the loop re-reads the
+    closed flag only once a message arrives. A close() that sets the flag and
+    returns therefore leaves the thread parked on the socket for the life of the
+    process; a caller that opens one server per worker thread accumulates them.
+    """
+    server = RPCServer('tcp://127.0.0.1:*')  # run_thread=True starts the reader
+    thread = server._run_thread
+    assert thread.is_alive()
+
+    server.close()
+
+    thread.join(timeout=10.0)
+    assert not thread.is_alive(), "server thread still running after close()"
+    assert not server.running()
+    assert server._socket.closed, "server socket still open after close()"
+
+
+def test_close_releases_the_socket_of_a_lazy_server():
+    """A server with no reader thread must still close its socket."""
+    server = RPCServer('tcp://127.0.0.1:*', run_thread=False)
+
+    server.close()
+
+    assert not server.running()
+    assert server._socket.closed, "server socket still open after close()"
+
+
+def test_close_is_idempotent():
+    """A second close() must not raise.
+
+    close() releases the socket, and closing announces itself to every client the
+    server has seen, so a second close writes its disconnect messages to a socket
+    that is already gone.
+    """
+    server = RPCServer('tcp://127.0.0.1:*')
+    client = RPCClient.get_client(server.address)
+    try:
+        assert client.ping() == 'pong'  # make the server aware of a client
+        server.close()
+
+        server.close()
+
+        assert not server.running()
+    finally:
+        client.close()
+
+
+def test_close_waits_for_the_request_in_progress():
+    """Closing must not cost a caller the result of a call already running.
+
+    The close is read by the server thread itself, which is busy until the call
+    returns, so it can only be processed between requests -- where announcing the
+    disconnect from the closing thread instead would race the result the server
+    thread is still sending.
+    """
+    server = RPCServer('tcp://127.0.0.1:*')
+    client = RPCClient.get_client(server.address)
+    try:
+        server['slow'] = lambda: 'finished'
+        future = client['slow'](_sync='async')
+
+        server.close()
+
+        assert future.result(timeout=10.0) == 'finished'
+    finally:
+        client.close()
+
+
+def test_close_leaves_the_socket_alone_when_it_cannot_reach_the_server_thread():
+    """A close that cannot be delivered must not touch the reader's socket.
+
+    The reader owns the socket, so closing it from here leaves the reader parked
+    in ``recv_multipart`` on a socket that no longer exists -- precisely the
+    leaked thread the close request exists to prevent. Failing loudly and leaving
+    the server running is the lesser harm.
+    """
+    server_logger = logging.getLogger('teleprox.server')
+    handler = RecordingLogHandler()
+    server_logger.addHandler(handler)
+
+    server = RPCServer('tcp://127.0.0.1:*')
+    thread = server._run_thread
+    server._request_close = lambda: False  # as if the request could not be sent
+    try:
+        server.close(timeout=0.5)
+
+        assert not server._socket.closed, "closed the socket the reader is reading"
+        assert server.running(), "reported closed while the reader still owns the socket"
+        assert handler.find_message('Could not stop RPC server') is not None, str(handler)
+    finally:
+        server_logger.removeHandler(handler)
+        del server._request_close
+        server.close()
+        thread.join(timeout=10.0)
