@@ -198,3 +198,44 @@ def test_close_releases_the_socket_of_a_lazy_server():
 
     assert not server.running()
     assert server._socket.closed, "server socket still open after close()"
+
+
+def test_close_is_idempotent():
+    """A second close() must not raise.
+
+    close() releases the socket, and closing announces itself to every client the
+    server has seen, so a second close writes its disconnect messages to a socket
+    that is already gone.
+    """
+    server = RPCServer('tcp://127.0.0.1:*')
+    client = RPCClient.get_client(server.address)
+    try:
+        assert client.ping() == 'pong'  # make the server aware of a client
+        server.close()
+
+        server.close()
+
+        assert not server.running()
+    finally:
+        client.close()
+
+
+def test_close_waits_for_the_request_in_progress():
+    """Closing must not cost a caller the result of a call already running.
+
+    The close is read by the server thread itself, which is busy until the call
+    returns, so it can only be processed between requests -- where announcing the
+    disconnect from the closing thread instead would race the result the server
+    thread is still sending.
+    """
+    server = RPCServer('tcp://127.0.0.1:*')
+    client = RPCClient.get_client(server.address)
+    try:
+        server['slow'] = lambda: 'finished'
+        future = client['slow'](_sync='async')
+
+        server.close()
+
+        assert future.result(timeout=10.0) == 'finished'
+    finally:
+        client.close()

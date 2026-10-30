@@ -475,8 +475,14 @@ class RPCServer(object):
         """Ask the server to close immediately. Pending requests will be ignored, and the currently active request
         may not send its return value.
 
-        Blocks for up to *timeout* seconds for a server thread to finish closing.
+        Blocks for up to *timeout* seconds for a server thread to finish closing;
+        a server that is still running when that is spent says so in the log, and
+        reports itself still ``running()``.
         """
+        if self._closed:
+            # Closing releases the socket, so announcing it a second time would
+            # write the disconnect messages to a socket that is already gone.
+            return
         run_thread = self._run_thread
         if (
             run_thread is not None
