@@ -2,10 +2,14 @@
 # Copyright (c) 2016, French National Center for Scientific Research (CNRS)
 # Distributed under the (new) BSD License. See LICENSE for more info.
 
+import atexit
+import collections
 import concurrent.futures
 import contextlib
+import itertools
 import logging
 import re
+import socket as socket_mod
 import sys
 import threading
 import time
@@ -44,67 +48,68 @@ def set_call_opts_provider(fn):
     _call_opts_provider = fn
 
 
-# Per-thread registry of RPC clients, used to close their zmq sockets promptly
-# when the owning thread stops running rather than waiting for the Thread object
-# to be garbage-collected (which may never happen if a reference to it lingers).
-_thread_clients = threading.local()
+def _close_all_clients():
+    """Close every live client, releasing their zmq sockets before the context goes."""
+    for client in RPCClient.all_clients():
+        try:
+            client.close()
+        except Exception:
+            logger.debug("Error closing RPC client at exit", exc_info=True)
 
 
-def _safe_close_client(client, context):
-    """Close *client*, swallowing errors and skipping interpreter shutdown.
+atexit.register(_close_all_clients)
 
-    Closing zmq sockets (or routing log records through teardown-time handlers)
-    during interpreter finalization is unsafe, so we never close then. *context*
-    names the calling cleanup path for the debug log.
-    """
-    if client is None or sys.is_finalizing():
-        return
+
+def _wait_for_future(future, timeout):
+    """Block until *future* is done or *timeout* elapses; return whether it is done."""
+    done, _ = concurrent.futures.wait([future], timeout=timeout)
+    return bool(done)
+
+
+# Per-thread socketpair used to break a zmq poll when a Future resolves, so a
+# thread serving its own requests can block on both at once.
+_waiter_pipes = threading.local()
+
+
+def _waiter_pipe():
+    """Return this thread's (read, write) socketpair for interrupting a poll."""
+    pipe = getattr(_waiter_pipes, 'pipe', None)
+    if pipe is None:
+        read_end, write_end = socket_mod.socketpair()
+        read_end.setblocking(False)
+        write_end.setblocking(False)
+        pipe = _waiter_pipes.pipe = (read_end, write_end)
+    return pipe
+
+
+def _notify_socket(sock):
+    """Make *sock*'s peer readable, ignoring a buffer that is already full."""
     try:
-        client.close()
-    except Exception:
-        logger.debug("Error closing RPC client during %s", context, exc_info=True)
+        sock.send(b'\0')
+    except OSError:
+        pass
 
 
-class _ThreadClientCleanup:
-    """Sentinel stored in thread-local storage to close RPC clients at thread exit.
-
-    When a thread stops running, the interpreter tears down that thread's local
-    storage, dropping this sentinel. Its ``__del__`` then closes every RPC client
-    created on that thread, releasing their zmq sockets from the thread that owned
-    them.
-
-    This is the primary of three cleanup paths for a client socket; see
-    :meth:`RPCClient.close` for how the Thread-GC backstop and ``__del__`` relate.
-    """
-
-    def __init__(self):
-        self._client_refs = []
-
-    def add(self, client):
-        self._client_refs.append(weakref.ref(client))
-
-    def __del__(self):
-        for ref in self._client_refs:
-            _safe_close_client(ref(), "thread cleanup")
-
-
-def _register_thread_client(client):
-    """Register *client* to be closed when its owning thread stops running."""
-    cleanup = getattr(_thread_clients, 'cleanup', None)
-    if cleanup is None:
-        cleanup = _ThreadClientCleanup()
-        _thread_clients.cleanup = cleanup
-    cleanup.add(client)
+def _drain_socket(sock):
+    """Consume everything pending on *sock*."""
+    while True:
+        try:
+            if not sock.recv(4096):
+                return
+        except OSError:
+            return
 
 
 class RPCClient(object):
     """Connection to an :class:`RPCServer`.
 
-    Each RPCClient connects to only one server, and may be used from only one
-    thread. RPCClient instances are created automatically either through
-    :class:`start_process` or by requesting attributes from an :class:`ObjectProxy`.
-    In general, it is not necessary for the user to interact directly with
-    RPCClient.
+    Each RPCClient connects to only one server, and there is at most one client
+    per server address in a process. Clients may be used from any thread: a
+    dedicated I/O thread owns the zmq socket, and callers hand requests to it and
+    wait on a :class:`Future`. RPCClient instances are created automatically
+    either through :class:`start_process` or by requesting attributes from an
+    :class:`ObjectProxy`. In general, it is not necessary for the user to interact
+    directly with RPCClient.
 
     Parameters
     ----------
@@ -121,9 +126,10 @@ class RPCClient(object):
             persistent objects safely. It means that processing will happen in a separate thread,
             and therefore thread-safe practices will need to be followed when using this client.
         "lazy":
-            Start a dedicated RPCServer that is not actively processing requests, but will
-            process them when this client is used. This allows the client to proxy objects
-            intended for use during the individual remote calls, but not outside of them.
+            Start a dedicated RPCServer with no thread of its own, which this client's
+            I/O thread reads only while a call is outstanding. This allows the client to
+            proxy objects intended for use during the individual remote calls, but not
+            outside of them: a request that arrives while the client is idle waits.
             Violation of this contract will most likely result in timeouts. Because responses
             from a remote server can themselves be proxied, it may seem like a reference should
             be pointed at a local object directly, but if it lives inside such a remote proxy,
@@ -147,15 +153,27 @@ class RPCClient(object):
     TimeoutError if the server cannot be reached within the default timeout.
     """
 
-    clients_by_thread = {}  # (thread_id, rpc_addr): client
-    clients_by_thread_lock = threading.Lock()
+    # Clients are shared by every thread in the process. The local server is part
+    # of the key because it decides which address the remote end calls back on,
+    # so connections that proxy through different local servers stay distinct.
+    clients_by_address = {}  # (rpc_addr, local_server): client
+    clients_by_address_lock = threading.Lock()
+    _connection_counter = itertools.count()
+    # One per key, held while that connection is being built; see get_client.
+    _build_locks = {}
+
+    @classmethod
+    def all_clients(cls):
+        """Return a list of all live clients in this process."""
+        with cls.clients_by_address_lock:
+            return list(cls.clients_by_address.values())
 
     @staticmethod
     def get_client(address, create=True, **kwargs):
-        """Return the RPC client for this thread and a given server address.
+        """Return this process's RPC client for a given server address.
 
-        If no client exists already, then a new one will be created. If the
-        server is running in the current thread, then return None.
+        If no client exists already, then a new one will be created. The returned
+        client may be used from any thread.
 
         Parameters
         ----------
@@ -172,43 +190,42 @@ class RPCClient(object):
         """
         if isinstance(address, str):
             address = address.encode()
-        key = (threading.current_thread().ident, address)
+
+        key = (address, kwargs.get('local_server', None))
 
         # Return an existing client if there is one
-        with RPCClient.clients_by_thread_lock:
-            if key in RPCClient.clients_by_thread:
-                client = RPCClient.clients_by_thread[key]
-                local_server = kwargs.pop('local_server', client._local_server)
-                if kwargs or local_server is not client._local_server:
-                    raise ValueError(
-                        "Cannot pass arguments to get_client() if it already exists for this address."
-                    )
-                return client
+        with RPCClient.clients_by_address_lock:
+            client = RPCClient.clients_by_address.get(key)
+            if client is None and create:
+                build_lock = RPCClient._build_locks.setdefault(key, threading.RLock())
 
-        if create:
+        if client is not None:
+            kwargs.pop('local_server', None)
+            if kwargs:
+                raise ValueError(
+                    "Cannot pass arguments to get_client() if it already exists for this address."
+                )
+            return client
+
+        if not create:
+            return None
+
+        # Build one connection at a time per key, so that threads arriving
+        # together end up sharing one rather than each opening their own.
+        with build_lock:
+            with RPCClient.clients_by_address_lock:
+                client = RPCClient.clients_by_address.get(key)
+            if client is not None:
+                return client
             return RPCClient(address, **kwargs)
-        return None
 
     @classmethod
     def forget_client(cls, client):
         """Forget a client that is no longer needed."""
-        with cls.clients_by_thread_lock:
-            keys_to_remove = []
-            for key, c in list(cls.clients_by_thread.items()):
-                if c is client:
-                    keys_to_remove.append(key)  # should only be one, but why take chances
+        with cls.clients_by_address_lock:
+            keys_to_remove = [k for k, c in cls.clients_by_address.items() if c is client]
             for key in keys_to_remove:
-                cls.clients_by_thread.pop(key, None)
-
-    @classmethod
-    def _forget_client_ref(cls, client_ref):
-        """Backstop run when the owning Thread object is GC'd.
-
-        Closes the client (and its socket) if the thread-stop cleanup did not
-        already do so. ``close()`` is idempotent, so this is safe even when the
-        client was already closed at thread exit.
-        """
-        _safe_close_client(client_ref(), "thread finalize")
+                cls.clients_by_address.pop(key, None)
 
     def __init__(
         self,
@@ -221,13 +238,26 @@ class RPCClient(object):
         if isinstance(address, str):
             address = address.encode()
 
-        # Guards making close() idempotent and safe to call from multiple
-        # cleanup paths (thread-stop sentinel, Thread GC backstop, __del__).
+        # Guards making close() idempotent and safe to call from close(), the
+        # atexit hook, and __del__.
         self._is_closed = False
         self._close_lock = threading.Lock()
+        # Set up properly below; named here so close() can run after a failed
+        # __init__ without tripping over missing attributes.
+        self._socket = None
+        self._io_thread = None
+        self._io_stop = threading.Event()
+        self._wake_r = self._wake_w = None
+        self._serviced_server = None
 
-        # pick a unique name: host.pid.tid:rpc_addr
-        self.name = f"{log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}:{address.decode()}".encode()
+        # pick a unique name: host.pid.connN:rpc_addr. This becomes the socket's
+        # zmq IDENTITY, and a ROUTER refuses a second peer claiming an identity it
+        # already has -- so connections that share an address must still differ.
+        conn_id = next(RPCClient._connection_counter)
+        self.name = (
+            f"{log.get_host_name()}.{log.get_process_name()}"
+            f".conn{conn_id}:{address.decode()}"
+        ).encode()
 
         self.serialize_types = serialize_types
 
@@ -245,24 +275,6 @@ class RPCClient(object):
             self._manage_local_server = False
             self._local_server = local_server
 
-        key = (threading.current_thread().ident, address)
-        with RPCClient.clients_by_thread_lock:
-            if key in RPCClient.clients_by_thread:
-                raise KeyError(
-                    "An RPCClient instance already exists for this address."
-                    " Use RPCClient.get_client(address) instead."
-                )
-            RPCClient.clients_by_thread[key] = self
-        _client_ref = weakref.ref(self)
-        # Backstop for the thread-stop sentinel: if the Thread object is GC'd
-        # while the program is running, close the client too. atexit=False keeps
-        # this from forcing socket/logging teardown during interpreter shutdown,
-        # where weakref.finalize would otherwise still run with is_finalizing()
-        # False; shutdown cleanup is left to __del__ and RPCServer's atexit.
-        finalizer = weakref.finalize(
-            threading.current_thread(), RPCClient._forget_client_ref, _client_ref
-        )
-        finalizer.atexit = False
         try:
             # Make sure we can reach this address and there is an open socket
             port_status = self.check_address(address)
@@ -278,12 +290,38 @@ class RPCClient(object):
             # it has closed. (default is -1, which can cause processes to hang
             # on exit)
             self._socket.linger = 1000
-            self._poller = None
 
             logger.log(DEBUG3, "RPC connect to %s", address.decode())
             self._socket.connect(address)
             self.next_request_id = 0
             self.futures = weakref.WeakValueDictionary()
+
+            # Requests queued by caller threads, sent by the I/O thread. The lock
+            # also guards next_request_id and futures, so request ids are assigned
+            # and queued in the same order they go out on the wire.
+            self._outbox = collections.deque()
+            self._send_lock = threading.Lock()
+            # send() does not return until the I/O thread has handed its message
+            # to zmq, so that anything the caller does next -- closing the server,
+            # sending on another socket -- still happens after it on the wire.
+            self._queued_count = 0
+            self._sent_count = 0
+            self._sent_cond = threading.Condition(self._send_lock)
+            # Events set once the I/O thread has worked through everything that
+            # had already arrived; see _sync_io.
+            self._io_markers = []
+            # Wakes the I/O thread out of poll() when a caller queues a request.
+            # A socketpair rather than an inproc socket: any thread may write to
+            # it, and no zmq socket is ever touched off the I/O thread.
+            self._wake_r, self._wake_w = socket_mod.socketpair()
+            self._wake_r.setblocking(False)
+            self._wake_w.setblocking(False)
+            # zmq.Poller reports a non-zmq socket by file descriptor, not by the
+            # object registered, so results are matched against this.
+            self._wake_fd = self._wake_r.fileno()
+            self._wake_pending = False
+            self._io_poller = None
+            self._serving_poller = None
 
             # proxies generated by this client will be assigned these default options
             self.default_proxy_options = {}
@@ -300,13 +338,36 @@ class RPCClient(object):
             except KeyError as e:
                 raise ValueError(f"Unsupported serializer type '{serializer}'") from e
 
-            self.ensure_connection()
-        except Exception:
-            RPCClient.clients_by_thread.pop(key, None)
-            raise
+            # From here on the socket belongs to the I/O thread; no other thread
+            # may touch it. Starting the thread is the handoff barrier.
+            self._io_thread = threading.Thread(
+                target=self._run_io, name=f"rpc-io:{address.decode()}", daemon=True
+            )
+            self._io_thread.start()
 
-        # Close this client's socket when the owning thread stops running.
-        _register_thread_client(self)
+            self.ensure_connection()
+
+            # Registered only now that it is usable: callers look clients up
+            # without holding the build lock, so a half-connected client in this
+            # table would be handed out and used.
+            # Keyed by the resolved server, so a proxy asking for this connection
+            # by its server instance finds it even though it was requested by name.
+            key = (address, self._local_server)
+            with RPCClient.clients_by_address_lock:
+                existing = RPCClient.clients_by_address.get(key)
+                # A client whose server is gone keeps its registration so that
+                # proxies still being cleaned up get the disconnected error
+                # rather than a reconnect. It does not own the address, though:
+                # the port may since have been taken by a live server.
+                if existing is not None and not (existing._is_closed or existing._disconnected):
+                    raise KeyError(
+                        "An RPCClient instance already exists for this address."
+                        " Use RPCClient.get_client(address) instead."
+                    )
+                RPCClient.clients_by_address[key] = self
+        except Exception:
+            self.close()
+            raise
 
     @staticmethod
     def check_address(address, timeout=1.0):
@@ -328,35 +389,181 @@ class RPCClient(object):
         port = int(port)
         return check_tcp_port(host, port, timeout)
 
-    def _get_poller(self):
-        # Return the poller that should be used to listen for incoming messages
-        # This poller is responsible for ensuring that the RPC server in this
-        # thread is able to process requests while we are blocked waiting
-        # for responses from other servers.
-        if self._poller is None:
-            if self._local_server is None:
-                return None
-            elif isinstance(self._local_server, QtRPCServer):
-                self._poller = 'qt'
-            elif self._local_server.client_should_handle_requests():
-                self._poller = zmq.Poller()
-                self._poller.register(self._socket, zmq.POLLIN)
-                self._poller.register(self._local_server._socket, zmq.POLLIN)
-            else:
-                return None
-        return self._poller
+    def _server_needing_service(self):
+        """Return the local server whose socket this client's I/O thread must read.
+
+        A local server that has its own reader -- a ``"threaded"`` server, or a
+        :class:`QtRPCServer` with its poll thread -- reads its own socket and must
+        not be touched here. A ``"lazy"`` server has no reader of its own, so this
+        client drives it. Only one client may do so; the rest see the claim fail.
+        """
+        server = self._local_server
+        if server is None or isinstance(server, QtRPCServer) or not server.is_lazy:
+            return None
+        return server if server.claim_lazy_service() else None
+
+    def _run_io(self):
+        """Own the client socket: send queued requests and dispatch replies.
+
+        This thread is the socket's only user for the client's whole life, which
+        is what lets callers on any thread share one connection.
+        """
+        self._io_poller = zmq.Poller()
+        self._io_poller.register(self._socket, zmq.POLLIN)
+        self._io_poller.register(self._wake_r, zmq.POLLIN)
+        self._serviced_server = self._server_needing_service()
+        if self._serviced_server is not None:
+            self._serving_poller = zmq.Poller()
+            self._serving_poller.register(self._socket, zmq.POLLIN)
+            self._serving_poller.register(self._wake_r, zmq.POLLIN)
+            self._serving_poller.register(self._serviced_server._socket, zmq.POLLIN)
+
+        try:
+            while not self._io_stop.is_set():
+                try:
+                    self._io_step(timeout=0.1)
+                except zmq.error.ZMQError:
+                    raise
+                except Exception:
+                    # A bad message must not take the transport down with it; the
+                    # waiting Future times out instead.
+                    logger.warning(
+                        "Error processing RPC message from %s", self.address.decode(), exc_info=True
+                    )
+        except zmq.error.ZMQError:
+            logger.log(DEBUG2, "RPC io thread for %s lost its socket", self.address.decode())
+        finally:
+            # Anything still queued was accepted by send(); zmq's linger carries
+            # it even though we are on our way out.
+            with contextlib.suppress(zmq.error.ZMQError):
+                self._flush_outbox()
+            self._server_disconnected_locally()
+            if self._serviced_server is not None:
+                self._serviced_server.release_lazy_service()
+            self._socket.close()
+            self._release_io_markers()
+
+    def _io_step(self, timeout):
+        """Flush queued requests, then process whatever has arrived.
+
+        Only ever called on the I/O thread, either from its loop or re-entrantly
+        from :func:`process_until_future` when a local request handler running on
+        this thread makes a call of its own.
+        """
+        wait = None if timeout is None else timeout * 1000
+        while True:
+            self._flush_outbox()
+            socks = dict(self._current_poller().poll(wait))
+            if not socks:
+                # Nothing was waiting, so everything received so far is processed.
+                self._release_io_markers()
+                return
+            if self._wake_fd in socks:
+                # Cleared first, so a nudge racing the drain still gets written.
+                self._wake_pending = False
+                _drain_socket(self._wake_r)
+            if self._socket in socks:
+                msg = self.serializer.loads(
+                    self._socket.recv(), proxy_opts=self.default_proxy_options
+                )
+                self.process_msg(msg)
+            if self._serviced_server is not None and self._serviced_server._socket in socks:
+                self._serviced_server.read_and_process_one()
+            if self._io_stop.is_set():
+                return
+            # Keep going while messages are already in hand rather than paying
+            # for another wakeup per message.
+            wait = 0
+
+    def _current_poller(self):
+        """Return the poller to block on right now.
+
+        A lazy local server is read only while this client has a call
+        outstanding, which is what "lazy" promises: it answers requests that
+        arise from the calls we make, and stays silent the rest of the time.
+        """
+        if self._serviced_server is None:
+            return self._io_poller
+        with self._send_lock:
+            call_in_flight = len(self.futures) > 0
+        return self._serving_poller if call_in_flight else self._io_poller
+
+    def _flush_outbox(self):
+        """Send every request queued by caller threads. I/O thread only.
+
+        Taken as a batch: under load this is the difference between two lock
+        acquisitions per message and two per wakeup.
+        """
+        with self._send_lock:
+            if not self._outbox:
+                return
+            batch = list(self._outbox)
+            self._outbox.clear()
+        for msg in batch:
+            self._socket.send_multipart(msg)
+        with self._sent_cond:
+            self._sent_count += len(batch)
+            self._sent_cond.notify_all()
+
+    def _wait_until_sent(self, queue_position, timeout=10.0):
+        """Block until the I/O thread has put our queued message on the socket."""
+        deadline = time.perf_counter() + timeout
+        with self._sent_cond:
+            while self._sent_count < queue_position:
+                if not self._io_thread.is_alive():
+                    raise RuntimeError("Cannot send request; client is closed.")
+                if not self._sent_cond.wait(timeout=max(0, deadline - time.perf_counter())):
+                    raise TimeoutError("Timed out queueing request to the RPC io thread.")
+
+    def _wake_io(self):
+        """Nudge the I/O thread out of poll() to pick up newly queued requests.
+
+        One pending nudge is enough however many callers queued, and the I/O
+        thread flushes the whole outbox when it wakes.
+        """
+        if self._wake_pending:
+            return
+        self._wake_pending = True
+        _notify_socket(self._wake_w)
+
+    def _release_io_markers(self):
+        """Release threads waiting in :func:`_sync_io`."""
+        with self._send_lock:
+            markers, self._io_markers = self._io_markers, []
+        for marker in markers:
+            marker.set()
+
+    def _sync_io(self, timeout=1.0):
+        """Block until the I/O thread has worked through everything already received.
+
+        The socket is read on another thread now, so a message that has arrived
+        is not necessarily processed yet. Callers that need to act on what the
+        server has already told us wait here first.
+        """
+        io_thread = self._io_thread
+        if (
+            io_thread is None
+            or not io_thread.is_alive()
+            or io_thread is threading.current_thread()
+        ):
+            return
+        marker = threading.Event()
+        with self._send_lock:
+            self._io_markers.append(marker)
+        self._wake_io()
+        marker.wait(timeout)
+
+    def _server_disconnected_locally(self):
+        """Fail pending futures when the I/O thread stops for any reason."""
+        if not self._disconnected:
+            self.server_disconnected()
 
     def disconnected(self):
         """Boolean indicating whether the server has disconnected from the client."""
-        if self._disconnected:
-            return True
-
-        # check to see if we have received any new messages
-        try:
-            self._read_and_process_all()
-        except zmq.error.ZMQError:
-            self._disconnected = True
-
+        if not self._disconnected:
+            # A disconnect may be sitting unread; report it now rather than on
+            # some later call.
+            self._sync_io()
         return self._disconnected
 
     def send(
@@ -426,37 +633,53 @@ class RPCClient(object):
         if self._disconnected:
             raise RuntimeError("Cannot send request; server has already disconnected.")
 
-        if sync == 'off':
-            req_id = -1
-        else:
-            req_id = self.next_request_id
-            self.next_request_id += 1
-        logger.log(DEBUG2, "RPC request '%s' to %s [req_id=%s]", action, self.address.decode(), req_id)
-        logger.log(DEBUG1, "    => sync=%s return=%s opts=%s", sync, return_type, opts)
-
+        # Serialize before taking a request id: this is where unproxyable
+        # arguments raise, and the caller should see that rather than a dead
+        # request id in the middle of the sequence.
         if opts is None:
             opts_str = b''
         else:
             opts_str = self.serializer.dumps(opts, serialize_types=self.serialize_types)
         ser_type = self.serializer.type.encode()
 
-        msg = [
-            str(req_id).encode(),
-            action.encode(),
-            return_type.encode(),
-            ser_type,
-            opts_str,
-        ]
-        self._socket.send_multipart(msg)
+        fut = None
+        with self._send_lock:
+            if sync == 'off':
+                req_id = -1
+            else:
+                req_id = self.next_request_id
+                self.next_request_id += 1
+                fut = Future(self, req_id)
+                self.futures[req_id] = fut
+            self._outbox.append(
+                [
+                    str(req_id).encode(),
+                    action.encode(),
+                    return_type.encode(),
+                    ser_type,
+                    opts_str,
+                ]
+            )
+            self._queued_count += 1
+            queue_position = self._queued_count
+        logger.log(DEBUG2, "RPC request '%s' to %s [req_id=%s]", action, self.address.decode(), req_id)
+        logger.log(DEBUG1, "    => sync=%s return=%s opts=%s", sync, return_type, opts)
+        self._wake_io()
+        if threading.current_thread() is self._io_thread:
+            # We are the I/O thread: nobody else will flush for us.
+            self._flush_outbox()
+        elif sync != 'sync':
+            # Callers that carry on immediately need to know the request is on
+            # the wire before they do anything that depends on it arriving.
+            # A 'sync' caller does not: it blocks below until the reply is in.
+            self._wait_until_sent(queue_position)
 
         if sync == 'off':
             return
 
-        fut = Future(self, req_id)
         if action == 'close':
             # for server closure we require a little special handling
             fut.add_done_callback(self._close_request_returned)
-        self.futures[req_id] = fut
 
         if sync == 'async':
             return fut
@@ -603,8 +826,11 @@ class RPCClient(object):
         If the future result is not raised before the timeout, then raise
         TimeoutError.
 
-        While waiting, the RPCServer for this thread (if any) is also allowed to process
-        requests.
+        Ordinarily this just waits for the I/O thread to deliver the result. Two
+        callers do their own work while waiting: a handler running on the I/O
+        thread pumps that thread's loop so a nested call can complete, and the Qt
+        main thread keeps its event loop turning so a :class:`QtRPCServer` can
+        answer requests that arrive meanwhile.
 
         Parameters
         ----------
@@ -614,73 +840,74 @@ class RPCClient(object):
         timeout : float
             Maximum time (seconds) to wait for a response.
         """
+        if threading.current_thread() is self._io_thread:
+            self._pump_until_future(future, timeout)
+        elif isinstance(self._local_server, QtRPCServer):
+            self._process_qt_events_until_future(future, timeout)
+        elif self._local_server is not None and self._local_server.running_in_this_thread():
+            self._serve_local_requests_until_future(future, timeout)
+        elif not _wait_for_future(future, timeout):
+            raise TimeoutError("Timeout waiting for Future result.")
+
+    def _pump_until_future(self, future, timeout):
+        """Drive the I/O loop until *future* resolves. I/O thread only.
+
+        Reached when a request handler running on this thread calls back out
+        through this client. Blocking here would stop the only thread able to
+        read the reply, so we keep the loop turning instead.
+        """
         start = time.perf_counter()
         while not future.done():
-            # wait patiently with blocking calls.
+            if timeout is not None and time.perf_counter() - start > timeout:
+                raise TimeoutError("Timeout waiting for Future result.")
+            self._io_step(timeout=0.05)
+
+    def _serve_local_requests_until_future(self, future, timeout):
+        """Wait for *future* while this thread keeps reading its own server socket.
+
+        Reached when the local server's run thread calls out through this client.
+        That thread is the only reader of the server socket, so blocking here
+        would strand any request the remote end sends while it waits for our
+        reply -- including the reply we are waiting for.
+        """
+        server = self._local_server
+        wake_r, wake_w = _waiter_pipe()
+        _drain_socket(wake_r)
+        future.add_done_callback(lambda fut: _notify_socket(wake_w))
+
+        poller = zmq.Poller()
+        poller.register(server._socket, zmq.POLLIN)
+        poller.register(wake_r, zmq.POLLIN)
+
+        start = time.perf_counter()
+        while not future.done():
             if timeout is None:
                 itimeout = None
             else:
-                dt = time.perf_counter() - start
-                itimeout = timeout - dt
+                itimeout = timeout - (time.perf_counter() - start)
                 if itimeout < 0:
                     raise TimeoutError("Timeout waiting for Future result.")
+                itimeout *= 1000
+            socks = dict(poller.poll(itimeout))
+            if wake_r.fileno() in socks:
+                _drain_socket(wake_r)
+            if server._socket in socks:
+                server.read_and_process_one()
 
-            poller = self._get_poller()
-            if poller is None:
-                self._read_and_process_one(itimeout)
-            elif poller == 'qt':
-                # Server runs in Qt thread; we need to time-share with Qt event
-                # loop.
-                from .qt import QApplication
+    def _process_qt_events_until_future(self, future, timeout):
+        """Wait for *future* while letting the Qt event loop run.
 
-                QApplication.processEvents()
-                with contextlib.suppress(TimeoutError):
-                    self._read_and_process_one(timeout=0.05)
-            else:
-                # Poll for input on both the client's socket and the server's
-                # socket. This is for lazy or same-thread servers.
-                socks = [x[0] for x in poller.poll(itimeout)]
-                if self._socket in socks:
-                    self._read_and_process_one(timeout=0)
-                if self._local_server._socket in socks:
-                    self._local_server.read_and_process_one()
-
-    def _read_and_process_one(self, timeout):
-        """Read a single message from the remote server and process it by
-        calling :func:`process_msg()`.
-
-        Parameters
-        ----------
-        timeout : float
-            Maximum time (seconds) to wait for a message. Use timeout=None to
-            block indefinitely.
-
+        A QtRPCServer executes requests in the Qt main thread; if that thread
+        blocks here, requests arriving in the meantime are never answered.
         """
-        # timeout is in seconds; convert to ms
-        # use timeout=None to block indefinitely
-        if timeout is None:
-            timeout = -1
-        else:
-            timeout = int(timeout * 1000)
+        from .qt import QApplication
 
-        try:
-            # NOTE: docs say timeout can only be set before bind, but this
-            # seems to work for now.
-            self._socket.setsockopt(zmq.RCVTIMEO, timeout)
-            msg = self._socket.recv()
-            msg = self.serializer.loads(msg, proxy_opts=self.default_proxy_options)
-        except zmq.error.Again as exc:
-            raise TimeoutError("Timeout waiting for Future result.") from None
-
-        self.process_msg(msg)
-
-    def _read_and_process_all(self):
-        # process all messages until none are immediately available.
-        try:
-            while True:
-                self._read_and_process_one(timeout=0)
-        except TimeoutError:
-            return
+        start = time.perf_counter()
+        while not future.done():
+            if timeout is not None and time.perf_counter() - start > timeout:
+                raise TimeoutError("Timeout waiting for Future result.")
+            QApplication.processEvents()
+            _wait_for_future(future, 0.01)
 
     def process_msg(self, msg):
         """Handle one message received from the remote process.
@@ -696,7 +923,8 @@ class RPCClient(object):
         logger.log(DEBUG1, f"    => {msg}")
         if msg['action'] == 'return':
             req_id = msg['req_id']
-            fut = self.futures.pop(req_id, None)
+            with self._send_lock:
+                fut = self.futures.pop(req_id, None)
             if fut is None:
                 return
             if msg['error'] is not None:
@@ -741,10 +969,19 @@ class RPCClient(object):
         """
         self._disconnected = True
         logger.log(DEBUG2, "Received server disconnect from %s", self.address)
+        # Nothing can be sent or received on this connection again, so retire the
+        # I/O thread rather than leave one parked for every server that has gone.
+        # The client stays registered, so later callers (notably ObjectProxy
+        # cleanup) still find it and get the disconnected error rather than an
+        # attempt to reconnect to a server that is gone.
+        self._io_stop.set()
         exc = RuntimeError("Cannot receive result; server has already disconnected.")
-        for fut in self.futures.values():
-            fut.set_exception(exc)
-        self.futures.clear()
+        with self._send_lock:
+            pending = list(self.futures.values())
+            self.futures.clear()
+        for fut in pending:
+            if not fut.done():
+                fut.set_exception(exc)
 
     def ping(self, sync='sync', **kwds):
         """Ping the server.
@@ -753,11 +990,12 @@ class RPCClient(object):
         """
         return self.send('ping', sync=sync, **kwds)
 
-    def close(self):
+    def close(self, timeout=2.0):
         """Close this client's socket (but leave the server running).
 
-        Idempotent: may be called from the owning thread's stop cleanup, the
-        Thread GC backstop, or ``__del__`` without closing twice.
+        The socket is released by the I/O thread that owns it, so this blocks
+        until that thread has stopped. Idempotent: may be called from ``close()``,
+        the atexit hook, or ``__del__`` without closing twice.
         """
         with self._close_lock:
             if self._is_closed:
@@ -765,10 +1003,37 @@ class RPCClient(object):
             self._is_closed = True
         # reference management is disabled for now..
         # self.send('release_all', return_type=None)
-        socket = getattr(self, '_socket', None)
-        if socket is not None:
-            socket.close()
         RPCClient.forget_client(self)
+
+        self._io_stop.set()
+        io_thread = self._io_thread
+        if io_thread is None:
+            # No I/O thread ever ran (a failed __init__), so the socket is still
+            # ours to release.
+            if self._socket is not None:
+                self._socket.close()
+            io_stopped = True
+        elif io_thread is threading.current_thread():
+            # Called from a request handler running on the I/O thread; the loop
+            # will unwind and release the socket on its way out.
+            io_stopped = False
+        else:
+            self._wake_io()
+            io_thread.join(timeout=timeout)
+            io_stopped = not io_thread.is_alive()
+            if not io_stopped:
+                logger.warning(
+                    "RPC client io thread for %s did not stop within %ss",
+                    self.address.decode(),
+                    timeout,
+                )
+
+        if io_stopped:
+            # Only safe once nothing is polling them.
+            for sock in (self._wake_r, self._wake_w):
+                if sock is not None:
+                    sock.close()
+
         if getattr(self, '_manage_local_server', False):
             self._local_server.close()
 
