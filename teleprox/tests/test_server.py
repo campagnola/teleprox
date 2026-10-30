@@ -100,3 +100,33 @@ def test_run_forever_survives_malformed_message():
             client.close()
     finally:
         server_logger.removeHandler(handler)
+
+
+def test_close_stops_the_server_thread():
+    """close() must stop the thread it started, not just raise the closed flag.
+
+    The server thread sits blocked in ``recv_multipart``, and the loop re-reads the
+    closed flag only once a message arrives. A close() that sets the flag and
+    returns therefore leaves the thread parked on the socket for the life of the
+    process; a caller that opens one server per worker thread accumulates them.
+    """
+    server = RPCServer('tcp://127.0.0.1:*')  # run_thread=True starts the reader
+    thread = server._run_thread
+    assert thread.is_alive()
+
+    server.close()
+
+    thread.join(timeout=10.0)
+    assert not thread.is_alive(), "server thread still running after close()"
+    assert not server.running()
+    assert server._socket.closed, "server socket still open after close()"
+
+
+def test_close_releases_the_socket_of_a_lazy_server():
+    """A server with no reader thread must still close its socket."""
+    server = RPCServer('tcp://127.0.0.1:*', run_thread=False)
+
+    server.close()
+
+    assert not server.running()
+    assert server._socket.closed, "server socket still open after close()"
