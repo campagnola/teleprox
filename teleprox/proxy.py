@@ -316,6 +316,10 @@ class ObjectProxy(object):
         if self.__dict__.get('_proxy_options', {}).get('auto_delete', False):
             try:
                 self._delete()
+            except ConnectionError:
+                # The server is not there to hear it; there is no reference left
+                # to release, and nobody to raise this to either.
+                pass
             except RuntimeError as exc:
                 if exc.args and exc.args[0] == "Cannot send request; server has already disconnected.":
                     pass

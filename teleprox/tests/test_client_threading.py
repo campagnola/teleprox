@@ -83,6 +83,28 @@ def test_client_outlives_the_thread_that_created_it():
         server.close()
 
 
+def test_get_client_does_not_hand_back_a_client_whose_server_is_gone():
+    """An address outlives the connection that had it; ports get reused."""
+    server = RPCServer('tcp://127.0.0.1:*')
+    address = server.address
+    dead = RPCClient.get_client(address)
+    assert dead.ping() == 'pong'  # make the server aware of us, so it says goodbye
+    server.close()
+    assert dead.disconnected()
+
+    server2 = RPCServer(address.decode())
+    client = None
+    try:
+        client = RPCClient.get_client(address)
+        assert client is not dead
+        assert client.ping() == 'pong'
+    finally:
+        dead.close()
+        if client is not None:
+            client.close()
+        server2.close()
+
+
 def test_remote_server_sees_one_connection_per_client_process():
     """Many calling threads share a single connection to the remote server."""
     proc = start_process('test_one_connection_per_process')

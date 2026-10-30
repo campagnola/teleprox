@@ -196,6 +196,11 @@ class RPCClient(object):
         # Return an existing client if there is one
         with RPCClient.clients_by_address_lock:
             client = RPCClient.clients_by_address.get(key)
+            if client is not None and (client._is_closed or client._disconnected):
+                # An address outlives the connection that had it: the port may
+                # belong to a live server by now, so this one cannot keep the key.
+                RPCClient.clients_by_address.pop(key, None)
+                client = None
             if client is None and create:
                 build_lock = RPCClient._build_locks.setdefault(key, threading.RLock())
 
