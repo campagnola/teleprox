@@ -81,12 +81,14 @@ class RPCServer(object):
         networks; anyone with tcp access to the server can execute arbitrary code
         on the server.
 
-    * RPCServer is not a thread-safe class. Possibly use a :class:`RPCClient` to
-        communicate with RPCServer from other threads.
+    * Only the proxy bookkeeping is thread-safe; the objects a request touches are
+        not. Possibly use a :class:`RPCClient` to communicate with RPCServer from
+        other threads.
 
-    * Bad things will happen if you try to process requests from multiple threads at the same time.
-        Other than `run_forever`, RPCClients will implicitly process requests if they are given a
-        local_server without a running thread.
+    * Bad things will happen if this server's socket is read from more than one place
+        at a time. Other than `run_forever`, an RPCClient reads it on the server's
+        behalf when it is given this server as a local_server without a running thread
+        -- one client at a time, which :func:`claim_lazy_service` enforces.
 
     Examples
     --------
@@ -164,6 +166,11 @@ class RPCServer(object):
         self._next_ref_id = 0  # uniquely identifies a proxy reference
         self._proxy_refs = {}  # obj_id: [object, set(refs)]
         self._proxy_id_map = {}  # id(obj): obj_id
+        # Proxies are minted on whichever thread is serializing a request, so a
+        # server shared by several callers mutates this bookkeeping concurrently.
+        self._proxy_lock = threading.RLock()
+        # Held by the one reader responsible for a server that has no run thread.
+        self._service_lock = threading.Lock()
 
         # Make sure we inform clients of closure
         atexit.register(self._atexit)
@@ -175,8 +182,8 @@ class RPCServer(object):
         """Boolean indicating whether the server is running in "lazy" mode.
 
         In lazy mode, the server will only process requests when
-        `read_and_process_one()` is called (such as when a client calls
-        `client_should_handle_requests()` to take over request processing).
+        `read_and_process_one()` is called (such as when an RPCClient using it as
+        its local server reads the socket on the server's behalf).
         """
         return self._run_thread is None or not self._run_thread.is_alive()
 
@@ -192,38 +199,64 @@ class RPCServer(object):
 
         This proxy can be sent via RPC to any other node.
         """
-        rid = self._next_ref_id
-        self._next_ref_id += 1
-        oid = self._get_object_id(obj)
-        type_str = str(type(obj))
-        proxy = ObjectProxy.get_object_proxy(
-            rpc_addr=self.address,
-            obj_id=oid,
-            ref_id=rid,
-            local_server=self,
-            type_str=type_str,
-            attributes=(),
-            server_is_lazy=self.is_lazy,
-            **kwds,
-        )
-        proxy_ref = self._proxy_refs.setdefault(oid, [obj, set()])
-        proxy_ref[1].add(rid)
-        # logger.debug("server %s add proxy %d: %s", self.address, oid, obj)
-        return proxy
+        with self._proxy_lock:
+            rid = self._next_ref_id
+            self._next_ref_id += 1
+            oid = self._get_object_id(obj)
+            type_str = str(type(obj))
+            proxy = ObjectProxy.get_object_proxy(
+                rpc_addr=self.address,
+                obj_id=oid,
+                ref_id=rid,
+                local_server=self,
+                type_str=type_str,
+                attributes=(),
+                server_is_lazy=self.is_lazy,
+                **kwds,
+            )
+            proxy_ref = self._proxy_refs.setdefault(oid, [obj, set()])
+            proxy_ref[1].add(rid)
+            # logger.debug("server %s add proxy %d: %s", self.address, oid, obj)
+            return proxy
 
     def _get_object_id(self, obj):
-        oid = self._proxy_id_map.get(id(obj), None)
-        if oid is None:
-            oid = self._next_object_id
-            self._next_object_id += 1
-            self._proxy_id_map[id(obj)] = oid
-        return oid
+        with self._proxy_lock:
+            oid = self._proxy_id_map.get(id(obj), None)
+            if oid is None:
+                oid = self._next_object_id
+                self._next_object_id += 1
+                self._proxy_id_map[id(obj)] = oid
+            return oid
+
+    def release_proxy_ref(self, obj_id, ref_id):
+        """Drop one proxy reference, releasing the object if it was the last."""
+        with self._proxy_lock:
+            proxy_ref = self._proxy_refs[obj_id]
+            proxy_ref[1].remove(ref_id)
+            if len(proxy_ref[1]) == 0:
+                del self._proxy_refs[obj_id]
+                del self._proxy_id_map[id(proxy_ref[0])]
+
+    def claim_lazy_service(self):
+        """Claim sole responsibility for reading this server's socket.
+
+        Returns True if the caller may read it. A server with no run thread is
+        driven by a client's I/O thread; this keeps a second client from reading
+        the same socket, which would corrupt its framing.
+        """
+        return self._service_lock.acquire(blocking=False)
+
+    def release_lazy_service(self):
+        """Give up a claim made by :func:`claim_lazy_service`."""
+        with contextlib.suppress(RuntimeError):
+            self._service_lock.release()
 
     def unwrap_proxy(self, proxy):
         """Return the local python object referenced by *proxy*."""
         try:
             oid = proxy._obj_id
-            obj = self._proxy_refs[oid][0]
+            with self._proxy_lock:
+                obj = self._proxy_refs[oid][0]
         except KeyError as e:
             raise KeyError(
                 f"Invalid proxy object ID {proxy.obj_id!r}."
@@ -413,11 +446,7 @@ class RPCServer(object):
         elif action == 'get_obj':
             result = opts['obj']
         elif action == 'delete':
-            proxy_ref = self._proxy_refs[opts['obj_id']]
-            proxy_ref[1].remove(opts['ref_id'])
-            if len(proxy_ref[1]) == 0:
-                del self._proxy_refs[opts['obj_id']]
-                del self._proxy_id_map[id(proxy_ref[0])]
+            self.release_proxy_ref(opts['obj_id'], opts['ref_id'])
             result = None
         elif action == 'get_item':
             result = self[opts['name']]
@@ -581,11 +610,10 @@ class RPCServer(object):
         self._run_thread = threading.Thread(target=self.run_forever, daemon=True)
         self._run_thread.start()
 
-    def client_should_handle_requests(self):
-        """Return whether a client is allowed to take over the server's request handling."""
-        if self.is_lazy and self.running():
-            return True
-        return threading.current_thread().ident == self._run_thread.ident
+    def running_in_this_thread(self):
+        """Return whether the calling thread is the one reading this server's socket."""
+        run_thread = self._run_thread
+        return run_thread is not None and run_thread.ident == threading.current_thread().ident
 
     def auto_proxy(self, obj, no_proxy_types):
         # Return object wrapped in ObjectProxy _unless_ its type is in no_proxy_types.

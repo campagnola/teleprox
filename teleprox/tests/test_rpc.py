@@ -906,101 +906,33 @@ def test_shared_local_server_cross_process_objects():
         shared_server.close()
 
 
-def test_client_del_closes_socket():
-    """Test that garbage-collecting an RPCClient calls close() and closes the socket.
-    """
-    import gc
-
+def test_close_releases_the_socket_and_its_io_thread():
+    """Closing a client stops the thread that owns its socket and releases it."""
     server = RPCServer()
     client = RPCClient(server.address)
     socket = client._socket
+    io_thread = client._io_thread
 
     assert not socket.closed
+    assert io_thread.is_alive()
 
-    RPCClient.forget_client(client)
-    del client
-    gc.collect()
+    client.close()
 
-    assert socket.closed, "client.__del__ should have closed the socket via close()"
-
-    server.close()
-
-
-def test_thread_del_closes_socket():
-    """Test that garbage-collecting a thread with an open RPCClient calls close() and closes the socket.
-    """
-    import gc
-
-    server = RPCServer()
-
-    class ClientThread(threading.Thread):
-        def __init__(self, addr):
-            super().__init__(daemon=True)
-            self.addr = addr
-
-        def run(self):
-            self._socket = RPCClient(self.addr)._socket
-
-    thread = ClientThread(server.address)
-    thread.start()
-    thread.join()
-
-    socket = thread._socket
-
-    # Cleanup happens when the thread stops running; dropping the Thread object
-    # and forcing GC must be a harmless (idempotent) backstop that leaves the
-    # socket closed.
-    del thread
-    gc.collect()
-
-    assert socket.closed, "thread cleanup should have closed the socket via close()"
+    assert not io_thread.is_alive(), "close() should have stopped the io thread"
+    assert socket.closed, "the io thread should have released its socket"
 
     server.close()
 
 
-def test_thread_stop_closes_socket():
-    """A thread's RPC client socket is closed when the thread STOPS running,
-    even while a reference to the Thread object is still held.
+def test_one_client_socket_per_address_across_threads():
+    """Threads share their process's client, so sockets scale with addresses.
 
     This is the file-handle leak guard: under heavy multi-threaded cross-process
-    use, Thread objects routinely linger (in pools, lists, frames), so cleanup
-    must not depend on the Thread object being garbage-collected.
-    """
-    server = RPCServer()
-
-    class ClientThread(threading.Thread):
-        def __init__(self, addr):
-            super().__init__(daemon=True)
-            self.addr = addr
-
-        def run(self):
-            self._socket = RPCClient(self.addr)._socket
-
-    thread = ClientThread(server.address)
-    thread.start()
-    thread.join()
-
-    socket = thread._socket
-
-    # We never drop our reference to `thread`, so the Thread object cannot be
-    # garbage-collected; the socket must still close because the owning thread
-    # has stopped running.
-    deadline = time.time() + 2.0
-    while not socket.closed and time.time() < deadline:
-        time.sleep(0.01)
-    assert socket.closed, "stopping the thread should have closed its RPC client socket"
-
-    server.close()
-
-
-def test_thread_stop_closes_multiple_client_sockets():
-    """All RPC clients created on one thread are closed when that thread stops.
-
-    Exercises the sentinel's list of per-thread clients (one socket per remote
-    server address).
+    use there must be one socket per server, not one per thread per server.
     """
     server1 = RPCServer()
     server2 = RPCServer()
+    addrs = [server1.address, server2.address]
 
     class ClientThread(threading.Thread):
         def __init__(self, addrs):
@@ -1008,20 +940,25 @@ def test_thread_stop_closes_multiple_client_sockets():
             self.addrs = addrs
 
         def run(self):
-            self._sockets = [RPCClient(addr)._socket for addr in self.addrs]
+            self.clients = [RPCClient.get_client(addr) for addr in self.addrs]
 
-    thread = ClientThread([server1.address, server2.address])
-    thread.start()
-    thread.join()
+    threads = [ClientThread(addrs) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
-    sockets = thread._sockets
-    assert len(sockets) == 2
+    clients = [c for thread in threads for c in thread.clients]
+    assert len({id(c) for c in clients}) == 2, "expected one client per address"
 
-    deadline = time.time() + 2.0
-    while not all(s.closed for s in sockets) and time.time() < deadline:
-        time.sleep(0.01)
-    assert all(s.closed for s in sockets), "stopping the thread should close every client socket"
+    # The threads that made them are gone; the clients are the process's, and
+    # must still be usable.
+    for client in clients:
+        assert not client._socket.closed
+        assert client.ping() == 'pong'
 
+    for client in set(clients):
+        client.close()
     server1.close()
     server2.close()
 
