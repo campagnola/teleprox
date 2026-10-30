@@ -1,4 +1,4 @@
-__version__ = "2.3.1"
+__version__ = "2.4.0"
 
 from .client import RPCClient, RemoteCallException, Future
 from .server import RPCServer

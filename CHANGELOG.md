@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `RPCServer.close()` now stops the server thread it started, instead of leaking it and its socket. The thread sits blocked in `recv_multipart` and `run_forever` re-reads the closed flag only once a message arrives, so a close that set the flag and returned left the thread parked for the life of the process; `close()` now asks the server thread to close by sending it a close request, so the socket is released from the thread that owns it. A caller that opens one server per worker thread (`RPCClient(local_server="threaded")`, whose clients are keyed by thread) accumulated one such thread per worker
+- `RPCServer.close()` on a server with no reader thread now closes its socket too, which it previously skipped; the disconnect notifications a threaded server sends on close are now written by the thread that owns the socket rather than by the caller
+
+## [2.4.0]
+
+### Added
+- The log record for a failed request now names the action, the calling peer and the exception type and message, so a failure can be identified without reading the traceback
+
+### Changed
+- Windows Job Objects now set `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK`, so a daemon grandchild is no longer killed when its parent dies. The job therefore covers only the child process it was created for: processes that child spawns by other means are not cleaned up by it, and with `conda_env` or `shell=True` the job tracks the wrapper process while the teleprox process falls back to polling
+
+### Fixed
+- `start_process(exit_on_parent_death=True)` sets up its Windows Job Object again. `CreateJobObject(None, None)` raises `TypeError` on pywin32 >= 311, and the exception was swallowed, leaving every child on the slower parent-death polling fallback
+- A peer whose zmq identity is not valid UTF-8 no longer kills the `RPCServer` thread. The identity was decoded eagerly as a logging argument, so a `UnicodeDecodeError` escaped the request handler -- and its fallback -- leaving the process alive but deaf on teleprox
+- `LogViewer` now inserts each arriving record at its chronological position instead of re-sorting the whole model per record. The re-sort made ingest quadratic (cost per record grew with the record count), and because records are delivered inline on the Qt thread, a process logging at volume could reach the point where it spent longer sorting than the interval between records and stopped servicing its event loop entirely — for a `QtRPCServer`, that means it stops answering RPC while still holding an open port
+- `LogViewer` autoscroll is now coalesced onto a single-shot timer instead of calling `scrollToBottom()` for every inserted row. `scrollToBottom` walks the view layout, so per-row calls were a second quadratic term in the same path; a burst of records now costs one scroll instead of one per record
+- Records arriving in a `LogViewer` whose rows are sorted some other way — a header click, with no filters, so the view is attached to the source model and no proxy places arriving rows — no longer append in an order that contradicts the view's own sort indicator. The view's sort is re-applied once per trip through the event loop, not once per record
+- A record arriving while `LogViewer.set_records()` is loading a batch no longer leaves the model claiming its rows are in timestamp order when they are not. `set_records` yields to the event loop as it loads, so a live record can land between batch rows; a later record would then be placed by a bisect against rows that only looked sorted
+- `LogViewer.set_records()` no longer scrolls once per twenty records over a growing view while loading a batch, and does not re-sort during the load at all; both happen once, after the batch
+
 ## [2.3.1]
 
 ### Fixed

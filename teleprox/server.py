@@ -37,6 +37,18 @@ from .log import DEBUG1, DEBUG2, DEBUG3
 logger = logging.getLogger(__name__)
 
 
+def _caller_name(caller):
+    """Return a printable name for a peer's zmq identity.
+
+    The identity is arbitrary bytes chosen by the peer, so it need not be valid
+    UTF-8. It is only ever used for display, and it is normally interpolated as
+    a logging argument -- which Python evaluates eagerly, at the call site, so a
+    UnicodeDecodeError there escapes the request handler rather than being
+    absorbed by logging's own error handling.
+    """
+    return caller.decode(errors='replace')
+
+
 class RPCServer(object):
     """Remote procedure call server for invoking requests on proxied objects.
 
@@ -283,7 +295,7 @@ class RPCServer(object):
                 raise ValueError(f"Unsupported serializer '{ser_type}'") from e
             opts = msg.pop('opts', None)
 
-            logger.log(DEBUG2, "RPC recv '%s' from %s [req_id=%s]", action, caller.decode(), req_id)
+            logger.log(DEBUG2, "RPC recv '%s' from %s [req_id=%s]", action, _caller_name(caller), req_id)
             logger.log(DEBUG1, "    => %s", msg)
             if opts == b'':
                 opts = None
@@ -306,11 +318,21 @@ class RPCServer(object):
                     err_ctx = _call_context_hook(opts)
                 except Exception:
                     err_ctx = contextlib.nullcontext()
+            caller_str = _caller_name(caller)
             try:
                 with err_ctx:
-                    logger.error("    => Exception while processing request %d", req_id, exc_info=exc)
+                    logger.error(
+                        "    => Exception while processing request %d (action=%s from %s): %s: %s",
+                        req_id, action, caller_str, exc[0].__name__, exc[1],
+                        exc_info=exc,
+                    )
             except Exception:
-                logger.error("    => Exception while processing request %d", req_id, exc_info=exc)
+                # Deliberately minimal: this runs when the context hook above
+                # misbehaves, so it must not depend on anything that could fail
+                # for the same reason.
+                logger.error(
+                    "    => Exception while processing request %d", req_id, exc_info=exc
+                )
 
         # Send result or error back to client
         if req_id >= 0:
@@ -339,7 +361,7 @@ class RPCServer(object):
             self._final_close()
 
     def _send_error(self, caller, req_id, exc):
-        exc_str = ["Error while processing request %s [%d]: " % (caller.decode(), req_id)]
+        exc_str = ["Error while processing request %s [%d]: " % (_caller_name(caller), req_id)]
         exc_str += traceback.format_stack()
         exc_str += [" < exception caught here >\n"]
         exc_str += traceback.format_exception(*exc)
@@ -359,7 +381,7 @@ class RPCServer(object):
 
     def _send_result(self, caller, req_id, rval=None, error=None):
         result = {'action': 'return', 'req_id': req_id, 'rval': rval, 'error': error}
-        logger.log(DEBUG2, "RPC send result to %s [rpc_id=%s]", caller.decode(), result['req_id'])
+        logger.log(DEBUG2, "RPC send result to %s [rpc_id=%s]", _caller_name(caller), result['req_id'])
         logger.log(DEBUG1, "    => %s", result)
 
         # Select the correct serializer for this client
@@ -485,7 +507,8 @@ class RPCServer(object):
         socket = zmq.Context.instance().socket(zmq.DEALER)
         try:
             socket.linger = 1000  # give the request time to arrive after we let go
-            # The server logs its callers by name, so the identity must be decodable.
+            # Name this socket as a client names itself, so the server's logs say
+            # where the close request came from.
             name = f"{log.get_host_name()}.{log.get_process_name()}.{log.get_thread_name()}:close"
             socket.setsockopt(zmq.IDENTITY, name.encode())
             socket.connect(self.address)
