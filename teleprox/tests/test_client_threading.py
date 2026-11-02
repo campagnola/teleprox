@@ -7,6 +7,21 @@ from teleprox import RPCClient, RPCServer, start_process
 from teleprox.tests.test_rpc import setup_callback_tester
 
 
+def wait_until(predicate, timeout=10.0):
+    """Poll *predicate* until it holds, and return whether it did.
+
+    A server closing and its clients hearing about it are separate events: the
+    disconnect is a message, so a client that has not read it yet is behind, not
+    wrong.
+    """
+    deadline = time.perf_counter() + timeout
+    while time.perf_counter() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return bool(predicate())
+
+
 def test_get_client_returns_the_same_client_in_every_thread():
     """One address means one client, no matter which thread asks for it."""
     server = RPCServer()
@@ -91,7 +106,7 @@ def test_get_client_does_not_hand_back_a_client_whose_server_is_gone():
     dead = RPCClient.get_client(address)
     assert dead.ping() == 'pong'  # make the server aware of us, so it says goodbye
     server.close()
-    assert dead.disconnected()
+    assert wait_until(dead.disconnected)
 
     server2 = RPCServer(address.decode())
     client = None
@@ -238,10 +253,7 @@ def test_close_leaves_a_busy_lazy_servers_socket_to_its_io_thread():
         assert local.running()
 
         release.set()
-        deadline = time.perf_counter() + 10
-        while local.running() and time.perf_counter() < deadline:
-            time.sleep(0.05)
-        assert not local.running()
+        assert wait_until(lambda: not local.running())
     finally:
         release.set()
         proc.kill()
@@ -259,7 +271,7 @@ def test_a_disconnected_client_releases_its_wakeup_sockets():
     assert client.ping() == 'pong'
 
     server.close()
-    assert client.disconnected()
+    assert wait_until(client.disconnected)
     client._io_thread.join(timeout=5.0)
 
     assert client._wake_r.fileno() == -1
