@@ -1,6 +1,10 @@
 """Tests for RPCClient's threading contract: one client per address, usable from any thread."""
 
+import os
 import threading
+import time
+
+import pytest
 
 from teleprox import RPCClient, RPCServer, start_process
 from teleprox.tests.test_rpc import setup_callback_tester
@@ -166,3 +170,101 @@ def test_callback_can_call_back_into_the_same_remote_process():
         assert tester.apply_function(callback, 5) == '10'
     finally:
         proc.kill()
+
+
+def test_get_client_reuses_a_client_that_manages_its_own_local_server():
+    """Asking twice for a connection with a managed local server must not open two."""
+    server = RPCServer()
+    client = None
+    try:
+        client = RPCClient.get_client(server.address, local_server='lazy')
+        assert RPCClient.get_client(server.address, local_server='lazy') is client
+    finally:
+        if client is not None:
+            client.close()
+        server.close()
+
+
+def test_one_lazy_server_serves_callbacks_for_several_clients():
+    """A single lazy server shared by two connections must answer calls made through either."""
+    local = RPCServer('tcp://127.0.0.1:*', run_thread=False)
+    proc1 = start_process('test_shared_lazy_1', local_server=local)
+    proc2 = start_process('test_shared_lazy_2', local_server=local)
+    try:
+        tester1 = setup_callback_tester(proc1.client)
+        tester2 = setup_callback_tester(proc2.client)
+        assert tester1.apply_function(lambda x: x * 2, 3) == 6
+        assert tester2.apply_function(lambda x: x * 3, 3) == 9
+    finally:
+        proc1.kill()
+        proc2.kill()
+        local.close()
+
+
+def test_a_shared_lazy_server_is_taken_over_when_its_reader_goes_away():
+    """Whichever client reads the shared server, the others must take over once it stops."""
+    local = RPCServer('tcp://127.0.0.1:*', run_thread=False)
+    proc1 = start_process('test_lazy_handover_1', local_server=local)
+    proc2 = start_process('test_lazy_handover_2', local_server=local)
+    try:
+        tester2 = setup_callback_tester(proc2.client)
+        proc1.kill()
+        assert tester2.apply_function(lambda x: x + 1, 1) == 2
+    finally:
+        proc1.kill()
+        proc2.kill()
+        local.close()
+
+
+def test_close_leaves_a_busy_lazy_servers_socket_to_its_io_thread():
+    """A managed lazy server belongs to the I/O thread polling it, even when close() gives up waiting."""
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_callback(value):
+        started.set()
+        release.wait(10)
+        return value
+
+    proc = start_process('test_close_busy_lazy', local_server='lazy')
+    client = proc.client
+    local = client._local_server
+    try:
+        tester = setup_callback_tester(client)
+        # The client tracks futures weakly, so the caller's reference is what
+        # keeps the call -- and the lazy server that answers it -- alive.
+        pending = tester.apply_function(slow_callback, 1, _sync='async')
+        assert started.wait(10)
+        assert pending is not None
+
+        client.close(timeout=0.1)
+        assert local.running()
+
+        release.set()
+        deadline = time.perf_counter() + 10
+        while local.running() and time.perf_counter() < deadline:
+            time.sleep(0.05)
+        assert not local.running()
+    finally:
+        release.set()
+        proc.kill()
+
+
+@pytest.mark.skipif(not os.path.isdir('/proc/self/fd'), reason="needs /proc to count file descriptors")
+def test_a_disconnected_client_releases_its_file_descriptors():
+    """A client whose server is gone must not hold OS resources until the process exits."""
+
+    def connect_and_lose_the_server():
+        server = RPCServer('tcp://127.0.0.1:*')
+        client = RPCClient(server.address)
+        assert client.ping() == 'pong'
+        server.close()
+        assert client.disconnected()
+        client._io_thread.join(timeout=5.0)
+
+    connect_and_lose_the_server()  # let one-off allocations settle
+    before = len(os.listdir('/proc/self/fd'))
+    for _ in range(5):
+        connect_and_lose_the_server()
+
+    assert len(os.listdir('/proc/self/fd')) - before < 5

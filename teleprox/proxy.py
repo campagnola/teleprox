@@ -180,10 +180,10 @@ class ObjectProxy(object):
             'proxy_options': self._proxy_options,
         }
 
-    def _client(self):
+    def _client(self, create=True):
         from .client import RPCClient
 
-        return RPCClient.get_client(self._rpc_addr, local_server=self._local_server)
+        return RPCClient.get_client(self._rpc_addr, create=create, local_server=self._local_server)
 
     def _set_proxy_options(self, **kwds):
         """
@@ -296,15 +296,25 @@ class ObjectProxy(object):
                 )
             raise exc
 
-    def _delete(self, sync='sync', **kwds):
+    def _delete(self, sync='sync', connect=True, **kwds):
         """Ask the RPC server to release the reference held by this proxy.
 
         Note: this does not guarantee the remote object will be deleted; only
         that its reference count will be reduced. Any copies of this proxy will
         no longer be usable.
+
+        Parameters
+        ----------
+        connect : bool
+            Whether to open a connection to the server if there is not one
+            already, as there may not be for a proxy that arrived from a third
+            process. If False, the request is dropped instead.
         """
+        client = self._client(create=connect)
+        if client is None:
+            return
         try:
-            self._client().delete(self, sync=sync, **kwds)
+            client.delete(self, sync=sync, **kwds)
         except TimeoutError as exc:
             if self._server_is_lazy:
                 exc.add_note(
@@ -315,7 +325,10 @@ class ObjectProxy(object):
     def __del__(self):
         if self.__dict__.get('_proxy_options', {}).get('auto_delete', False):
             try:
-                self._delete()
+                # Never dial out to release a reference: this address may belong
+                # to a different server by now, and its object ids start over at
+                # zero, so the request would land on an unrelated object.
+                self._delete(connect=False)
             except ConnectionError:
                 # The server is not there to hear it; there is no reference left
                 # to release, and nobody to raise this to either.

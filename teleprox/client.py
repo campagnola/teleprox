@@ -199,7 +199,8 @@ class RPCClient(object):
             if client is not None and (client._is_closed or client._disconnected):
                 # An address outlives the connection that had it: the port may
                 # belong to a live server by now, so this one cannot keep the key.
-                RPCClient.clients_by_address.pop(key, None)
+                for dead_key in [k for k, c in RPCClient.clients_by_address.items() if c is client]:
+                    RPCClient.clients_by_address.pop(dead_key, None)
                 client = None
             if client is None and create:
                 build_lock = RPCClient._build_locks.setdefault(key, threading.RLock())
@@ -343,6 +344,9 @@ class RPCClient(object):
             except KeyError as e:
                 raise ValueError(f"Unsupported serializer type '{serializer}'") from e
 
+            if self._local_server is not None:
+                self._local_server.add_lazy_client(self)
+
             # From here on the socket belongs to the I/O thread; no other thread
             # may touch it. Starting the thread is the handoff barrier.
             self._io_thread = threading.Thread(
@@ -357,19 +361,25 @@ class RPCClient(object):
             # table would be handed out and used.
             # Keyed by the resolved server, so a proxy asking for this connection
             # by its server instance finds it even though it was requested by name.
-            key = (address, self._local_server)
+            keys = [(address, self._local_server)]
+            if self._manage_local_server:
+                # It was asked for by name, and the name is all a later caller has
+                # to ask with; without this, each request builds another connection.
+                keys.append((address, local_server))
             with RPCClient.clients_by_address_lock:
-                existing = RPCClient.clients_by_address.get(key)
-                # A client whose server is gone keeps its registration so that
-                # proxies still being cleaned up get the disconnected error
-                # rather than a reconnect. It does not own the address, though:
-                # the port may since have been taken by a live server.
-                if existing is not None and not (existing._is_closed or existing._disconnected):
-                    raise KeyError(
-                        "An RPCClient instance already exists for this address."
-                        " Use RPCClient.get_client(address) instead."
-                    )
-                RPCClient.clients_by_address[key] = self
+                for key in keys:
+                    existing = RPCClient.clients_by_address.get(key)
+                    # A client whose server is gone keeps its registration so that
+                    # proxies still being cleaned up get the disconnected error
+                    # rather than a reconnect. It does not own the address, though:
+                    # the port may since have been taken by a live server.
+                    if existing is not None and not (existing._is_closed or existing._disconnected):
+                        raise KeyError(
+                            "An RPCClient instance already exists for this address."
+                            " Use RPCClient.get_client(address) instead."
+                        )
+                for key in keys:
+                    RPCClient.clients_by_address[key] = self
         except Exception:
             self.close()
             raise
@@ -405,6 +415,8 @@ class RPCClient(object):
         server = self._local_server
         if server is None or isinstance(server, QtRPCServer) or not server.is_lazy:
             return None
+        if not server.running():
+            return None
         return server if server.claim_lazy_service() else None
 
     def _run_io(self):
@@ -416,15 +428,13 @@ class RPCClient(object):
         self._io_poller = zmq.Poller()
         self._io_poller.register(self._socket, zmq.POLLIN)
         self._io_poller.register(self._wake_r, zmq.POLLIN)
-        self._serviced_server = self._server_needing_service()
-        if self._serviced_server is not None:
-            self._serving_poller = zmq.Poller()
-            self._serving_poller.register(self._socket, zmq.POLLIN)
-            self._serving_poller.register(self._wake_r, zmq.POLLIN)
-            self._serving_poller.register(self._serviced_server._socket, zmq.POLLIN)
+        self._claim_lazy_service()
 
         try:
             while not self._io_stop.is_set():
+                if self._serviced_server is None:
+                    # Another client may have had the claim and let it go.
+                    self._claim_lazy_service()
                 try:
                     self._io_step(timeout=0.1)
                 except zmq.error.ZMQError:
@@ -446,7 +456,32 @@ class RPCClient(object):
             if self._serviced_server is not None:
                 self._serviced_server.release_lazy_service()
             self._socket.close()
+            # Nothing polls these once this thread is gone, and nobody else is
+            # obliged to call close() -- a server that disconnects ends the
+            # client's life without it.
+            for sock in (self._wake_r, self._wake_w):
+                if sock is not None:
+                    sock.close()
             self._release_io_markers()
+            if self._manage_local_server and self._local_server.is_lazy and self._is_closed:
+                # Its socket was this thread's to read, so it is this thread's
+                # to release; close() leaves it to us for that reason.
+                self._local_server.close()
+
+    def _claim_lazy_service(self):
+        """Take responsibility for reading the local server's socket, if it is free.
+
+        Retried while the loop runs: the client holding the claim may close, and
+        whichever client is left has to pick the server up.
+        """
+        server = self._server_needing_service()
+        if server is None:
+            return
+        self._serviced_server = server
+        self._serving_poller = zmq.Poller()
+        self._serving_poller.register(self._socket, zmq.POLLIN)
+        self._serving_poller.register(self._wake_r, zmq.POLLIN)
+        self._serving_poller.register(server._socket, zmq.POLLIN)
 
     def _io_step(self, timeout):
         """Flush queued requests, then process whatever has arrived.
@@ -483,15 +518,20 @@ class RPCClient(object):
     def _current_poller(self):
         """Return the poller to block on right now.
 
-        A lazy local server is read only while this client has a call
-        outstanding, which is what "lazy" promises: it answers requests that
-        arise from the calls we make, and stays silent the rest of the time.
+        A lazy local server is read only while a call is outstanding somewhere,
+        which is what "lazy" promises: it answers requests that arise from the
+        calls its clients make, and stays silent the rest of the time.
         """
         if self._serviced_server is None:
             return self._io_poller
+        if self._serviced_server.lazy_service_needed():
+            return self._serving_poller
+        return self._io_poller
+
+    def has_calls_in_flight(self):
+        """Whether this client is waiting for a reply to a request it has sent."""
         with self._send_lock:
-            call_in_flight = len(self.futures) > 0
-        return self._serving_poller if call_in_flight else self._io_poller
+            return len(self.futures) > 0
 
     def _flush_outbox(self):
         """Send every request queued by caller threads. I/O thread only.
@@ -1040,7 +1080,12 @@ class RPCClient(object):
                     sock.close()
 
         if getattr(self, '_manage_local_server', False):
-            self._local_server.close()
+            # A lazy server's socket belongs to the I/O thread polling it; while
+            # that thread is still running, closing it here would be the very
+            # cross-thread access the I/O thread exists to prevent. That thread
+            # closes it on its way out instead.
+            if io_stopped or not self._local_server.is_lazy:
+                self._local_server.close()
 
     def close_server(self, sync='sync', timeout=1.0, **kwds):
         """Ask the server to close.

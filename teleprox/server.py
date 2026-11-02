@@ -5,6 +5,7 @@ import logging
 import sys
 import threading
 import traceback
+import weakref
 
 import zmq
 
@@ -171,6 +172,10 @@ class RPCServer(object):
         self._proxy_lock = threading.RLock()
         # Held by the one reader responsible for a server that has no run thread.
         self._service_lock = threading.Lock()
+        # Clients that may need this server to answer while they wait; see
+        # lazy_service_needed.
+        self._lazy_clients = weakref.WeakSet()
+        self._lazy_client_lock = threading.Lock()
 
         # Make sure we inform clients of closure
         atexit.register(self._atexit)
@@ -250,6 +255,22 @@ class RPCServer(object):
         """Give up a claim made by :func:`claim_lazy_service`."""
         with contextlib.suppress(RuntimeError):
             self._service_lock.release()
+
+    def add_lazy_client(self, client):
+        """Record a client that uses this server as its local server."""
+        with self._lazy_client_lock:
+            self._lazy_clients.add(client)
+
+    def lazy_service_needed(self):
+        """Whether any client using this server is waiting on a call right now.
+
+        One client's reader drives this server, but the requests it has to answer
+        arise from calls made by any of them, so the reader cannot decide from its
+        own outstanding calls alone.
+        """
+        with self._lazy_client_lock:
+            clients = list(self._lazy_clients)
+        return any(client.has_calls_in_flight() for client in clients)
 
     def unwrap_proxy(self, proxy):
         """Return the local python object referenced by *proxy*."""
