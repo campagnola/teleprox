@@ -325,13 +325,11 @@ class ObjectProxy(object):
     def __del__(self):
         if self.__dict__.get('_proxy_options', {}).get('auto_delete', False):
             try:
-                # Never dial out to release a reference: this address may belong
-                # to a different server by now, and its object ids start over at
-                # zero, so the request would land on an unrelated object.
+                # Never dial out to release a reference: the address may belong to a
+                # different server by now, whose object ids start over at zero.
                 self._delete(connect=False)
             except ConnectionError:
-                # The server is not there to hear it; there is no reference left
-                # to release, and nobody to raise this to either.
+                # No server to hear it, and __del__ has nobody to raise to.
                 pass
             except RuntimeError as exc:
                 if exc.args and exc.args[0] == "Cannot send request; server has already disconnected.":

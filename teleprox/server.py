@@ -170,10 +170,7 @@ class RPCServer(object):
         # Proxies are minted on whichever thread is serializing a request, so a
         # server shared by several callers mutates this bookkeeping concurrently.
         self._proxy_lock = threading.RLock()
-        # Held by the one reader responsible for a server that has no run thread.
         self._service_lock = threading.Lock()
-        # Clients that may need this server to answer while they wait; see
-        # lazy_service_needed.
         self._lazy_clients = weakref.WeakSet()
         self._lazy_client_lock = threading.Lock()
 

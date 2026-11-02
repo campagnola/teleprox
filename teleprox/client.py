@@ -66,8 +66,6 @@ def _wait_for_future(future, timeout):
     return bool(done)
 
 
-# Per-thread socketpair used to break a zmq poll when a Future resolves, so a
-# thread serving its own requests can block on both at once.
 _waiter_pipes = threading.local()
 
 
@@ -159,7 +157,6 @@ class RPCClient(object):
     clients_by_address = {}  # (rpc_addr, local_server): client
     clients_by_address_lock = threading.Lock()
     _connection_counter = itertools.count()
-    # One per key, held while that connection is being built; see get_client.
     _build_locks = {}
 
     @classmethod
@@ -216,8 +213,7 @@ class RPCClient(object):
         if not create:
             return None
 
-        # Build one connection at a time per key, so that threads arriving
-        # together end up sharing one rather than each opening their own.
+        # One build at a time per key, so threads arriving together share one.
         with build_lock:
             with RPCClient.clients_by_address_lock:
                 client = RPCClient.clients_by_address.get(key)
@@ -244,21 +240,17 @@ class RPCClient(object):
         if isinstance(address, str):
             address = address.encode()
 
-        # Guards making close() idempotent and safe to call from close(), the
-        # atexit hook, and __del__.
         self._is_closed = False
         self._close_lock = threading.Lock()
-        # Set up properly below; named here so close() can run after a failed
-        # __init__ without tripping over missing attributes.
+        # Named here so close() can run after a failed __init__.
         self._socket = None
         self._io_thread = None
         self._io_stop = threading.Event()
         self._wake_r = self._wake_w = None
         self._serviced_server = None
 
-        # pick a unique name: host.pid.connN:rpc_addr. This becomes the socket's
-        # zmq IDENTITY, and a ROUTER refuses a second peer claiming an identity it
-        # already has -- so connections that share an address must still differ.
+        # A ROUTER refuses a second peer claiming an IDENTITY it already has, so
+        # connections sharing an address must still differ: hence connN.
         conn_id = next(RPCClient._connection_counter)
         self.name = (
             f"{log.get_host_name()}.{log.get_process_name()}"
@@ -302,28 +294,23 @@ class RPCClient(object):
             self.next_request_id = 0
             self.futures = weakref.WeakValueDictionary()
 
-            # Requests queued by caller threads, sent by the I/O thread. The lock
-            # also guards next_request_id and futures, so request ids are assigned
-            # and queued in the same order they go out on the wire.
+            # The lock also guards next_request_id and futures, so ids are assigned
+            # in the order the requests go out on the wire.
             self._outbox = collections.deque()
             self._send_lock = threading.Lock()
-            # send() does not return until the I/O thread has handed its message
-            # to zmq, so that anything the caller does next -- closing the server,
-            # sending on another socket -- still happens after it on the wire.
+            # send() waits for the I/O thread to reach zmq, so what the caller does
+            # next -- close the server, send on another socket -- follows it.
             self._queued_count = 0
             self._sent_count = 0
             self._sent_cond = threading.Condition(self._send_lock)
-            # Events set once the I/O thread has worked through everything that
-            # had already arrived; see _sync_io.
             self._io_markers = []
-            # Wakes the I/O thread out of poll() when a caller queues a request.
-            # A socketpair rather than an inproc socket: any thread may write to
-            # it, and no zmq socket is ever touched off the I/O thread.
+            # A socketpair rather than an inproc socket: any thread may write to it
+            # without touching a zmq socket off the I/O thread.
             self._wake_r, self._wake_w = socket_mod.socketpair()
             self._wake_r.setblocking(False)
             self._wake_w.setblocking(False)
             # zmq.Poller reports a non-zmq socket by file descriptor, not by the
-            # object registered, so results are matched against this.
+            # object registered.
             self._wake_fd = self._wake_r.fileno()
             self._io_poller = None
             self._serving_poller = None
@@ -346,8 +333,8 @@ class RPCClient(object):
             if self._local_server is not None:
                 self._local_server.add_lazy_client(self)
 
-            # From here on the socket belongs to the I/O thread; no other thread
-            # may touch it. Starting the thread is the handoff barrier.
+            # The socket belongs to the I/O thread from here on; starting the thread
+            # is the handoff barrier.
             self._io_thread = threading.Thread(
                 target=self._run_io, name=f"rpc-io:{address.decode()}", daemon=True
             )
@@ -355,23 +342,18 @@ class RPCClient(object):
 
             self.ensure_connection()
 
-            # Registered only now that it is usable: callers look clients up
-            # without holding the build lock, so a half-connected client in this
-            # table would be handed out and used.
-            # Keyed by the resolved server, so a proxy asking for this connection
-            # by its server instance finds it even though it was requested by name.
+            # Registered only now it is usable: lookups do not hold the build lock,
+            # so a half-connected client here would be handed out.
             keys = [(address, self._local_server)]
             if self._manage_local_server:
-                # It was asked for by name, and the name is all a later caller has
-                # to ask with; without this, each request builds another connection.
+                # The name is all a later caller has to ask with; without this, each
+                # request builds another connection.
                 keys.append((address, local_server))
             with RPCClient.clients_by_address_lock:
                 for key in keys:
                     existing = RPCClient.clients_by_address.get(key)
-                    # A client whose server is gone keeps its registration so that
-                    # proxies still being cleaned up get the disconnected error
-                    # rather than a reconnect. It does not own the address, though:
-                    # the port may since have been taken by a live server.
+                    # A client whose server is gone does not own the address: the port
+                    # may since have been taken by a live server.
                     if existing is not None and not (existing._is_closed or existing._disconnected):
                         raise KeyError(
                             "An RPCClient instance already exists for this address."
@@ -432,39 +414,36 @@ class RPCClient(object):
         try:
             while not self._io_stop.is_set():
                 if self._serviced_server is None:
-                    # Another client may have had the claim and let it go.
                     self._claim_lazy_service()
                 try:
                     self._io_step(timeout=0.1)
                 except zmq.error.ZMQError:
                     raise
                 except Exception:
-                    # A bad message must not take the transport down with it; the
-                    # waiting Future times out instead.
+                    # A bad message must not take the transport down; the waiting Future
+                    # times out instead.
                     logger.warning(
                         "Error processing RPC message from %s", self.address.decode(), exc_info=True
                     )
         except zmq.error.ZMQError:
             logger.log(DEBUG2, "RPC io thread for %s lost its socket", self.address.decode())
         finally:
-            # Anything still queued was accepted by send(); zmq's linger carries
-            # it even though we are on our way out.
+            # Anything still queued was accepted by send(); zmq's linger carries it.
             with contextlib.suppress(zmq.error.ZMQError):
                 self._flush_outbox()
             self._server_disconnected_locally()
             if self._serviced_server is not None:
                 self._serviced_server.release_lazy_service()
             self._socket.close()
-            # Nothing polls these once this thread is gone, and nobody else is
-            # obliged to call close() -- a server that disconnects ends the
-            # client's life without it.
+            # Nobody is obliged to call close() -- a disconnect ends the client's
+            # life without it -- and nothing polls these once this thread is gone.
             for sock in (self._wake_r, self._wake_w):
                 if sock is not None:
                     sock.close()
             self._release_io_markers()
             if self._manage_local_server and self._local_server.is_lazy and self._is_closed:
-                # Its socket was this thread's to read, so it is this thread's
-                # to release; close() leaves it to us for that reason.
+                # Its socket was this thread's to read, so it is this thread's to
+                # release; close() leaves it to us.
                 self._local_server.close()
 
     def _claim_lazy_service(self):
@@ -508,8 +487,7 @@ class RPCClient(object):
                 self._serviced_server.read_and_process_one()
             if self._io_stop.is_set():
                 return
-            # Keep going while messages are already in hand rather than paying
-            # for another wakeup per message.
+            # Drain what is already in hand rather than pay a wakeup per message.
             wait = 0
 
     def _current_poller(self):
@@ -560,26 +538,21 @@ class RPCClient(object):
     def _wake_io(self):
         """Nudge the I/O thread out of poll() to pick up newly queued requests.
 
-        Every queued request writes its own nudge. Skipping one because another
-        looks pending loses wakeups: the I/O thread drains the pipe in a loop, so
-        it can swallow a byte written after it decided a nudge had been handled,
-        leaving later senders waiting out the poll timeout for a request the
-        thread no longer knows about.
+        Every request writes its own nudge. Skipping one because another looks
+        pending loses wakeups, because the drain is a loop and can swallow a byte
+        written just after the thread decided a nudge was handled.
         """
         _notify_socket(self._wake_w)
 
     def _stop_io(self):
         """Retire the I/O thread.
 
-        Setting the flag and waking the thread are one act, not two: a caller
-        that does only the first leaves the thread parked in poll() for the rest
-        of its timeout, which is where ``ChildProcess.stop()`` and ``kill()``
-        call from.
+        Setting the flag and waking the thread are one act: a caller that does
+        only the first leaves it parked in poll() for the rest of its timeout.
         """
         self._io_stop.set()
         if self._wake_w is not None:
-            # A client whose __init__ failed before the socketpair existed has
-            # no thread to wake either.
+            # A failed __init__ leaves no socketpair, and no thread to wake.
             self._wake_io()
 
     def _release_io_markers(self):
@@ -617,8 +590,7 @@ class RPCClient(object):
     def disconnected(self):
         """Boolean indicating whether the server has disconnected from the client."""
         if not self._disconnected:
-            # A disconnect may be sitting unread; report it now rather than on
-            # some later call.
+            # A disconnect may be sitting unread; report it now, not on a later call.
             self._sync_io()
         return self._disconnected
 
@@ -689,9 +661,8 @@ class RPCClient(object):
         if self._disconnected:
             raise RuntimeError("Cannot send request; server has already disconnected.")
 
-        # Serialize before taking a request id: this is where unproxyable
-        # arguments raise, and the caller should see that rather than a dead
-        # request id in the middle of the sequence.
+        # Serialize before taking a request id: unproxyable arguments raise here,
+        # and a dead id in the middle of the sequence is worse than the error.
         if opts is None:
             opts_str = b''
         else:
@@ -725,9 +696,8 @@ class RPCClient(object):
             # We are the I/O thread: nobody else will flush for us.
             self._flush_outbox()
         elif sync != 'sync':
-            # Callers that carry on immediately need to know the request is on
-            # the wire before they do anything that depends on it arriving.
-            # A 'sync' caller does not: it blocks below until the reply is in.
+            # A caller that carries on immediately needs the request on the wire
+            # first; a 'sync' caller blocks below until the reply is in anyway.
             self._wait_until_sent(queue_position)
 
         if sync == 'off':
@@ -1025,8 +995,7 @@ class RPCClient(object):
         """
         self._disconnected = True
         logger.log(DEBUG2, "Received server disconnect from %s", self.address)
-        # Nothing can be sent or received on this connection again, so retire the
-        # I/O thread rather than leave one parked for every server that has gone.
+        # Nothing can be sent or received here again, so park no thread on it.
         self._stop_io()
         exc = RuntimeError("Cannot receive result; server has already disconnected.")
         with self._send_lock:
@@ -1061,14 +1030,12 @@ class RPCClient(object):
         self._stop_io()
         io_thread = self._io_thread
         if io_thread is None:
-            # No I/O thread ever ran (a failed __init__), so the socket is still
-            # ours to release.
+            # No I/O thread ever ran, so the socket is still ours to release.
             if self._socket is not None:
                 self._socket.close()
             io_stopped = True
         elif io_thread is threading.current_thread():
-            # Called from a request handler running on the I/O thread; the loop
-            # will unwind and release the socket on its way out.
+            # On the I/O thread: the loop releases the socket as it unwinds.
             io_stopped = False
         else:
             io_thread.join(timeout=timeout)
@@ -1087,10 +1054,8 @@ class RPCClient(object):
                     sock.close()
 
         if getattr(self, '_manage_local_server', False):
-            # A lazy server's socket belongs to the I/O thread polling it; while
-            # that thread is still running, closing it here would be the very
-            # cross-thread access the I/O thread exists to prevent. That thread
-            # closes it on its way out instead.
+            # A lazy server's socket belongs to the I/O thread polling it; closing it
+            # here while that thread runs is the cross-thread access we exist to avoid.
             if io_stopped or not self._local_server.is_lazy:
                 self._local_server.close()
 
