@@ -1,10 +1,7 @@
 """Tests for RPCClient's threading contract: one client per address, usable from any thread."""
 
-import os
 import threading
 import time
-
-import pytest
 
 from teleprox import RPCClient, RPCServer, start_process
 from teleprox.tests.test_rpc import setup_callback_tester
@@ -250,21 +247,43 @@ def test_close_leaves_a_busy_lazy_servers_socket_to_its_io_thread():
         proc.kill()
 
 
-@pytest.mark.skipif(not os.path.isdir('/proc/self/fd'), reason="needs /proc to count file descriptors")
-def test_a_disconnected_client_releases_its_file_descriptors():
-    """A client whose server is gone must not hold OS resources until the process exits."""
+def test_a_disconnected_client_releases_its_wakeup_sockets():
+    """A client whose server is gone must not hold OS resources until the process exits.
 
-    def connect_and_lose_the_server():
-        server = RPCServer('tcp://127.0.0.1:*')
-        client = RPCClient(server.address)
-        assert client.ping() == 'pong'
+    Nothing obliges a caller to close a client the server has already dropped --
+    a killed child process leaves one behind -- so the I/O thread has to release
+    what it polled on its way out.
+    """
+    server = RPCServer('tcp://127.0.0.1:*')
+    client = RPCClient(server.address)
+    assert client.ping() == 'pong'
+
+    server.close()
+    assert client.disconnected()
+    client._io_thread.join(timeout=5.0)
+
+    assert client._wake_r.fileno() == -1
+    assert client._wake_w.fileno() == -1
+
+
+def test_a_queued_request_reaches_the_socket_without_waiting_for_a_poll_timeout():
+    """Every send must wake the I/O thread, however many are already in flight.
+
+    A nudge that is skipped because one looks pending leaves the request sitting
+    in the outbox until the I/O thread's poll times out of its own accord.
+    """
+    server = RPCServer()
+    client = RPCClient(server.address)
+    try:
+        pending = [client.send('ping', sync='async') for _ in range(500)]
+        worst = 0.0
+        for _ in range(1000):
+            start = time.perf_counter()
+            pending.append(client.send('ping', sync='async'))
+            worst = max(worst, time.perf_counter() - start)
+            pending.pop(0)
+
+        assert worst < 0.05, f"a send waited {worst * 1000:.0f} ms to reach the socket"
+    finally:
+        client.close()
         server.close()
-        assert client.disconnected()
-        client._io_thread.join(timeout=5.0)
-
-    connect_and_lose_the_server()  # let one-off allocations settle
-    before = len(os.listdir('/proc/self/fd'))
-    for _ in range(5):
-        connect_and_lose_the_server()
-
-    assert len(os.listdir('/proc/self/fd')) - before < 5

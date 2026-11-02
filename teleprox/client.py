@@ -325,7 +325,6 @@ class RPCClient(object):
             # zmq.Poller reports a non-zmq socket by file descriptor, not by the
             # object registered, so results are matched against this.
             self._wake_fd = self._wake_r.fileno()
-            self._wake_pending = False
             self._io_poller = None
             self._serving_poller = None
 
@@ -499,8 +498,6 @@ class RPCClient(object):
                 self._release_io_markers()
                 return
             if self._wake_fd in socks:
-                # Cleared first, so a nudge racing the drain still gets written.
-                self._wake_pending = False
                 _drain_socket(self._wake_r)
             if self._socket in socks:
                 msg = self.serializer.loads(
@@ -563,12 +560,12 @@ class RPCClient(object):
     def _wake_io(self):
         """Nudge the I/O thread out of poll() to pick up newly queued requests.
 
-        One pending nudge is enough however many callers queued, and the I/O
-        thread flushes the whole outbox when it wakes.
+        Every queued request writes its own nudge. Skipping one because another
+        looks pending loses wakeups: the I/O thread drains the pipe in a loop, so
+        it can swallow a byte written after it decided a nudge had been handled,
+        leaving later senders waiting out the poll timeout for a request the
+        thread no longer knows about.
         """
-        if self._wake_pending:
-            return
-        self._wake_pending = True
         _notify_socket(self._wake_w)
 
     def _release_io_markers(self):

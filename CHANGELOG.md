@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RPCServer.client_should_handle_requests()` is removed; it existed for the per-thread poller selection that no longer happens. `RPCServer.running_in_this_thread()` covers the remaining case
 
 ### Fixed
+- A request queued while the I/O thread is polling no longer waits out the poll interval before it goes on the wire. One nudge was taken to be enough for however many requests were waiting, but the I/O thread drains its wakeup pipe in a loop and so can swallow a nudge written just after it decided the pending one was dealt with; the next request then sat in the outbox for up to 100 ms. Calls that do not block for a reply were worst hit, since each one pays the stall rather than hiding it behind a round trip
 - `RPCClient.get_client(address, local_server="threaded"|"lazy")` now returns the connection it opened the first time instead of building another on every call, each with a local server of its own
 - A lazy `RPCServer` shared as the `local_server` of more than one client now answers callbacks arising from any of their calls, not only from the calls of whichever client happens to read its socket, and is picked up by another client when that one closes
 - `RPCClient.close()` no longer closes a managed lazy server's socket from the calling thread when its I/O thread outlasts the close timeout. That thread is still polling the socket; it closes the server on its way out instead
