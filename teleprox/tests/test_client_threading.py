@@ -299,3 +299,29 @@ def test_a_queued_request_reaches_the_socket_without_waiting_for_a_poll_timeout(
     finally:
         client.close()
         server.close()
+
+
+def test_a_client_told_its_server_is_gone_retires_its_io_thread_at_once():
+    """Nothing can be sent or received again, so the thread must not sit out its poll.
+
+    ``ChildProcess.stop()`` and ``kill()`` say so from the caller's thread, which
+    is not the one parked in poll().
+    """
+    server = RPCServer('tcp://127.0.0.1:*')
+    client = RPCClient(server.address)
+    try:
+        assert client.ping() == 'pong'
+        # The reply put the thread back into a fresh poll; wait out a little of
+        # it so the measurement starts with the thread parked, not between polls.
+        time.sleep(0.02)
+
+        start = time.perf_counter()
+        client.server_disconnected()
+        client._io_thread.join(timeout=5.0)
+        elapsed = time.perf_counter() - start
+
+        assert not client._io_thread.is_alive()
+        assert elapsed < 0.05, f"the io thread took {elapsed * 1000:.0f} ms to notice"
+    finally:
+        client.close()
+        server.close()

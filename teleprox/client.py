@@ -568,6 +568,20 @@ class RPCClient(object):
         """
         _notify_socket(self._wake_w)
 
+    def _stop_io(self):
+        """Retire the I/O thread.
+
+        Setting the flag and waking the thread are one act, not two: a caller
+        that does only the first leaves the thread parked in poll() for the rest
+        of its timeout, which is where ``ChildProcess.stop()`` and ``kill()``
+        call from.
+        """
+        self._io_stop.set()
+        if self._wake_w is not None:
+            # A client whose __init__ failed before the socketpair existed has
+            # no thread to wake either.
+            self._wake_io()
+
     def _release_io_markers(self):
         """Release threads waiting in :func:`_sync_io`."""
         with self._send_lock:
@@ -1013,10 +1027,7 @@ class RPCClient(object):
         logger.log(DEBUG2, "Received server disconnect from %s", self.address)
         # Nothing can be sent or received on this connection again, so retire the
         # I/O thread rather than leave one parked for every server that has gone.
-        # The client stays registered, so later callers (notably ObjectProxy
-        # cleanup) still find it and get the disconnected error rather than an
-        # attempt to reconnect to a server that is gone.
-        self._io_stop.set()
+        self._stop_io()
         exc = RuntimeError("Cannot receive result; server has already disconnected.")
         with self._send_lock:
             pending = list(self.futures.values())
@@ -1047,7 +1058,7 @@ class RPCClient(object):
         # self.send('release_all', return_type=None)
         RPCClient.forget_client(self)
 
-        self._io_stop.set()
+        self._stop_io()
         io_thread = self._io_thread
         if io_thread is None:
             # No I/O thread ever ran (a failed __init__), so the socket is still
@@ -1060,7 +1071,6 @@ class RPCClient(object):
             # will unwind and release the socket on its way out.
             io_stopped = False
         else:
-            self._wake_io()
             io_thread.join(timeout=timeout)
             io_stopped = not io_thread.is_alive()
             if not io_stopped:
