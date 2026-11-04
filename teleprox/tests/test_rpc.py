@@ -910,15 +910,14 @@ def test_close_releases_the_socket_and_its_io_thread():
     """Closing a client stops the thread that owns its socket and releases it."""
     server = RPCServer()
     client = RPCClient(server.address)
-    socket = client._socket
-    io_thread = client._io_thread
+    socket = client._io.socket
 
     assert not socket.closed
-    assert io_thread.is_alive()
+    assert client._io.running()
 
     client.close()
 
-    assert not io_thread.is_alive(), "close() should have stopped the io thread"
+    assert not client._io.running(), "close() should have stopped the io thread"
     assert socket.closed, "the io thread should have released its socket"
 
     server.close()
@@ -954,7 +953,7 @@ def test_one_client_socket_per_address_across_threads():
     # The threads that made them are gone; the clients are the process's, and
     # must still be usable.
     for client in clients:
-        assert not client._socket.closed
+        assert not client._io.socket.closed
         assert client.ping() == 'pong'
 
     for client in set(clients):
@@ -971,7 +970,7 @@ def test_close_is_idempotent():
     """
     server = RPCServer()
     client = RPCClient(server.address)
-    socket = client._socket
+    socket = client._io.socket
 
     client.close()
     assert socket.closed

@@ -272,10 +272,8 @@ def test_a_disconnected_client_releases_its_wakeup_sockets():
 
     server.close()
     assert wait_until(client.disconnected)
-    client._io_thread.join(timeout=5.0)
 
-    assert client._wake_r.fileno() == -1
-    assert client._wake_w.fileno() == -1
+    assert wait_until(lambda: client._io.released)
 
 
 def test_a_queued_request_reaches_the_socket_without_waiting_for_a_poll_timeout():
@@ -317,10 +315,10 @@ def test_a_client_told_its_server_is_gone_retires_its_io_thread_at_once():
 
         start = time.perf_counter()
         client.server_disconnected()
-        client._io_thread.join(timeout=5.0)
+        client._io.join(timeout=5.0)
         elapsed = time.perf_counter() - start
 
-        assert not client._io_thread.is_alive()
+        assert not client._io.running()
         assert elapsed < 0.05, f"the io thread took {elapsed * 1000:.0f} ms to notice"
     finally:
         client.close()
