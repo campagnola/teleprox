@@ -12,7 +12,7 @@ import time
 
 import zmq
 
-from .log import DEBUG2
+from .log import DEBUG2, DEBUG3
 from .qt_server import QtRPCServer
 
 logger = logging.getLogger(__name__)
@@ -49,12 +49,10 @@ class ClientIO:
 
     Parameters
     ----------
-    socket : zmq.Socket
-        An already-connected DEALER socket. It belongs to this object from here
-        on, and is released either by the I/O thread as it unwinds or by
-        :func:`release` if the thread never ran.
     address : bytes
-        The remote address, for log messages.
+        The address to connect to.
+    identity : bytes
+        The zmq IDENTITY to claim, which names this peer to the remote ROUTER.
     local_server : RPCServer | None
         The server this client proxies through, if any.
     on_message : callable
@@ -67,8 +65,8 @@ class ClientIO:
         any of these sockets.
     """
 
-    def __init__(self, socket, address, local_server, on_message, on_disconnect, on_closed):
-        self._socket = socket
+    def __init__(self, address, identity, local_server, on_message, on_disconnect, on_closed):
+        self._socket = self._connect(address, identity)
         self._address = address
         self._local_server = local_server
         self._on_message = on_message
@@ -99,6 +97,26 @@ class ClientIO:
         self._poller = None
         self._serving_poller = None
         self._serviced_server = None
+
+    @staticmethod
+    def _connect(address, identity):
+        """Open the socket this object owns for the rest of its life."""
+        # DEALER is fully asynchronous--we can send or receive at any time, and
+        # unlike ROUTER, it only connects to a single endpoint.
+        socket = zmq.Context.instance().socket(zmq.DEALER)
+        try:
+            socket.setsockopt(zmq.IDENTITY, identity)
+            # socket will continue attempting to deliver messages up to 1 sec after
+            # it has closed. (default is -1, which can cause processes to hang
+            # on exit)
+            socket.linger = 1000
+            logger.log(DEBUG3, "RPC connect to %s", address.decode())
+            socket.connect(address)
+        except Exception:
+            # Nothing else holds it yet, so there is nobody else to close it.
+            socket.close()
+            raise
+        return socket
 
     @property
     def socket(self):

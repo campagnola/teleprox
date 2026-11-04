@@ -22,7 +22,7 @@ from .client_io import ClientIO, drain_socket, notify_socket
 from .qt_server import QtRPCServer
 from .serializer import all_serializers, Serializer
 from .server import RPCServer
-from .log import DEBUG1, DEBUG2, DEBUG3
+from .log import DEBUG1, DEBUG2
 
 logger = logging.getLogger(__name__)
 
@@ -256,24 +256,11 @@ class RPCClient(object):
             if port_status == "closed":
                 raise ConnectionRefusedError(f"Connection refused to {address.decode()}")
 
-            # DEALER is fully asynchronous--we can send or receive at any time, and
-            # unlike ROUTER, it only connects to a single endpoint.
-            socket = zmq.Context.instance().socket(zmq.DEALER)
-            self._sock_name = self.name
-            socket.setsockopt(zmq.IDENTITY, self._sock_name)
-            # socket will continue attempting to deliver messages up to 1 sec after
-            # it has closed. (default is -1, which can cause processes to hang
-            # on exit)
-            socket.linger = 1000
-
-            logger.log(DEBUG3, "RPC connect to %s", address.decode())
-            socket.connect(address)
-
             # Built before anything else here can raise, so a failed __init__ still
             # has something to release the socket.
             self._io = ClientIO(
-                socket=socket,
                 address=address,
+                identity=self.name,
                 local_server=self._local_server,
                 on_message=self._receive,
                 on_disconnect=self._server_disconnected_locally,
