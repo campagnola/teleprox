@@ -14,7 +14,7 @@ description = "Object proxies over TCP"
 readme = "README.md"
 license = {file = "LICENSE"}
 classifiers = []
-requires-python = ">=3.6"
+requires-python = ">=3.11"
 dependencies = [
     "pyzmq",
     "msgpack"

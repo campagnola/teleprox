@@ -1,11 +1,32 @@
 import logging
 import os
+import pathlib
 import sys
 import time
 
 import pytest
 
 import teleprox, teleprox.util, teleprox.process
+
+
+def _assert_teleprox_is_this_checkout():
+    """Fail loudly if the imported teleprox is not the one being tested.
+
+    An editable install points at one checkout, so every other checkout and
+    worktree has a shadow twin on sys.path. Which one wins depends on sys.path[0],
+    which pytest sets to the rootdir -- but a plugin, an ini change or a stray
+    PYTHONPATH can undo that, and the result is a green run against code nobody
+    edited.
+    """
+    here = pathlib.Path(__file__).resolve().parent
+    imported = pathlib.Path(teleprox.__file__).resolve()
+    if here not in imported.parents:
+        raise RuntimeError(
+            f"tests live in {here} but imported teleprox from {imported}"
+        )
+
+
+_assert_teleprox_is_this_checkout()
 from teleprox.log.handler import RPCLogHandler
 from teleprox.log.remote import set_process_name, set_thread_name, start_log_server
 

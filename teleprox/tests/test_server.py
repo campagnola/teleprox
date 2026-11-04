@@ -131,7 +131,7 @@ def test_request_error_log_names_action_caller_and_exception():
         assert 'ValueError' in message
         assert 'boom' in message
         # The caller is the client's zmq identity, which names the peer.
-        assert client._sock_name.decode() in message
+        assert client.name.decode() in message
 
         client.close_server()
     finally:

@@ -123,3 +123,25 @@ def test_numpy_numbers():
         assert np.isclose(remote_np.log(remote_scalar), np.log(42.42))
 
         proc.stop()
+
+
+def test_proxy_delete_does_not_open_a_new_connection():
+    """Collecting a proxy must not reconnect: the address may belong to another server by now."""
+    import gc
+
+    from teleprox import RPCClient, RPCServer
+
+    server = RPCServer('tcp://127.0.0.1:*')
+    try:
+        client = RPCClient.get_client(server.address)
+        proxy = client.transfer([1, 2, 3])
+        proxy._set_proxy_options(auto_delete=True)
+        client.close()
+        assert RPCClient.get_client(server.address, create=False) is None
+
+        del proxy
+        gc.collect()
+
+        assert RPCClient.get_client(server.address, create=False) is None
+    finally:
+        server.close()
